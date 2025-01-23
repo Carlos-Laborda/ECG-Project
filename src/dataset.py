@@ -3,6 +3,29 @@ import numpy as np
 import os
 import pandas as pd
 
+# Define the category-to-label mapping
+CATEGORY_MAPPING = {
+    "baseline": ["Sitting", "Recov1", "Recov2", "Recov3", "Recov4", "Recov5", "Recov6"],
+    "mental_stress": [
+        "TA",
+        "SSST_Sing_countdown",
+        "Pasat",
+        "Raven",
+        "TA_repeat",
+        "Pasat_repeat",
+    ],
+    "high_physical_activity": [
+        "Treadmill1",
+        "Treadmill2",
+        "Treadmill3",
+        "Treadmill4",
+        "Walking_fast_pace",
+        "Cycling",
+        "stairs_up_and_down",
+    ],
+    "moderate_physical_activity": ["Walking_own_pace", "Dishes", "Vacuum"],
+    "low_physical_activity": ["Standing", "Lying_supine", "Recov_standing"],
+}
 
 # Set the folder path containing the raw ECG files and the metadata
 folderpath = "../data/raw/Raw ECG project"
@@ -48,11 +71,25 @@ for p, participant_id in enumerate(participants[:2]):  # only 2 for testing purp
     # Filter metadata for this participant
     timestamps_subj = timestamps[timestamps["Subject_ID"] == participant_id]
 
-    # Initialize a list to store extracted segments
-    segments = []
+    # Initialize a dictionary to store segments grouped by label
+    grouped_segments = {category: [] for category in CATEGORY_MAPPING.keys()}
 
     # Loop through each label/interval
     for _, row in timestamps_subj.iterrows():
+        category = row["Category"]
+
+        # Determine the label for this category
+        label = None
+        for key, categories in CATEGORY_MAPPING.items():
+            if category in categories:
+                label = key
+                break
+
+        if label is None:
+            print(f"Category {category} does not match any label. Skipping.")
+            continue
+
+        # Interval times
         label_start = row["LabelStart"]
         label_end = row["LabelEnd"]
 
@@ -68,26 +105,23 @@ for p, participant_id in enumerate(participants[:2]):  # only 2 for testing purp
             print(f"Invalid interval for {participant_id}: {row}")
             continue
 
-        # Extract the segment
+        # Extract the segment and store it under the appropriate label
         ecg_segment = ecg_signal[idx_start:idx_end]
-        segments.append(
-            {
-                "Subject_ID": row["Subject_ID"],
-                "Category": row["Category"],
-                "Code": row["Code"],
-                "ECG_Segment": ecg_segment,
-                "LabelStart": row["LabelStart"],
-                "LabelEnd": row["LabelEnd"],
-            }
-        )
+        grouped_segments[label].append(ecg_segment)
 
-    # Save Segments
-    for segment in segments:
-        category = segment["Category"]
-        participant_dir = os.path.join(output_dir_path, participant_id)
-        os.makedirs(participant_dir, exist_ok=True)
+    # Save grouped segments for this participant
+    participant_dir = os.path.join(output_dir_path, participant_id)
+    os.makedirs(participant_dir, exist_ok=True)
 
-        # Save the segment as a NumPy array
-        segment_filename = os.path.join(participant_dir, f"{category}.npy")
-        np.save(segment_filename, segment["ECG_Segment"])
-        print(f"Saved: {segment_filename}")
+    for label, segments in grouped_segments.items():
+        if not segments:
+            print(f"No data for label {label} for participant {participant_id}.")
+            continue
+
+        # Concatenate all segments for this label
+        concatenated_segments = np.concatenate(segments)
+
+        # Save the concatenated segment as a NumPy file
+        label_filename = os.path.join(participant_dir, f"{label}.npy")
+        np.save(label_filename, concatenated_segments)
+        print(f"Saved: {label_filename}")
