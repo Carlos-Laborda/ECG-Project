@@ -14,6 +14,9 @@ filepaths = [
 files = [f for f in os.listdir(folderpath) if f.endswith("_ECG.edf")]
 participants = [f[:5] for f in files]  # Extract participant IDs from filenames
 
+# Output directory for processed segments
+output_dir_path = "../data/interim/"
+
 # Read the metadata file
 timestamps = pd.read_csv(
     os.path.join(folderpath, "TimeStamps_Merged.txt"), sep="\t", decimal="."
@@ -78,14 +81,13 @@ for p, participant_id in enumerate(participants[:2]):  # only 2 for testing purp
             }
         )
 
-    # Process segments and save
+    # Save Segments
     for segment in segments:
-        # Save segment to a file
         category = segment["Category"]
-        output_dir = os.path.join(folderpath, f"processed/{participant_id}")
-        os.makedirs(output_dir, exist_ok=True)
+        participant_dir = os.path.join(output_dir_path, participant_id)
+        os.makedirs(participant_dir, exist_ok=True)
 
         # Save the segment as a NumPy array
-        segment_filename = os.path.join(output_dir, f"{category}.npy")
+        segment_filename = os.path.join(participant_dir, f"{category}.npy")
         np.save(segment_filename, segment["ECG_Segment"])
         print(f"Saved: {segment_filename}")
