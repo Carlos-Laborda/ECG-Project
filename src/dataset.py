@@ -1,83 +1,91 @@
+import mne
+import numpy as np
 import os
 import pandas as pd
-import pyedflib
-from datetime import datetime
-
-# Set paths
-data_path = "../data/raw/Raw ECG project"
-metadata_file = "../data/raw/Raw ECG project/TimeStamps_Merged.txt"
-output_path = "../data/interim/01_data_processed.pkl"
-
-# Read metadata
-metadata = pd.read_csv(metadata_file, delimiter="\t")
-metadata["LabelStart"] = pd.to_datetime(metadata["LabelStart"])
-metadata["LabelEnd"] = pd.to_datetime(metadata["LabelEnd"])
 
 
-# Function to load an EDF file
-def load_edf(file_path):
-    with pyedflib.EdfReader(file_path) as f:
-        signals = []
-        for i in range(f.signals_in_file):
-            signals.append(f.readSignal(i))
-        header = f.getHeader()
-        signal_headers = f.getSignalHeaders()
-    return signals, header, signal_headers
+# Set the folder path containing the raw ECG files and the metadata
+folderpath = "../data/raw/Raw ECG project"
+filepaths = [
+    os.path.join(folderpath, f)
+    for f in os.listdir(folderpath)
+    if f.endswith("_ECG.edf")
+]
+files = [f for f in os.listdir(folderpath) if f.endswith("_ECG.edf")]
+participants = [f[:5] for f in files]  # Extract participant IDs from filenames
 
+# Read the metadata file
+timestamps = pd.read_csv(
+    os.path.join(folderpath, "TimeStamps_Merged.txt"), sep="\t", decimal="."
+)
+timestamps["LabelStart"] = pd.to_datetime(
+    timestamps["LabelStart"], format="%Y-%m-%d %H:%M:%S", utc=True
+)
+timestamps["LabelEnd"] = pd.to_datetime(
+    timestamps["LabelEnd"], format="%Y-%m-%d %H:%M:%S", utc=True
+)
+timestamps["Subject_ID"] = timestamps["Subject_ID"].astype(str)
 
-# Process EDF files
-data = []
-for edf_file in os.listdir(data_path):
-    if edf_file.endswith(".edf"):
-        # Extract Subject ID from the file name
-        file_parts = edf_file.split("_")
-        subject_id = file_parts[0]
-        condition = file_parts[2]
+# Sampling frequency of the ECG data
+fs = 1000
 
-        # Load ECG data
-        edf_path = os.path.join(data_path, edf_file)
-        signals, header, signal_headers = load_edf(edf_path)
+for p, participant_id in enumerate(participants[:2]):  # only 2 for testing purposes
+    print(f"Processing Participant {participant_id} ({p + 1}/{len(participants)})")
 
-        # Match metadata for the Subject ID
-        subject_metadata = metadata[metadata["Subject_ID"] == int(subject_id)]
-        for _, row in subject_metadata.iterrows():
-            start_time = row["LabelStart"]
-            end_time = row["LabelEnd"]
+    # Load the participant's EDF file
+    ecg_edf = mne.io.read_raw_edf(filepaths[p], preload=True, verbose=False)
+    ecg_signal = ecg_edf.get_data()[0]
+    n_samples = len(ecg_signal)
+    start_time = ecg_edf.annotations.orig_time
 
-            # Extract segment of ECG data for the given time range
-            # Assuming the sampling rate is available in the header
-            sample_rate = signal_headers[0]["sample_rate"]
-            start_idx = int(
-                (
-                    start_time
-                    - datetime.strptime(header["startdate"], "%Y-%m-%d %H:%M:%S")
-                ).total_seconds()
-                * sample_rate
-            )
-            end_idx = int(
-                (
-                    end_time
-                    - datetime.strptime(header["startdate"], "%Y-%m-%d %H:%M:%S")
-                ).total_seconds()
-                * sample_rate
-            )
+    if start_time is None:
+        print(f"Skipping {participant_id}, no start time in EDF.")
+        continue
 
-            # Append the matched data
-            if 0 <= start_idx < len(signals[0]) and 0 <= end_idx <= len(signals[0]):
-                segment = signals[0][start_idx:end_idx]
-                data.append(
-                    {
-                        "Subject_ID": subject_id,
-                        "Condition": condition,
-                        "Category": row["Category"],
-                        "Code": row["Code"],
-                        "Segment": segment,
-                    }
-                )
+    # Filter metadata for this participant
+    timestamps_subj = timestamps[timestamps["Subject_ID"] == participant_id]
 
-# Convert to DataFrame
-df = pd.DataFrame(data)
+    # Initialize a list to store extracted segments
+    segments = []
 
-# Save the processed data for further use
-df.to_pickle("processed_ecg_data.pkl")  # Save as a pickle file for efficiency
-print("Data processing complete. Saved to 'processed_ecg_data.pkl'.")
+    # Loop through each label/interval
+    for _, row in timestamps_subj.iterrows():
+        label_start = row["LabelStart"]
+        label_end = row["LabelEnd"]
+
+        # Convert start/end times to sample indices
+        idx_start = int((label_start - start_time).total_seconds() * fs)
+        idx_end = int((label_end - start_time).total_seconds() * fs)
+
+        # Clip indices to valid range
+        idx_start = max(0, idx_start)
+        idx_end = min(n_samples, idx_end)
+
+        if idx_end <= idx_start:
+            print(f"Invalid interval for {participant_id}: {row}")
+            continue
+
+        # Extract the segment
+        ecg_segment = ecg_signal[idx_start:idx_end]
+        segments.append(
+            {
+                "Subject_ID": row["Subject_ID"],
+                "Category": row["Category"],
+                "Code": row["Code"],
+                "ECG_Segment": ecg_segment,
+                "LabelStart": row["LabelStart"],
+                "LabelEnd": row["LabelEnd"],
+            }
+        )
+
+    # Process segments and save
+    for segment in segments:
+        # Save segment to a file
+        category = segment["Category"]
+        output_dir = os.path.join(folderpath, f"processed/{participant_id}")
+        os.makedirs(output_dir, exist_ok=True)
+
+        # Save the segment as a NumPy array
+        segment_filename = os.path.join(output_dir, f"{category}.npy")
+        np.save(segment_filename, segment["ECG_Segment"])
+        print(f"Saved: {segment_filename}")
