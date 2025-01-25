@@ -1,8 +1,8 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib as mpl
-import os
 from scipy.stats import zscore
+from utils import load_ecg_data
 
 # ---------------------------------------------------------------------------------------------------------------------
 # Adjust plot settings
@@ -12,66 +12,69 @@ mpl.rcParams["figure.figsize"] = (20, 5)
 mpl.rcParams["figure.dpi"] = 100
 
 # ---------------------------------------------------------------------------------------------------------------------
-# Set the path where npy files are stored
+# Set the path where npy files are stored and load the data
 # ---------------------------------------------------------------------------------------------------------------------
 base_path = "../data/interim"
 
+# Load data using the utility function
+data = load_ecg_data(base_path)
+
+
 # ---------------------------------------------------------------------------------------------------------------------
-# Plotting Outliers
+# Plotting Outliers Function
 # ---------------------------------------------------------------------------------------------------------------------
-# Dictionary to store ECG data by category
-category_data = {}
+def plot_ecg_outliers(
+    ecg_signal, outlier_mask, title="ECG Outliers", sample_range=None
+):
+    """
+    Plot outliers in an ECG signal based on a binary outlier mask.
 
-# Loop over all participant directories
-for participant_dir in os.listdir(base_path)[:3]:
-    participant_path = os.path.join(base_path, participant_dir)
-    if os.path.isdir(participant_path):
-        print(f"Processing participant: {participant_dir}")
+    Args:
+        ecg_signal (np.ndarray): The ECG signal as a 1D array.
+        outlier_mask (np.ndarray): A binary mask of the same length as ecg_signal, where True marks an outlier.
+        title (str): Title of the plot.
+        sample_range (tuple, optional): Range of samples to plot (start, end). Defaults to full signal.
+    """
+    if sample_range:
+        start, end = sample_range
+        ecg_signal = ecg_signal[start:end]
+        outlier_mask = outlier_mask[start:end]
 
-        # Loop over all npy files in the participant directory
-        for file in os.listdir(participant_path):
-            if file.endswith(".npy"):
-                file_path = os.path.join(participant_path, file)
-                data = np.load(file_path)
+    fig, ax = plt.subplots(figsize=(20, 5))
+    ax.set_title(title)
+    ax.set_xlabel("Sample Index")
+    ax.set_ylabel("ECG Signal")
 
-                # Extract category from the file name
-                category = file[:-4]
+    # Plot non-outliers in default color
+    ax.plot(
+        np.where(~outlier_mask)[0], ecg_signal[~outlier_mask], "+", label="Non-outlier"
+    )
+    # Plot outliers in red
+    ax.plot(np.where(outlier_mask)[0], ecg_signal[outlier_mask], "r+", label="Outlier")
 
-                # Append data to the corresponding category in the dictionary
-                if category not in category_data:
-                    category_data[category] = []
-                category_data[category].append(data)
-
-# Plot histogram of ECG data for each category
-for category, data_list in category_data.items():
-    concatenated_data = np.concatenate(data_list)
-    plt.figure()
-    plt.hist(concatenated_data, bins=100)
-    plt.title(f"Histogram of ECG Data for Category: {category}")
-    plt.xlabel("ECG Signal")
-    plt.ylabel("Frequency")
+    plt.legend(loc="upper center", ncol=2, fancybox=True, shadow=True)
     plt.show()
 
-# Detect outliers using Z-score method
-outliers = {}
-for category, data_list in category_data.items():
-    concatenated_data = np.concatenate(data_list)
-    z_scores = zscore(concatenated_data)
-    outliers[category] = concatenated_data[np.abs(z_scores) > 3]
 
-# Plot boxplot without outliers
-boxplot_data = []
-labels = []
-for category, data_list in category_data.items():
-    concatenated_data = np.concatenate(data_list)
-    z_scores = zscore(concatenated_data)
-    filtered_data = concatenated_data[np.abs(z_scores) <= 3]
-    boxplot_data.append(filtered_data)
-    labels.append(category)
+# ---------------------------------------------------------------------------------------------------------------------
+# Z-Score Outliers
+# ---------------------------------------------------------------------------------------------------------------------
+def z_score_outlier_detection(signal, threshold=3.0):
+    mean = np.mean(signal)
+    std = np.std(signal)
+    z_scores = (signal - mean) / std
+    return np.abs(z_scores) > threshold
 
-plt.figure()
-plt.boxplot(boxplot_data, labels=labels)
-plt.title("Boxplot of ECG Data by Category (Without Outliers)")
-plt.xlabel("Category")
-plt.ylabel("ECG Signal")
-plt.show()
+
+# Iterate only over the first key-value pair in the dictionary
+first_key_value = next(iter(data.items()))
+(participant, category), signal = first_key_value
+print(f"Processing Participant: {participant}, Category: {category}")
+
+# Detect outliers using Z-Score
+outliers = z_score_outlier_detection(signal, threshold=6.0)
+
+# Plot the outliers
+plot_ecg_outliers(
+    signal, outliers, title=f"Z-Score Outliers: {participant}, {category}"
+)
