@@ -42,6 +42,16 @@ for participant_dir in os.listdir(base_path)[:3]:
                     category_data[category] = []
                 category_data[category].append(data)
 
+# Plot histogram of ECG data for each category
+for category, data_list in category_data.items():
+    concatenated_data = np.concatenate(data_list)
+    plt.figure()
+    plt.hist(concatenated_data, bins=100)
+    plt.title(f"Histogram of ECG Data for Category: {category}")
+    plt.xlabel("ECG Signal")
+    plt.ylabel("Frequency")
+    plt.show()
+
 # Detect outliers using Z-score method
 outliers = {}
 for category, data_list in category_data.items():
