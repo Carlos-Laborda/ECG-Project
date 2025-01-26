@@ -2,6 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 from utils import load_ecg_data
+import scipy.special
 
 # ---------------------------------------------------------------------------------------------------------------------
 # Adjust plot settings
@@ -118,6 +119,47 @@ plot_ecg_outliers(
     signal, outliers, title=f"Sliding window Outliers: {participant}, {category}"
 )
 
+
 # ---------------------------------------------------------------------------------------------------------------------
-# Median Absolute Deviation (MAD)
+# Chauvenet's Criterion
 # ---------------------------------------------------------------------------------------------------------------------
+def chauvenet_outlier_detection(signal, C=2):
+    """
+    Identify outliers in an ECG signal using the Chauvenet criterion.
+
+    Args:
+        signal (np.ndarray): The ECG signal as a 1D array.
+        C (int, optional): Degree of certainty for outlier detection. Defaults to 2.
+
+    Returns:
+        np.ndarray: A binary mask of the same length as the signal, where True marks an outlier.
+    """
+    # Compute the mean and standard deviation
+    mean = np.mean(signal)
+    std = np.std(signal)
+    N = len(signal)
+
+    # Calculate the probability threshold
+    criterion = 1.0 / (C * N)
+
+    # Compute the deviation
+    deviation = np.abs(signal - mean) / std
+
+    # Compute the probability of observing each point
+    low = -deviation / np.sqrt(C)
+    high = deviation / np.sqrt(C)
+    prob = 1.0 - 0.5 * (scipy.special.erf(high) - scipy.special.erf(low))
+
+    # Mark points as outliers if their probability is below the criterion
+    outlier_mask = prob < criterion
+
+    return outlier_mask
+
+
+# Detect outliers using MAD
+outliers = chauvenet_outlier_detection(signal, C=3)
+
+# Plot the outliers
+plot_ecg_outliers(
+    signal, outliers, title=f"Chauvenet Outliers: {participant}, {category}"
+)
