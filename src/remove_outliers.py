@@ -1,7 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib as mpl
-from scipy.stats import zscore
 from utils import load_ecg_data
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -78,3 +77,33 @@ outliers = z_score_outlier_detection(signal, threshold=6.0)
 plot_ecg_outliers(
     signal, outliers, title=f"Z-Score Outliers: {participant}, {category}"
 )
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Median Absolute Deviation (MAD)
+# ---------------------------------------------------------------------------------------------------------------------
+def mad_outlier_detection(signal, threshold=3.5):
+    median = np.median(signal)
+    mad = np.median(np.abs(signal - median))
+    modified_z_scores = 0.6745 * (signal - median) / mad
+    return np.abs(modified_z_scores) > threshold
+
+
+# Iterate only over the first key-value pair in the dictionary
+first_key_value = next(iter(data.items()))
+(participant, category), signal = first_key_value
+print(f"Processing Participant: {participant}, Category: {category}")
+
+# Detect outliers using MAD
+outliers = mad_outlier_detection(signal, threshold=10)
+
+# Plot the outliers
+plot_ecg_outliers(signal, outliers, title=f"MAD Outliers: {participant}, {category}")
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Anomaly Detection with Sliding Window
+# ---------------------------------------------------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Median Absolute Deviation (MAD)
+# ---------------------------------------------------------------------------------------------------------------------
