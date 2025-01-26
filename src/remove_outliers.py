@@ -89,20 +89,34 @@ def mad_outlier_detection(signal, threshold=3.5):
     return np.abs(modified_z_scores) > threshold
 
 
-# Iterate only over the first key-value pair in the dictionary
-first_key_value = next(iter(data.items()))
-(participant, category), signal = first_key_value
-print(f"Processing Participant: {participant}, Category: {category}")
-
 # Detect outliers using MAD
 outliers = mad_outlier_detection(signal, threshold=10)
 
 # Plot the outliers
 plot_ecg_outliers(signal, outliers, title=f"MAD Outliers: {participant}, {category}")
 
+
 # ---------------------------------------------------------------------------------------------------------------------
 # Anomaly Detection with Sliding Window
 # ---------------------------------------------------------------------------------------------------------------------
+def sliding_window_outlier_detection(signal, window_size=100, threshold=3.0):
+    outliers = np.zeros_like(signal, dtype=bool)
+    for i in range(len(signal) - window_size + 1):
+        window = signal[i : i + window_size]
+        mean = np.mean(window)
+        std = np.std(window)
+        z_scores = (window - mean) / std
+        outliers[i : i + window_size] = np.abs(z_scores) > threshold
+    return outliers
+
+
+# Detect outliers using MAD
+outliers = sliding_window_outlier_detection(signal, window_size=1000, threshold=6)
+
+# Plot the outliers
+plot_ecg_outliers(
+    signal, outliers, title=f"Sliding window Outliers: {participant}, {category}"
+)
 
 # ---------------------------------------------------------------------------------------------------------------------
 # Median Absolute Deviation (MAD)
