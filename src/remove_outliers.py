@@ -157,9 +157,23 @@ def chauvenet_outlier_detection(signal, C=2):
 
 
 # Detect outliers using MAD
-outliers = chauvenet_outlier_detection(signal, C=3)
+outliers = chauvenet_outlier_detection(signal, C=2)
 
 # Plot the outliers
 plot_ecg_outliers(
     signal, outliers, title=f"Chauvenet Outliers: {participant}, {category}"
 )
+
+# Loop over all the data to apply Chauvenet's criterion
+for (participant, category), signal in data.items():
+    print(f"Processing Participant: {participant}, Category: {category}")
+    outliers = chauvenet_outlier_detection(signal, C=3)
+    plot_ecg_outliers(
+        signal, outliers, title=f"Chauvenet Outliers: {participant}, {category}"
+    )
+
+    # Replace outliers for NaN values
+    signal[outliers] = np.nan
+
+    # Save the cleaned signal
+    # np.save(f"../data/processed/{participant}_{category}.npy", signal)
