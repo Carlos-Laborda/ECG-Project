@@ -55,7 +55,7 @@ timestamps["Subject_ID"] = timestamps["Subject_ID"].astype(str)
 # Sampling frequency of the ECG data
 fs = 1000
 
-for p, participant_id in enumerate(participants[:2]):  # only 2 for testing purposes
+for p, participant_id in enumerate(participants[:10]):  # only 2 for testing purposes
     print(f"Processing Participant {participant_id} ({p + 1}/{len(participants)})")
 
     # Load the participant's EDF file
