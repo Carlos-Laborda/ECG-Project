@@ -52,16 +52,20 @@ def sliding_window(signal, window_size, step_size):
     Args:
         signal (np.ndarray): The input ECG signal as a 1D array.
         window_size (int): The size of each window (in samples).
-        step_size (int): The step size between consecutive windows (in samples).
+        step_size (float): The step size between consecutive windows (in samples).
 
     Returns:
         list: A list of 1D arrays, each representing a window.
     """
-    num_windows = (len(signal) - window_size) // step_size + 1
-    return [
-        signal[i : i + window_size]
-        for i in range(0, num_windows * step_size, step_size)
-    ]
+    # Calculate the number of steps as an integer
+    step_ratio = step_size / window_size
+    num_steps = int((len(signal) - window_size) / step_size) + 1
+
+    # Generate indices using integer arithmetic
+    indices = [i * step_size for i in range(num_steps)]
+    indices = [int(round(idx)) for idx in indices]
+
+    return [signal[i : i + window_size] for i in indices]
 
 
 # Path to the data
@@ -69,8 +73,8 @@ base_path = "../data/interim"
 
 # Sampling frequency
 fs = 1000  # Hz
-window_size = 10 * fs  # 10 seconds
-step_size = 1 * fs  # 1 second
+window_size = 60 * fs  # 10 seconds
+step_size = 0.25 * fs  # 1 second
 
 # Load the grouped data
 data = load_ecg_data(base_path)
