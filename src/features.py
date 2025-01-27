@@ -2,11 +2,11 @@ import numpy as np
 import pandas as pd
 from scipy.signal import welch
 from utils import load_ecg_data
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 
-################################################################################
 # Extract Features Function
-################################################################################
 def extract_features(window, fs=1000):
     """
     Extract features from an ECG signal window.
@@ -94,6 +94,39 @@ for (participant_id, category), signal in data.items():
 
 # Convert to a DataFrame
 features_df = pd.DataFrame(all_features)
+
+# drop frequency-domain features all together
+features_df = features_df.drop(columns=["lf_power", "hf_power", "lf_hf_ratio"])
+
+
+# Plot the distributions of the features for each category
+def plot_feature_distributions(features_df, feature):
+    """
+    Overlay the distributions of a feature for all categories.
+
+    Args:
+        features_df (pd.DataFrame): The DataFrame containing the features.
+        feature (str): The feature to plot (column name in the DataFrame).
+    """
+    plt.figure(figsize=(12, 6))
+    title = f"Distribution of {feature} Across All Categories"
+
+    sns.kdeplot(
+        data=features_df,
+        x=feature,
+        hue="category",
+        fill=True,
+        alpha=0.4,
+    )
+    plt.xlabel(feature)
+    plt.ylabel("Density")
+    plt.title(title)
+    plt.grid()
+    plt.show()
+
+
+plot_feature_distributions(features_df, feature="mean")
+
 
 # Save to CSV
 output_path = "../data/processed/features.csv"
