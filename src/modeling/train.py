@@ -24,7 +24,21 @@ features_df["label"] = features_df["category"].map(
 )
 
 # Drop non-feature columns
-X = features_df[["mean", "std_dev", "min_val", "max_val", "rms"]]
+X = features_df[
+    [
+        "mean",
+        "std",
+        "min",
+        "max",
+        "rms",
+        "iqr",
+        "psd_mean",
+        "psd_max",
+        "dominant_freq",
+        "shannon_entropy",
+        "sample_entropy",
+    ]
+]
 y = features_df["label"]
 
 # Split the data by participant
