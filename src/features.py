@@ -73,8 +73,8 @@ base_path = "../data/interim"
 
 # Sampling frequency
 fs = 1000  # Hz
-window_size = 60 * fs  # 10 seconds
-step_size = 0.25 * fs  # 1 second
+window_size = 10 * fs  # 10 seconds
+step_size = 1 * fs  # 1 second
 
 # Load the grouped data
 data = load_ecg_data(base_path)
