@@ -2,7 +2,6 @@ import mne
 import numpy as np
 import os
 import pandas as pd
-from sklearn.preprocessing import StandardScaler
 
 # Define the category-to-label mapping
 CATEGORY_MAPPING = {
@@ -56,10 +55,6 @@ timestamps["Subject_ID"] = timestamps["Subject_ID"].astype(str)
 # Sampling frequency of the ECG data
 fs = 1000
 
-# Initialize a StandardScaler
-scaler = StandardScaler()
-
-# Loop through each participant
 for p, participant_id in enumerate(participants[:10]):  # only 2 for testing purposes
     print(f"Processing Participant {participant_id} ({p + 1}/{len(participants)})")
 
@@ -110,12 +105,9 @@ for p, participant_id in enumerate(participants[:10]):  # only 2 for testing pur
             print(f"Invalid interval for {participant_id}: {row}")
             continue
 
-        # Extract the segment, normalize, and store it under the appropriate label
+        # Extract the segment and store it under the appropriate label
         ecg_segment = ecg_signal[idx_start:idx_end]
-        ecg_segment_normalized = scaler.fit_transform(
-            ecg_segment.reshape(-1, 1)
-        ).flatten()
-        grouped_segments[label].append(ecg_segment_normalized)
+        grouped_segments[label].append(ecg_segment)
 
     # Save grouped segments for this participant
     participant_dir = os.path.join(output_dir_path, participant_id)
