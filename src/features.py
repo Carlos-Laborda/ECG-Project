@@ -4,44 +4,46 @@ from scipy.signal import welch
 from utils import load_ecg_data
 import matplotlib.pyplot as plt
 import seaborn as sns
+import scipy.signal
+import scipy.stats
 
 
 # Extract Features Function
-def extract_features(window, fs=1000):
+def extract_ecg_features(ecg_signal, fs):
     """
-    Extract features from an ECG signal window.
+    Extracts features from ECG signal.
 
     Args:
-        window (np.ndarray): A 1D array containing the ECG signal for the window.
-        fs (int): Sampling frequency of the ECG signal (default: 1000 Hz).
+        ecg_signal (np.array): ECG signal
+        fs (int): Sampling frequency
 
     Returns:
-        dict: A dictionary of extracted features.
+        dict: Dictionary of extracted features
     """
+    features = {}
+
     # Time-domain features
-    mean = np.mean(window)
-    std_dev = np.std(window)
-    min_val = np.min(window)
-    max_val = np.max(window)
-    rms = np.sqrt(np.mean(window**2))
+    features["mean"] = np.mean(ecg_signal)
+    features["std"] = np.std(ecg_signal)
+    features["min"] = np.min(ecg_signal)
+    features["max"] = np.max(ecg_signal)
+    features["rms"] = np.sqrt(np.mean(ecg_signal**2))
+    features["iqr"] = np.subtract(*np.percentile(ecg_signal, [75, 25]))
 
     # Frequency-domain features
-    freqs, psd = welch(window, fs)
-    lf_power = np.sum(psd[(freqs >= 0.04) & (freqs <= 0.15)])
-    hf_power = np.sum(psd[(freqs > 0.15) & (freqs <= 0.4)])
-    lf_hf_ratio = lf_power / hf_power if hf_power > 0 else np.nan
+    freq, psd = scipy.signal.welch(ecg_signal, fs=fs)
+    features["psd_mean"] = np.mean(psd)
+    features["psd_max"] = np.max(psd)
+    features["dominant_freq"] = freq[np.argmax(psd)]
 
-    # Combine features into a dictionary
-    features = {
-        "mean": mean,
-        "std_dev": std_dev,
-        "min_val": min_val,
-        "max_val": max_val,
-        "rms": rms,
-        "lf_power": lf_power,
-        "hf_power": hf_power,
-        "lf_hf_ratio": lf_hf_ratio,
-    }
+    # Nonlinear features
+    features["shannon_entropy"] = -np.sum(
+        np.log2(np.histogram(ecg_signal, bins=10)[0] + 1e-10)
+    )
+    features["sample_entropy"] = scipy.stats.entropy(
+        np.histogram(ecg_signal, bins=10)[0]
+    )
+
     return features
 
 
@@ -90,7 +92,7 @@ for (participant_id, category), signal in data.items():
 
     # Extract features for each window
     for i, window in enumerate(windows):
-        features = extract_features(window, fs=fs)
+        features = extract_ecg_features(window, fs=fs)
         features["participant_id"] = participant_id
         features["category"] = category
         features["window_index"] = i
@@ -98,9 +100,6 @@ for (participant_id, category), signal in data.items():
 
 # Convert to a DataFrame
 features_df = pd.DataFrame(all_features)
-
-# drop frequency-domain features all together
-features_df = features_df.drop(columns=["lf_power", "hf_power", "lf_hf_ratio"])
 
 
 # Plot the distributions of the features for each category
