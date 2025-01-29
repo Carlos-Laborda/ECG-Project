@@ -1,43 +1,33 @@
 import os
 import numpy as np
+import h5py
 
 
-def load_ecg_data(base_path, participant_id=None, category=None):
+def load_ecg_data(hdf5_path):
     """
-    Load ECG data from .npy files for a specific participant or category.
+    Load ECG data from an HDF5 file.
 
     Args:
-        base_path (str): Base directory where the .npy files are stored.
-        participant_id (str, optional): ID of the participant to load data for.
-        category (str, optional): Category of the data to load.
+        hdf5_path (str): Path to the HDF5 file.
 
     Returns:
         dict: A dictionary of loaded data. Keys are (participant, category) tuples, and values are numpy arrays.
     """
     data = {}
 
-    # Loop over participants
-    for participant_dir in os.listdir(base_path):
-        participant_path = os.path.join(base_path, participant_dir)
-        if not os.path.isdir(participant_path):
-            continue
+    with h5py.File(hdf5_path, "r") as f:
+        # Iterate through participants
+        for participant_group in f.keys():
+            participant_id = participant_group.split("_")[1]
 
-        # If participant_id is specified, skip others
-        if participant_id and participant_id != participant_dir:
-            continue
+            # Iterate through categories
+            for category_dataset in f[participant_group].keys():
+                category = category_dataset
 
-        # Loop over .npy files in the participant directory
-        for file in os.listdir(participant_path):
-            if file.endswith(".npy"):
-                category_name = file[:-4]  # Extract category name from filename
-                if category and category != category_name:
-                    continue
+                # Get the ECG signal data
+                ecg_signal = f[participant_group][category_dataset][:]
 
-                # Load the .npy file
-                file_path = os.path.join(participant_path, file)
-                ecg_signal = np.load(file_path)
-
-                # Store in dictionary
-                data[(participant_dir, category_name)] = ecg_signal
+                # Store the data with the correct key structure
+                data[(participant_id, category)] = ecg_signal
 
     return data
