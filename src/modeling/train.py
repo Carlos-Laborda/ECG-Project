@@ -10,8 +10,8 @@ import seaborn as sns
 # Load and Prepare the Data
 # ---------------------------------------------------------------------------------------------------------------------
 # Load features.csv
-data_path = "../../data/processed/features.csv"
-features_df = pd.read_csv(data_path)
+data_path = "../../data/processed/features.parquet"
+features_df = pd.read_parquet(data_path)
 
 # Filter the dataset for the desired categories
 features_df = features_df[

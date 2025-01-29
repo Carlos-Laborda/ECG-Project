@@ -1,24 +1,17 @@
+import h5py
 import numpy as np
 import pandas as pd
-from scipy.signal import welch
-from utils import load_ecg_data
 import matplotlib.pyplot as plt
 import seaborn as sns
 import scipy.signal
 import scipy.stats
+from scipy.signal import welch
+from utils import load_ecg_data
 
 
-# Extract Features Function
 def extract_ecg_features(ecg_signal, fs):
     """
     Extracts features from ECG signal.
-
-    Args:
-        ecg_signal (np.array): ECG signal
-        fs (int): Sampling frequency
-
-    Returns:
-        dict: Dictionary of extracted features
     """
     features = {}
 
@@ -50,36 +43,23 @@ def extract_ecg_features(ecg_signal, fs):
 def sliding_window(signal, window_size, step_size):
     """
     Generate sliding windows from a 1D signal.
-
-    Args:
-        signal (np.ndarray): The input ECG signal as a 1D array.
-        window_size (int): The size of each window (in samples).
-        step_size (float): The step size between consecutive windows (in samples).
-
-    Returns:
-        list: A list of 1D arrays, each representing a window.
     """
-    # Calculate the number of steps as an integer
-    step_ratio = step_size / window_size
     num_steps = int((len(signal) - window_size) / step_size) + 1
-
-    # Generate indices using integer arithmetic
-    indices = [i * step_size for i in range(num_steps)]
-    indices = [int(round(idx)) for idx in indices]
-
-    return [signal[i : i + window_size] for i in indices]
+    return [
+        signal[i : i + window_size] for i in range(0, num_steps * step_size, step_size)
+    ]
 
 
-# Path to the data
-base_path = "../data/interim"
+# Path to the HDF5 file
+hdf5_path = "../data/interim/ecg_data.h5"
 
 # Sampling frequency
 fs = 1000  # Hz
 window_size = 10 * fs  # 10 seconds
 step_size = 1 * fs  # 1 second
 
-# Load the grouped data
-data = load_ecg_data(base_path)
+# Load the grouped data from HDF5
+data = load_ecg_data(hdf5_path)
 
 # Initialize a list to store extracted features
 all_features = []
@@ -102,18 +82,12 @@ for (participant_id, category), signal in data.items():
 features_df = pd.DataFrame(all_features)
 
 
-# Plot the distributions of the features for each category
 def plot_feature_distributions(features_df, feature):
     """
     Overlay the distributions of a feature for all categories.
-
-    Args:
-        features_df (pd.DataFrame): The DataFrame containing the features.
-        feature (str): The feature to plot (column name in the DataFrame).
     """
     plt.figure(figsize=(12, 6))
     title = f"Distribution of {feature} Across All Categories"
-
     sns.kdeplot(
         data=features_df,
         x=feature,
@@ -128,10 +102,10 @@ def plot_feature_distributions(features_df, feature):
     plt.show()
 
 
+# Example plot
 plot_feature_distributions(features_df, feature="mean")
 
-
-# Save to CSV
-output_path = "../data/processed/features.csv"
-features_df.to_csv(output_path, index=False)
+# Save to Parquet for efficiency purposes
+output_path = "../data/processed/features.parquet"
+features_df.to_parquet(output_path, index=False)
 print(f"Features saved to {output_path}")

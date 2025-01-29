@@ -11,18 +11,18 @@ mpl.rcParams["figure.figsize"] = (20, 5)
 mpl.rcParams["figure.dpi"] = 100
 
 # ---------------------------------------------------------------------------------------------------------------------
-# Set the path where npy files are stored
+# Set the path to the HDF5 file and load data
 # ---------------------------------------------------------------------------------------------------------------------
-base_path = "../data/interim"
+hdf5_path = "../data/interim/ecg_data.h5"
+
+# Load data from HDF5
+data = load_ecg_data(hdf5_path)
 
 # ---------------------------------------------------------------------------------------------------------------------
 # Plot the first 10000 samples of the ECG data for each category
 # ---------------------------------------------------------------------------------------------------------------------
-# Load data using the utility function
-data = load_ecg_data(base_path)
-
+# Plot individual signals
 # for (participant, category), signal in data.items():
-#     # Plot the first 1000 samples of the data
 #     plt.figure()
 #     plt.plot(signal[:10000])
 #     plt.title(f"Participant: {participant}, Category: {category}")
@@ -44,9 +44,7 @@ for (participant, category), signal in data.items():
 plt.figure()
 current_index = 0
 for category, signals in category_data.items():
-    # Concatenate all data arrays for the category
     concatenated_data = np.concatenate(signals)[:10000]
-    # Plot the first 10000 samples of the concatenated data
     plt.plot(
         range(current_index, current_index + len(concatenated_data)),
         concatenated_data,
