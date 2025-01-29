@@ -21,14 +21,14 @@ base_path = "../data/interim"
 # Load data using the utility function
 data = load_ecg_data(base_path)
 
-for (participant, category), signal in data.items():
-    # Plot the first 1000 samples of the data
-    plt.figure()
-    plt.plot(signal[:10000])
-    plt.title(f"Participant: {participant}, Category: {category}")
-    plt.xlabel("Sample Index")
-    plt.ylabel("ECG Signal")
-    plt.show()
+# for (participant, category), signal in data.items():
+#     # Plot the first 1000 samples of the data
+#     plt.figure()
+#     plt.plot(signal[:10000])
+#     plt.title(f"Participant: {participant}, Category: {category}")
+#     plt.xlabel("Sample Index")
+#     plt.ylabel("ECG Signal")
+#     plt.show()
 
 # ---------------------------------------------------------------------------------------------------------------------
 # Compare categories of ECG data

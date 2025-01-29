@@ -27,3 +27,4 @@ dependencies:
       - jupyter-client==7.4.7
       - jupyter-core==5.1.0
       - matplotlib==3.7.1
+      - neurokit2==0.2.0
