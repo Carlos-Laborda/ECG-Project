@@ -4,47 +4,23 @@ import os
 import pandas as pd
 import h5py
 from datetime import datetime
-
-# Define the category-to-label mapping
-CATEGORY_MAPPING = {
-    "baseline": ["Sitting", "Recov1", "Recov2", "Recov3", "Recov4", "Recov5", "Recov6"],
-    "mental_stress": [
-        "TA",
-        "SSST_Sing_countdown",
-        "Pasat",
-        "Raven",
-        "TA_repeat",
-        "Pasat_repeat",
-    ],
-    "high_physical_activity": [
-        "Treadmill1",
-        "Treadmill2",
-        "Treadmill3",
-        "Treadmill4",
-        "Walking_fast_pace",
-        "Cycling",
-        "stairs_up_and_down",
-    ],
-    "moderate_physical_activity": ["Walking_own_pace", "Dishes", "Vacuum"],
-    "low_physical_activity": ["Standing", "Lying_supine", "Recov_standing"],
-}
+from config import CATEGORY_MAPPING, FOLDERPATH, OUTPUT_DIR_PATH
 
 # Set the folder path containing the raw ECG files and the metadata
-folderpath = "../data/raw/Raw ECG project"
 filepaths = [
-    os.path.join(folderpath, f)
-    for f in os.listdir(folderpath)
+    os.path.join(FOLDERPATH, f)
+    for f in os.listdir(FOLDERPATH)
     if f.endswith("_ECG.edf")
 ]
-files = [f for f in os.listdir(folderpath) if f.endswith("_ECG.edf")]
+files = [f for f in os.listdir(FOLDERPATH) if f.endswith("_ECG.edf")]
 participants = [f[:5] for f in files]  # Extract participant IDs from filenames
 
 # Output directory for processed segments
-output_dir_path = "../data/interim/"
+output_dir_path = OUTPUT_DIR_PATH
 
 # Read the metadata file
 timestamps = pd.read_csv(
-    os.path.join(folderpath, "TimeStamps_Merged.txt"), sep="\t", decimal="."
+    os.path.join(FOLDERPATH, "TimeStamps_Merged.txt"), sep="\t", decimal="."
 )
 timestamps["LabelStart"] = pd.to_datetime(
     timestamps["LabelStart"], format="%Y-%m-%d %H:%M:%S", utc=True
