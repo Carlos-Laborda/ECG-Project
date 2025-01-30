@@ -30,3 +30,19 @@ dependencies:
       - jupyter-core==5.1.0
       - matplotlib==3.7.1
       - neurokit2==0.2.0
+      - python-dotenv
+      - pytest
+      - pylint
+      - mlflow
+      - mlflow[extras]
+      - mlserver
+      - mlserver-mlflow
+      - packaging
+      - setuptools
+      - evidently
+      - keras
+      - scikit-learn
+      - seaborn
+      - jax[cpu]
+      - metaflow
+      - metaflow-card-html
