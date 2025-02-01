@@ -7,7 +7,7 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import classification_report, confusion_matrix, accuracy_score
 
 # Metaflow imports
-from metaflow import FlowSpec, step, card
+from metaflow import FlowSpec, step, card, Parameter
 
 # Local imports
 from common import process_ecg_data, preprocess_features
@@ -23,6 +23,12 @@ class ECGTrainingFlow(FlowSpec):
       4. Trains model and evaluates
       5. (Optionally) logs to MLflow
     """
+
+    accuracy_threshold = Parameter(
+        "accuracy_threshold",
+        help="Minimum accuracy threshold required to register the model",
+        default=0.8,
+    )
 
     @card
     @step
