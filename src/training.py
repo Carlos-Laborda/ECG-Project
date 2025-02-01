@@ -1,5 +1,6 @@
 import os
-import mlflow.sklearn
+import logging
+import mlflow
 import pandas as pd
 import numpy as np
 from sklearn.ensemble import RandomForestClassifier
@@ -7,7 +8,7 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import classification_report, confusion_matrix, accuracy_score
 
 # Metaflow imports
-from metaflow import FlowSpec, step, card, Parameter
+from metaflow import FlowSpec, step, card, Parameter, current
 
 # Local imports
 from common import process_ecg_data, preprocess_features
@@ -24,6 +25,12 @@ class ECGTrainingFlow(FlowSpec):
       5. (Optionally) logs to MLflow
     """
 
+    mlflow_tracking_uri = Parameter(
+        "mlflow_tracking_uri",
+        help="Location of the MLflow tracking server",
+        default=os.getenv("MLFLOW_TRACKING_URI", "https://127.0.0.1:5000"),
+    )
+
     accuracy_threshold = Parameter(
         "accuracy_threshold",
         help="Minimum accuracy threshold required to register the model",
@@ -33,6 +40,21 @@ class ECGTrainingFlow(FlowSpec):
     @card
     @step
     def start(self):
+        """Start and prepare the Training pipeline."""
+        import mlflow
+
+        mlflow.set_tracking_uri(self.mlflow_tracking_uri)
+        logging.info("MLflow tracking server: %s", self.mlflow_tracking_uri)
+
+        try:
+            # Let's start a new MLflow run to track the execution of this flow. We want
+            # to set the name of the MLflow run to the Metaflow run ID so we can easily
+            # recognize how they relate to each other.
+            run = mlflow.start_run(run_name=current.run_id)
+            self.mlflow_run_id = run.info.run_id
+        except Exception as e:
+            message = f"Failed to connect to MLflow server {self.mlflow_tracking_uri}."
+            raise RuntimeError(message) from e
         print("Starting the ECG training pipeline...")
         self.next(self.load_data)
 
