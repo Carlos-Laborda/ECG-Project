@@ -103,6 +103,11 @@ class ECGTrainingFlow(FlowSpec):
         """
         Step 3: Train an ML model using the extracted features.
         """
+        import mlflow
+
+        logging.info("Training model...")
+        mlflow.set_tracking_uri(self.mlflow_tracking_uri)
+
         # Show sample
         print("Sample of features:")
         print(self.features_df.head())
@@ -148,20 +153,31 @@ class ECGTrainingFlow(FlowSpec):
         X_train_scaled = scaler.fit_transform(X_train)
         X_test_scaled = scaler.transform(X_test)
 
-        # Train
-        model = RandomForestClassifier(random_state=42)
-        model.fit(X_train_scaled, y_train)
+        # Train and log with MLflow
+        with mlflow.start_run(run_id=self.mlflow_run_id):
+            mlflow.autolog(log_models=False)
 
-        # Evaluate
-        y_pred = model.predict(X_test_scaled)
-        print("Classification Report:")
-        print(classification_report(y_test, y_pred))
+            # Train
+            model = RandomForestClassifier(random_state=42)
+            model.fit(X_train_scaled, y_train)
+
+            # Evaluate
+            y_pred = model.predict(X_test_scaled)
+            print("Classification Report:")
+            print(classification_report(y_test, y_pred))
+
+            # Log metrics
+            accuracy = accuracy_score(y_test, y_pred)
+            mlflow.log_metric("accuracy", accuracy)
+            print(f"Accuracy = {accuracy * 100:.2f}%")
+
+            # Log the model
+            mlflow.sklearn.log_model(model, "random_forest_model")
 
         # Optional: store artifacts for next steps
         self.model = model
         self.scaler = scaler
-        self.accuracy = accuracy_score(y_test, y_pred)
-        print(f"Accuracy = {self.accuracy * 100:.2f}%")
+        self.accuracy = accuracy
 
         self.next(self.end)
 
