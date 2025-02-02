@@ -1,6 +1,7 @@
 import os
 import logging
 import mlflow
+import mlflow.sklearn
 import pandas as pd
 import numpy as np
 from sklearn.ensemble import RandomForestClassifier
@@ -42,15 +43,12 @@ class ECGTrainingFlow(FlowSpec):
     @step
     def start(self):
         """Start and prepare the Training pipeline."""
-        import mlflow
-
+        # Set MLflow tracking URI
         mlflow.set_tracking_uri(self.mlflow_tracking_uri)
         logging.info("MLflow tracking server: %s", self.mlflow_tracking_uri)
 
         try:
-            # Let's start a new MLflow run to track the execution of this flow. We want
-            # to set the name of the MLflow run to the Metaflow run ID so we can easily
-            # recognize how they relate to each other.
+            # Start an MLflow run with the current Metaflow run ID
             run = mlflow.start_run(run_name=current.run_id)
             self.mlflow_run_id = run.info.run_id
         except Exception as e:
@@ -104,8 +102,6 @@ class ECGTrainingFlow(FlowSpec):
         """
         Step 3: Train an ML model using the extracted features.
         """
-        import mlflow
-
         logging.info("Training model...")
         mlflow.set_tracking_uri(self.mlflow_tracking_uri)
 
@@ -154,26 +150,30 @@ class ECGTrainingFlow(FlowSpec):
         X_train_scaled = scaler.fit_transform(X_train)
         X_test_scaled = scaler.transform(X_test)
 
-        # Train and log with MLflow
-        with mlflow.start_run(run_id=self.mlflow_run_id):
+        # Use a nested MLflow run to log training details.
+        with mlflow.start_run(run_id=self.mlflow_run_id, nested=True):
             mlflow.autolog(log_models=False)
-
-            # Train
             model = RandomForestClassifier(random_state=42)
             model.fit(X_train_scaled, y_train)
 
-            # Evaluate
             y_pred = model.predict(X_test_scaled)
+            report = classification_report(y_test, y_pred, output_dict=True)
+            accuracy = accuracy_score(y_test, y_pred)
             print("Classification Report:")
             print(classification_report(y_test, y_pred))
+            print("Confusion Matrix:")
+            print(confusion_matrix(y_test, y_pred))
+            print(f"Accuracy: {accuracy * 100:.2f}%")
 
-            # Log metrics
-            accuracy = accuracy_score(y_test, y_pred)
+            # Log key metrics.
             mlflow.log_metric("accuracy", accuracy)
-            print(f"Accuracy = {accuracy * 100:.2f}%")
-
-            # Log the model
-            mlflow.sklearn.log_model(model, "random_forest_model")
+            mlflow.log_metric("f1_high_physical_activity", report["1"]["f1-score"])
+            # Log the model artifact.
+            mlflow.sklearn.log_model(
+                model,
+                registered_model_name="baseline_RF",
+                artifact_path="random_forest_model",
+            )
 
         # Optional: store artifacts for next steps
         self.model = model
