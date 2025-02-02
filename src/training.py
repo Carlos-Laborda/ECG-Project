@@ -8,13 +8,14 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import classification_report, confusion_matrix, accuracy_score
 
 # Metaflow imports
-from metaflow import FlowSpec, step, card, Parameter, current
+from metaflow import FlowSpec, step, card, Parameter, current, project
 
 # Local imports
 from common import process_ecg_data, preprocess_features
 from utils import load_ecg_data
 
 
+@project(name="ECG-Project")
 class ECGTrainingFlow(FlowSpec):
     """
     Metaflow pipeline that:
