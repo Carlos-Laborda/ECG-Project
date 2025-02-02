@@ -15,7 +15,7 @@ from common import process_ecg_data, preprocess_features
 from utils import load_ecg_data
 
 
-@project(name="ECG-Project")
+@project(name="ecg_training")
 class ECGTrainingFlow(FlowSpec):
     """
     Metaflow pipeline that:
