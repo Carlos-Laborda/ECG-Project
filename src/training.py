@@ -48,13 +48,13 @@ class ECGTrainingFlow(FlowSpec):
     num_train_participants = Parameter(
         "num_train_participants",
         help="Number of participants to use for training",
-        default=8,
+        default=16,
     )
 
     num_test_participants = Parameter(
         "num_test_participants",
         help="Number of participants to use for testing",
-        default=2,
+        default=4,
     )
 
     accuracy_threshold = Parameter(
@@ -165,8 +165,8 @@ class ECGTrainingFlow(FlowSpec):
             + self.num_test_participants
         ]
 
-        mlflow.log_param("train_participants", list(train_participants))
-        mlflow.log_param("test_participants", list(test_participants))
+        # mlflow.log_param("train_participants", list(train_participants))
+        # mlflow.log_param("test_participants", list(test_participants))
 
         train_mask = df_filtered["participant_id"].isin(train_participants)
         test_mask = df_filtered["participant_id"].isin(test_participants)
