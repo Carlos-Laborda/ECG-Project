@@ -24,13 +24,37 @@ class ECGTrainingFlow(FlowSpec):
       2. Splits data (by participant) into train & test
       3. Extracts features
       4. Trains model and evaluates
-      5. (Optionally) logs to MLflow
+      5. Logs to MLflow
     """
 
     mlflow_tracking_uri = Parameter(
         "mlflow_tracking_uri",
         help="Location of the MLflow tracking server",
         default=os.getenv("MLFLOW_TRACKING_URI", "https://127.0.0.1:5000"),
+    )
+
+    hdf5_path = Parameter(
+        "hdf5_path",
+        help="Path to the HDF5 file containing ECG data",
+        default="../data/interim/ecg_data.h5",
+    )
+
+    features_path = Parameter(
+        "features_path",
+        help="Path to the extracted features file",
+        default="../data/processed/features.parquet",
+    )
+
+    num_train_participants = Parameter(
+        "num_train_participants",
+        help="Number of participants to use for training",
+        default=8,
+    )
+
+    num_test_participants = Parameter(
+        "num_test_participants",
+        help="Number of participants to use for testing",
+        default=2,
     )
 
     accuracy_threshold = Parameter(
@@ -63,7 +87,7 @@ class ECGTrainingFlow(FlowSpec):
         """
         Step 1: Load or process ECG data into HDF5.
         """
-        self.hdf5_path = "../data/interim/ecg_data.h5"
+        # self.hdf5_path = "../data/interim/ecg_data.h5"
         if os.path.exists(self.hdf5_path):
             print(f"HDF5 file already exists at {self.hdf5_path} - skipping creation.")
         else:
@@ -81,17 +105,17 @@ class ECGTrainingFlow(FlowSpec):
         """
         Step 2: Extract features from the ECG data.
         """
-        features_path = "../data/processed/features.parquet"
-        if os.path.exists(features_path):
-            print(f"Features file found at {features_path}, loading...")
-            self.features_df = pd.read_parquet(features_path)
+        # features_path = "../data/processed/features.parquet"
+        if os.path.exists(self.features_path):
+            print(f"Features file found at {self.features_path}, loading...")
+            self.features_df = pd.read_parquet(self.features_path)
         else:
             print("Extracting features (sliding window, etc.)...")
             self.features_df = preprocess_features(
                 self.data, fs=1000, window_size=10, step_size=1
             )
-            self.features_df.to_parquet(features_path, index=False)
-            print(f"Features saved to {features_path}")
+            self.features_df.to_parquet(self.features_path, index=False)
+            print(f"Features saved to {self.features_path}")
 
         print(f"Feature DataFrame shape: {self.features_df.shape}")
         self.next(self.train_model)
@@ -109,12 +133,11 @@ class ECGTrainingFlow(FlowSpec):
         print("Sample of features:")
         print(self.features_df.head())
 
-        # Filter categories
-        self.features_df = self.features_df[
+        # Filter for the two categories of interest and create binary labels.
+        df_filtered = self.features_df[
             self.features_df["category"].isin(["high_physical_activity", "baseline"])
-        ]
-        # Binarize label
-        self.features_df["label"] = self.features_df["category"].map(
+        ].copy()
+        df_filtered["label"] = df_filtered["category"].map(
             {"baseline": 0, "high_physical_activity": 1}
         )
 
@@ -131,21 +154,26 @@ class ECGTrainingFlow(FlowSpec):
             "shannon_entropy",
             "sample_entropy",
         ]
-        X = self.features_df[feature_cols]
-        y = self.features_df["label"]
+        X = df_filtered[feature_cols]
+        y = df_filtered["label"]
 
-        # Split by participant
-        participants = self.features_df["participant_id"].unique()
-        train_participants = participants[:8]
-        test_participants = participants[8:]
+        # Split data by participant.
+        participants = np.sort(df_filtered["participant_id"].unique())
+        train_participants = participants[: self.num_train_participants]
+        test_participants = participants[
+            self.num_train_participants : self.num_train_participants
+            + self.num_test_participants
+        ]
 
-        train_mask = self.features_df["participant_id"].isin(train_participants)
-        test_mask = self.features_df["participant_id"].isin(test_participants)
+        mlflow.log_param("train_participants", list(train_participants))
+        mlflow.log_param("test_participants", list(test_participants))
 
+        train_mask = df_filtered["participant_id"].isin(train_participants)
+        test_mask = df_filtered["participant_id"].isin(test_participants)
         X_train, y_train = X[train_mask], y[train_mask]
         X_test, y_test = X[test_mask], y[test_mask]
 
-        # Scale
+        # Standardize features.
         scaler = StandardScaler()
         X_train_scaled = scaler.fit_transform(X_train)
         X_test_scaled = scaler.transform(X_test)
