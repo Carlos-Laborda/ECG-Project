@@ -101,7 +101,6 @@ class ECGTrainingFlow(FlowSpec):
         print(f"Loaded {len(self.data)} (participant, category) pairs.")
         self.next(self.extract_features)
 
-    @card
     @step
     def extract_features(self):
         """
@@ -179,7 +178,15 @@ class ECGTrainingFlow(FlowSpec):
 
         mlflow.set_tracking_uri(self.mlflow_tracking_uri)
         # Log everything under the parent run, create a nested run for each fold
-        with mlflow.start_run(run_id=self.mlflow_run_id, nested=True):
+        # with mlflow.start_run(run_id=self.mlflow_run_id, nested=True):
+        with (
+            mlflow.start_run(run_id=self.mlflow_run_id),
+            mlflow.start_run(
+                run_name=f"cross-validation-fold-{self.fold_index}",
+                nested=True,
+            ) as run,
+        ):
+            self.mlflow_fold_run_id = run.info.run_id
             mlflow.autolog(log_models=False)
             model = RandomForestClassifier(random_state=42)
             model.fit(X_train_scaled, y_train_fold)
@@ -205,6 +212,8 @@ class ECGTrainingFlow(FlowSpec):
         """
         Step 6: Join the fold branches and average the metrics.
         """
+        mlflow.set_tracking_uri(self.mlflow_tracking_uri)
+
         self.merge_artifacts(inputs, include=["mlflow_run_id"])
 
         # Gather fold accuracies
@@ -219,12 +228,12 @@ class ECGTrainingFlow(FlowSpec):
         )
 
         # Log overall CV metrics
-        mlflow.set_tracking_uri(self.mlflow_tracking_uri)
-        mlflow.log_metric(
-            "cv_accuracy_mean", self.cv_accuracy_mean, run_id=self.mlflow_run_id
-        )
-        mlflow.log_metric(
-            "cv_accuracy_std", self.cv_accuracy_std, run_id=self.mlflow_run_id
+        mlflow.log_metrics(
+            {
+                "cv_accuracy_mean": self.cv_accuracy_mean,
+                "cv_accuracy_std": self.cv_accuracy_std,
+            },
+            run_id=self.mlflow_run_id,
         )
 
         # End the flow
