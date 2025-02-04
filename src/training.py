@@ -7,6 +7,8 @@ import numpy as np
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import classification_report, confusion_matrix, accuracy_score
+from sklearn.model_selection import GroupKFold
+
 
 # Metaflow imports
 from metaflow import FlowSpec, step, card, Parameter, current, project
@@ -118,102 +120,125 @@ class ECGTrainingFlow(FlowSpec):
             print(f"Features saved to {self.features_path}")
 
         print(f"Feature DataFrame shape: {self.features_df.shape}")
-        self.next(self.train_model)
 
-    @card
-    @step
-    def train_model(self):
-        """
-        Step 3: Train an ML model using the extracted features.
-        """
-        logging.info("Training model...")
-        mlflow.set_tracking_uri(self.mlflow_tracking_uri)
-
-        # Show sample
-        print("Sample of features:")
-        print(self.features_df.head())
-
-        # Filter for the two categories of interest and create binary labels.
+        # Filter categories: only "baseline" vs. "high_physical_activity"
         df_filtered = self.features_df[
             self.features_df["category"].isin(["high_physical_activity", "baseline"])
         ].copy()
         df_filtered["label"] = df_filtered["category"].map(
             {"baseline": 0, "high_physical_activity": 1}
         )
+        df_filtered.reset_index(drop=True, inplace=True)
 
+        # Store this for cross-validation
+        self.df_filtered = df_filtered
+        self.next(self.prepare_cv)
+
+    @card
+    @step
+    def prepare_cv(self):
+        """
+        Step 4: Prepare participant-level folds using GroupKFold with 5 splits.
+        """
+        # The full feature set (excluding participant/category info).
         feature_cols = [
-            "mean",
-            "std",
-            "min",
-            "max",
-            "rms",
-            "iqr",
-            "psd_mean",
-            "psd_max",
-            "dominant_freq",
-            "shannon_entropy",
-            "sample_entropy",
-        ]
-        X = df_filtered[feature_cols]
-        y = df_filtered["label"]
-
-        # Split data by participant.
-        participants = np.sort(df_filtered["participant_id"].unique())
-        train_participants = participants[: self.num_train_participants]
-        test_participants = participants[
-            self.num_train_participants : self.num_train_participants
-            + self.num_test_participants
+            col
+            for col in self.df_filtered.columns
+            if col not in ["participant_id", "category", "label", "window_index"]
         ]
 
-        # mlflow.log_param("train_participants", list(train_participants))
-        # mlflow.log_param("test_participants", list(test_participants))
+        self.X = self.df_filtered[feature_cols].values
+        self.y = self.df_filtered["label"].values
 
-        train_mask = df_filtered["participant_id"].isin(train_participants)
-        test_mask = df_filtered["participant_id"].isin(test_participants)
-        X_train, y_train = X[train_mask], y[train_mask]
-        X_test, y_test = X[test_mask], y[test_mask]
+        # Use participant_id as the grouping variable
+        self.groups = self.df_filtered["participant_id"].values
 
-        # Standardize features.
+        group_kf = GroupKFold(n_splits=5)
+        self.folds = list(enumerate(group_kf.split(self.X, self.y, groups=self.groups)))
+
+        # Use foreach to spawn one branch per fold
+        self.next(self.cross_validate_fold, foreach="folds")
+
+    @card
+    @step
+    def cross_validate_fold(self):
+        """
+        Step 5 (foreach): Train/evaluate a RandomForest for each participant-level fold.
+        """
+        fold_index, (train_idx, test_idx) = self.input
+        self.fold_index = fold_index
+
+        X_train_fold = self.X[train_idx]
+        X_test_fold = self.X[test_idx]
+        y_train_fold = self.y[train_idx]
+        y_test_fold = self.y[test_idx]
+
         scaler = StandardScaler()
-        X_train_scaled = scaler.fit_transform(X_train)
-        X_test_scaled = scaler.transform(X_test)
+        X_train_scaled = scaler.fit_transform(X_train_fold)
+        X_test_scaled = scaler.transform(X_test_fold)
 
-        # Use a nested MLflow run to log training details.
+        mlflow.set_tracking_uri(self.mlflow_tracking_uri)
+        # Log everything under the parent run, create a nested run for each fold
         with mlflow.start_run(run_id=self.mlflow_run_id, nested=True):
             mlflow.autolog(log_models=False)
             model = RandomForestClassifier(random_state=42)
-            model.fit(X_train_scaled, y_train)
+            model.fit(X_train_scaled, y_train_fold)
 
-            y_pred = model.predict(X_test_scaled)
-            report = classification_report(y_test, y_pred, output_dict=True)
-            accuracy = accuracy_score(y_test, y_pred)
-            print("Classification Report:")
-            print(classification_report(y_test, y_pred))
-            print("Confusion Matrix:")
-            print(confusion_matrix(y_test, y_pred))
-            print(f"Accuracy: {accuracy * 100:.2f}%")
-
-            # Log key metrics.
-            mlflow.log_metric("accuracy", accuracy)
-            mlflow.log_metric("f1_high_physical_activity", report["1"]["f1-score"])
-            # Log the model artifact.
-            mlflow.sklearn.log_model(
-                model,
-                registered_model_name="baseline_RF",
-                artifact_path="random_forest_model",
+            y_pred_fold = model.predict(X_test_scaled)
+            self.fold_accuracy = accuracy_score(y_test_fold, y_pred_fold)
+            fold_report = classification_report(
+                y_test_fold, y_pred_fold, output_dict=True
             )
 
-        # Optional: store artifacts for next steps
-        self.model = model
-        self.scaler = scaler
-        self.accuracy = accuracy
+            # Log fold-specific metrics
+            mlflow.log_metric(f"fold{fold_index}_accuracy", self.fold_accuracy)
+            mlflow.log_metric(
+                f"fold{fold_index}_f1_high_pa", fold_report["1"]["f1-score"]
+            )
 
+        print(f"Fold {fold_index} completed. Accuracy = {self.fold_accuracy:.3f}")
+        self.next(self.join_folds)
+
+    @card
+    @step
+    def join_folds(self, inputs):
+        """
+        Step 6: Join the fold branches and average the metrics.
+        """
+        self.merge_artifacts(inputs, include=["mlflow_run_id"])
+
+        # Gather fold accuracies
+        accuracies = [inp.fold_accuracy for inp in inputs]
+        self.cv_accuracy_mean = float(np.mean(accuracies))
+        self.cv_accuracy_std = float(np.std(accuracies))
+
+        print("\n=== Cross-Validation Results (Participant-Level, 5-Fold) ===")
+        print(f"Fold Accuracies: {accuracies}")
+        print(
+            f"Mean Accuracy: {self.cv_accuracy_mean:.3f} ± {self.cv_accuracy_std:.3f}"
+        )
+
+        # Log overall CV metrics
+        mlflow.set_tracking_uri(self.mlflow_tracking_uri)
+        mlflow.log_metric(
+            "cv_accuracy_mean", self.cv_accuracy_mean, run_id=self.mlflow_run_id
+        )
+        mlflow.log_metric(
+            "cv_accuracy_std", self.cv_accuracy_std, run_id=self.mlflow_run_id
+        )
+
+        # End the flow
         self.next(self.end)
 
     @card
     @step
     def end(self):
-        print("Flow completed successfully!")
+        """
+        Step 7: Flow completed successfully, no final training step is performed.
+        """
+        print("Participant-Level Cross-Validation completed successfully!")
+        print(f"Final CV Accuracy = {self.cv_accuracy_mean:.3f}")
+        print("Flow ended.")
 
 
 if __name__ == "__main__":
