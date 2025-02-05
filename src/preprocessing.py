@@ -7,7 +7,7 @@ from scipy.signal import butter, filtfilt, iirnotch
 from utils import load_ecg_data
 
 # Config
-hdf5_path = "../data/interim/ecg_data.h5"  # Raw data file path
+hdf5_path = "../data/interim/ecg_data_segmented.h5"  # Raw data file path
 output_hdf5_path = "../data/interim/ecg_data_cleaned.h5"  # Where to save cleaned data
 fs = 1000  # Sampling frequency in Hz
 
