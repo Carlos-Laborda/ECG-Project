@@ -6,8 +6,10 @@ import pandas as pd
 import scipy.signal
 import scipy.stats
 from datetime import datetime
+from scipy.signal import butter, filtfilt, iirnotch
 
 from config import CATEGORY_MAPPING, FOLDERPATH, OUTPUT_DIR_PATH
+from utils import load_ecg_data
 
 
 # ------------------------------------------------------
@@ -109,6 +111,98 @@ def process_ecg_data(hdf5_path):
                 )
 
     print(f"ECG data successfully written to {hdf5_path}")
+
+
+# Clean the data
+def highpass_filter(signal, fs, cutoff=0.5, order=5):
+    """
+    Apply a Butterworth high-pass filter to remove baseline wander.
+
+    Parameters:
+        signal (np.ndarray): The raw ECG signal.
+        fs (int): Sampling frequency in Hz.
+        cutoff (float): Cutoff frequency (default 0.5 Hz).
+        order (int): Filter order (default 5).
+
+    Returns:
+        np.ndarray: The high-pass filtered signal.
+    """
+    nyq = 0.5 * fs
+    high = cutoff / nyq
+    b, a = butter(order, high, btype="high")
+    # Use filtfilt for zero-phase filtering
+    filtered_signal = filtfilt(b, a, signal)
+    return filtered_signal
+
+
+def notch_filter(signal, fs, notch_freq=50.0, quality_factor=30):
+    """
+    Apply a notch filter to remove powerline interference.
+
+    Parameters:
+        signal (np.ndarray): The ECG signal.
+        fs (int): Sampling frequency in Hz.
+        notch_freq (float): Notch frequency (default 50 Hz).
+        quality_factor (float): Quality factor (default 30).
+
+    Returns:
+        np.ndarray: The notch filtered signal.
+    """
+    nyq = 0.5 * fs
+    w0 = notch_freq / nyq
+    b, a = iirnotch(w0, quality_factor)
+    filtered_signal = filtfilt(b, a, signal)
+    return filtered_signal
+
+
+def clean_ecg_signal(signal, fs):
+    """
+    Clean an ECG signal by first applying a high-pass filter (0.5Hz)
+    and then a 50 Hz notch filter.
+
+    Parameters:
+        signal (np.ndarray): The raw ECG signal.
+        fs (int): Sampling frequency.
+
+    Returns:
+        np.ndarray: The cleaned ECG signal.
+    """
+    # Apply high-pass filter to remove baseline wander
+    hp_filtered = highpass_filter(signal, fs, cutoff=0.5, order=5)
+
+    # Apply notch filter to remove powerline interference
+    cleaned_signal = notch_filter(hp_filtered, fs, notch_freq=50.0, quality_factor=30)
+    return cleaned_signal
+
+
+def process_save_cleaned_data(segmented_data_path, output_hdf5_path, fs=1000):
+    """
+    Loads ECG data from segmented_data_path, cleans it, and saves the cleaned signals to output_hdf5_path.
+    """
+    raw_data = load_ecg_data(segmented_data_path)
+
+    cleaned_data = {}
+    for key, signal in raw_data.items():
+        participant, category = key
+        try:
+            cleaned_signal = clean_ecg_signal(signal, fs)
+        except Exception as e:
+            print(f"Error cleaning signal for {key}: {e}")
+            continue
+        cleaned_data[key] = cleaned_signal
+
+    print(f"Saving cleaned data to {output_hdf5_path}...")
+    with h5py.File(output_hdf5_path, "w") as f_out:
+        for (participant, category), signal in cleaned_data.items():
+            group_name = f"participant_{participant}"
+            if group_name not in f_out:
+                grp = f_out.create_group(group_name)
+            else:
+                grp = f_out[group_name]
+            grp.create_dataset(
+                category, data=signal, compression="gzip", compression_opts=4
+            )
+    print(f"Cleaned ECG data saved to {output_hdf5_path}")
 
 
 # ------------------------------------------------------
