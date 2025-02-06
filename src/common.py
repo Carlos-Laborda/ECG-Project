@@ -1,11 +1,12 @@
 import os
-import mne
+from datetime import datetime
+
 import h5py
+import mne
 import numpy as np
 import pandas as pd
 import scipy.signal
 import scipy.stats
-from datetime import datetime
 from scipy.signal import butter, filtfilt, iirnotch
 
 from config import CATEGORY_MAPPING, FOLDERPATH, OUTPUT_DIR_PATH
@@ -235,14 +236,30 @@ def extract_ecg_features(ecg_signal, fs):
     return features
 
 
-def sliding_window(signal, window_size, step_size):
+def sliding_window(signal: np.ndarray, window_size: int, step_size: int):
     """
     Generate sliding windows from a 1D signal.
+
+    Parameters:
+      signal (np.ndarray): Input 1D array
+      window_size (int): Number of samples in each window
+      step_size (int): Number of samples between the start of consecutive windows
+
+    Returns:
+      windows (list of np.ndarray): Each entry is a 1D array of length `window_size`.
     """
-    num_steps = int((len(signal) - window_size) / step_size) + 1
-    return [
-        signal[i : i + window_size] for i in range(0, num_steps * step_size, step_size)
-    ]
+    n_samples = len(signal)
+    num_steps = (n_samples - window_size) // step_size + 1
+    if num_steps < 1:
+        return []
+
+    windows = []
+    for i in range(num_steps):
+        start = i * step_size
+        end = start + window_size
+        window = signal[start:end]
+        windows.append(window)
+    return windows
 
 
 # ------------------------------------------------------
@@ -278,3 +295,40 @@ def preprocess_features(data, fs=1000, window_size=10, step_size=1):
 
     features_df = pd.DataFrame(all_features)
     return features_df
+
+
+# ------------------------------------------------------
+# Segmenting data into windows
+# ------------------------------------------------------
+def segment_data_into_windows(data, hdf5_path, fs=1000, window_size=10, step_size=1):
+    window_size_samples = window_size * fs
+    step_size_samples = step_size * fs
+
+    with h5py.File(hdf5_path, "w") as f_out:
+        for (participant_id, category), signal in data.items():
+            grp = f_out.require_group(f"participant_{participant_id}")
+
+            windows_list = sliding_window(
+                signal, window_size_samples, step_size_samples
+            )
+            if len(windows_list) == 0:
+                print(
+                    f"-> No windows for {participant_id}/{category} (too short?). Skipping."
+                )
+                continue
+
+            windows_array = np.array(windows_list, dtype=np.float32)
+            grp.create_dataset(
+                category, data=windows_array, compression="gzip", compression_opts=4
+            )
+            print(
+                f"-> {participant_id}/{category}: {windows_array.shape[0]} windows stored."
+            )
+    print(f"Segmented data saved to {hdf5_path}")
+
+
+data = load_ecg_data("../data/interim/ecg_data_cleaned.h5")
+hdf5_path = "../data/interim/windowed_data.h5"
+windowed_data = segment_data_into_windows(
+    data, hdf5_path, fs=1000, window_size=10, step_size=1
+)
