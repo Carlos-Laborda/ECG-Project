@@ -15,7 +15,12 @@ from mlflow.models import infer_signature
 from metaflow import FlowSpec, step, card, Parameter, current, project
 
 # Local imports
-from common import process_ecg_data, preprocess_features, process_save_cleaned_data
+from common import (
+    process_ecg_data,
+    preprocess_features,
+    process_save_cleaned_data,
+    segment_data_into_windows,
+)
 from utils import load_ecg_data
 
 
@@ -48,10 +53,10 @@ class ECGTrainingFlow(FlowSpec):
         default="../data/interim/ecg_data_cleaned.h5",
     )
 
-    features_path = Parameter(
-        "features_path",
-        help="Path to the extracted features file",
-        default="../data/processed/features.parquet",
+    window_data_path = Parameter(
+        "windowed_data",
+        help="Path to the windowed data",
+        default="../data/interim/windowed_data.h5",
     )
 
     accuracy_threshold = Parameter(
@@ -120,6 +125,25 @@ class ECGTrainingFlow(FlowSpec):
 
         # Load memory
         self.data = load_ecg_data(self.cleaned_data_path)
+        print(f"Loaded {len(self.data)} (participant, category) pairs.")
+        self.next(self.extract_features)
+
+    @card
+    @step
+    def segment_data_windows(self):
+        """
+        Segment the ECG data into windows.
+        """
+        if os.path.exists(self.window_data_path):
+            print(f"Windowed data file found at {self.window_data_path}, loading...")
+        else:
+            print("Segmenting ECG data into windows...")
+            segment_data_into_windows(
+                self.data, self.cleaned_data_path, fs=1000, window_size=10, step_size=1
+            )
+            print(f"Windowed data saved to {self.window_data_path}")
+
+        self.data = load_ecg_data(self.window_data_path)
         print(f"Loaded {len(self.data)} (participant, category) pairs.")
         self.next(self.extract_features)
 
