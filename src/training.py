@@ -15,7 +15,7 @@ from mlflow.models import infer_signature
 from metaflow import FlowSpec, step, card, Parameter, current, project
 
 # Local imports
-from common import process_ecg_data, preprocess_features
+from common import process_ecg_data, preprocess_features, process_save_cleaned_data
 from utils import load_ecg_data
 
 
@@ -36,10 +36,16 @@ class ECGTrainingFlow(FlowSpec):
         default=os.getenv("MLFLOW_TRACKING_URI", "https://127.0.0.1:5000"),
     )
 
-    hdf5_path = Parameter(
+    segmented_data_path = Parameter(
+        "segmented_data_path",
+        help="Path to the HDF5 file containing ECG data segmented",
+        default="../data/interim/ecg_data_segmented.h5",
+    )
+
+    cleaned_data_path = Parameter(
         "hdf5_path",
-        help="Path to the HDF5 file containing ECG data",
-        default="../data/interim/ecg_data.h5",
+        help="Path to the HDF5 file containing ECG data cleaned",
+        default="../data/interim/ecg_data_cleaned.h5",
     )
 
     features_path = Parameter(
@@ -84,14 +90,36 @@ class ECGTrainingFlow(FlowSpec):
         """
         Step 1: Load or process ECG data into HDF5.
         """
-        if os.path.exists(self.hdf5_path):
-            print(f"HDF5 file already exists at {self.hdf5_path}, skipping creation.")
+        if os.path.exists(self.segmented_data_path):
+            print(
+                f"HDF5 file already exists at {self.segmented_data_path}, skipping creation."
+            )
         else:
-            print(f"Processing raw ECG data -> creating {self.hdf5_path}...")
-            process_ecg_data(self.hdf5_path)
+            print(f"Processing raw ECG data -> creating {self.segmented_data_path}...")
+            process_ecg_data(self.segmented_data_path)
 
         # Load memory
-        self.data = load_ecg_data(self.hdf5_path)
+        self.data = load_ecg_data(self.segmented_data_path)
+        print(f"Loaded {len(self.data)} (participant, category) pairs.")
+        self.next(self.clean_data)
+
+    @step
+    def clean_data(self):
+        """
+        Clean the ECG segmented data.
+        """
+        if os.path.exists(self.cleaned_data_path):
+            print(
+                f"HDF5 cleaned data file already exists at {self.cleaned_data_path}, skipping creation."
+            )
+        else:
+            print(
+                f"Cleaning segmented ECG data -> creating {self.cleaned_data_path}..."
+            )
+            process_save_cleaned_data(self.segmented_data_path, self.cleaned_data_path)
+
+        # Load memory
+        self.data = load_ecg_data(self.cleaned_data_path)
         print(f"Loaded {len(self.data)} (participant, category) pairs.")
         self.next(self.extract_features)
 
