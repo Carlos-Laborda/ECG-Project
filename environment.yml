@@ -39,6 +39,7 @@ dependencies:
       - mlserver-mlflow
       - packaging
       - setuptools
+      - tensorflow
       - evidently
       - keras
       - scikit-learn
