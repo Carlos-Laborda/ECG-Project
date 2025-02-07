@@ -7,7 +7,9 @@ import numpy as np
 import pandas as pd
 import scipy.signal
 import scipy.stats
+import tensorflow as tf
 from scipy.signal import butter, filtfilt, iirnotch
+from tensorflow.keras import layers, models
 
 from config import CATEGORY_MAPPING, FOLDERPATH, OUTPUT_DIR_PATH
 from utils import load_ecg_data
@@ -305,30 +307,54 @@ def segment_data_into_windows(data, hdf5_path, fs=1000, window_size=10, step_siz
     step_size_samples = step_size * fs
 
     with h5py.File(hdf5_path, "w") as f_out:
-        for (participant_id, category), signal in data.items():
+        for (participant_id, category), signals in data.items():
             grp = f_out.require_group(f"participant_{participant_id}")
-
-            windows_list = sliding_window(
-                signal, window_size_samples, step_size_samples
-            )
-            if len(windows_list) == 0:
-                print(
-                    f"-> No windows for {participant_id}/{category} (too short?). Skipping."
-                )
+            all_windows = []
+            # Process each row in the 2D array separately
+            for idx, signal in enumerate(signals):
+                windows_list = sliding_window(signal, window_size_samples, step_size_samples)
+                if len(windows_list) == 0:
+                    print(f"-> No windows from row {idx} for {participant_id}/{category} (too short?).")
+                else:
+                    all_windows.extend(windows_list)
+            
+            if len(all_windows) == 0:
+                print(f"-> No windows for {participant_id}/{category} after processing all rows. Skipping.")
                 continue
 
-            windows_array = np.array(windows_list, dtype=np.float32)
+            windows_array = np.array(all_windows, dtype=np.float32)
             grp.create_dataset(
                 category, data=windows_array, compression="gzip", compression_opts=4
             )
-            print(
-                f"-> {participant_id}/{category}: {windows_array.shape[0]} windows stored."
-            )
+            print(f"-> {participant_id}/{category}: {windows_array.shape[0]} windows stored.")
     print(f"Segmented data saved to {hdf5_path}")
 
+# model
+def baseline_1DCNN(input_shape=(10000, 1), num_classes=2):
+    """
+    Build a simple 1D CNN for baseline ECG classification.
 
-data = load_ecg_data("../data/interim/ecg_data_cleaned.h5")
-hdf5_path = "../data/interim/windowed_data.h5"
-windowed_data = segment_data_into_windows(
-    data, hdf5_path, fs=1000, window_size=10, step_size=1
-)
+    Args:
+        input_shape (tuple): Shape of the input signal, e.g. (window_length, channels=1).
+        num_classes (int): Number of output classes.
+
+    Returns:
+        keras.Model: A compiled Keras model.
+    """
+    model = models.Sequential()
+    # First 1D convolution
+    model.add(
+        layers.Conv1D(
+            filters=16, kernel_size=3, activation="relu", input_shape=input_shape
+        )
+    )
+    model.add(layers.MaxPooling1D(pool_size=2))
+    # stack more convolutional layers
+    model.add(layers.Flatten())
+    model.add(layers.Dense(16, activation="relu"))
+    model.add(layers.Dense(num_classes, activation="softmax"))
+
+    model.compile(
+        optimizer="adam", loss="sparse_categorical_crossentropy", metrics=["accuracy"]
+    )
+    return model
