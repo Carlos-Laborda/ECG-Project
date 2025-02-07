@@ -4,6 +4,7 @@ import mlflow
 import mlflow.sklearn
 import pandas as pd
 import numpy as np
+import tensorflow as tf
 from pathlib import Path
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import StandardScaler
@@ -19,9 +20,10 @@ from common import (
     process_ecg_data,
     preprocess_features,
     process_save_cleaned_data,
-    segment_data_into_windows,
+    # segment_data_into_windows,
+    baseline_1DCNN,
 )
-from utils import load_ecg_data
+from utils import load_ecg_data, prepare_cnn_data
 
 
 @project(name="ecg_training")
@@ -54,7 +56,7 @@ class ECGTrainingFlow(FlowSpec):
     )
 
     window_data_path = Parameter(
-        "windowed_data",
+        "window_data_path",
         help="Path to the windowed data",
         default="../data/interim/windowed_data.h5",
     )
@@ -63,6 +65,18 @@ class ECGTrainingFlow(FlowSpec):
         "accuracy_threshold",
         help="Minimum accuracy threshold required to register the model",
         default=0.7,
+    )
+
+    num_epochs = Parameter(
+        "num_epochs",
+        help="Number of training epochs for each fold / final model training.",
+        default=5,
+    )
+
+    batch_size = Parameter(
+        "batch_size",
+        help="Batch size for CNN training.",
+        default=32,
     )
 
     @card
@@ -126,7 +140,7 @@ class ECGTrainingFlow(FlowSpec):
         # Load memory
         self.data = load_ecg_data(self.cleaned_data_path)
         print(f"Loaded {len(self.data)} (participant, category) pairs.")
-        self.next(self.extract_features)
+        self.next(self.segment_data_windows)
 
     @card
     @step
@@ -134,48 +148,43 @@ class ECGTrainingFlow(FlowSpec):
         """
         Segment the ECG data into windows.
         """
+        from common import segment_data_into_windows
+
         if os.path.exists(self.window_data_path):
             print(f"Windowed data file found at {self.window_data_path}, loading...")
         else:
             print("Segmenting ECG data into windows...")
+            self.data = load_ecg_data(self.cleaned_data_path)
+            self.fs = 1000
+            self.window_size = 10
+            self.step_size = 1
             segment_data_into_windows(
-                self.data, self.cleaned_data_path, fs=1000, window_size=10, step_size=1
+                self.data, self.window_data_path, fs=1000, window_size=10, step_size=1
             )
             print(f"Windowed data saved to {self.window_data_path}")
 
         self.data = load_ecg_data(self.window_data_path)
         print(f"Loaded {len(self.data)} (participant, category) pairs.")
-        self.next(self.extract_features)
+        self.next(self.prepare_data_for_cnn)
 
+    @card
     @step
-    def extract_features(self):
+    def prepare_data_for_cnn(self):
         """
-        Step 2: Extract features from the ECG data.
+        Step 5: Load the final windowed data from HDF5, build X, y, groups for the 1D CNN.
+        We'll use the new utility function: prepare_cnn_data.
         """
-        if os.path.exists(self.features_path):
-            print(f"Features file found at {self.features_path}, loading...")
-            self.features_df = pd.read_parquet(self.features_path)
-        else:
-            print("Extracting features from data...")
-            self.features_df = preprocess_features(
-                self.data, fs=1000, window_size=10, step_size=1
-            )
-            self.features_df.to_parquet(self.features_path, index=False)
-            print(f"Features saved to {self.features_path}")
-
-        print(f"Feature DataFrame shape: {self.features_df.shape}")
-
-        # Filter categories for baseline vs. high_physical_activity
-        df_filtered = self.features_df[
-            self.features_df["category"].isin(["high_physical_activity", "baseline"])
-        ].copy()
-        df_filtered["label"] = df_filtered["category"].map(
-            {"baseline": 0, "high_physical_activity": 1}
+        self.X, self.y, self.groups = prepare_cnn_data(
+            hdf5_path=self.window_data_path,
+            label_map={"baseline": 0, "high_physical_activity": 1},
         )
-        df_filtered.reset_index(drop=True, inplace=True)
+        print(
+            f"Windowed data loaded: X shape={self.X.shape}, y shape={self.y.shape}, groups len={len(self.groups)}"
+        )
 
-        self.df_filtered = df_filtered
-        self.next(self.prepare_cv, self.train)
+        # We'll do participant-level cross validation with these arrays
+        self.num_classes = 2
+        self.next(self.prepare_cv, self.train_final)
 
     @card
     @step
@@ -185,18 +194,8 @@ class ECGTrainingFlow(FlowSpec):
         """
         from sklearn.model_selection import GroupKFold
 
-        feature_cols = [
-            col
-            for col in self.df_filtered.columns
-            if col not in ["participant_id", "category", "label", "window_index"]
-        ]
-        self.X = self.df_filtered[feature_cols].values
-        self.y = self.df_filtered["label"].values
-        self.groups = self.df_filtered["participant_id"].values
-
         gkf = GroupKFold(n_splits=5)
         self.folds = list(enumerate(gkf.split(self.X, self.y, groups=self.groups)))
-
         self.next(self.cross_validate_fold, foreach="folds")
 
     @card
@@ -205,43 +204,45 @@ class ECGTrainingFlow(FlowSpec):
         """
         Step 4 (foreach): Train/evaluate a RandomForest for each participant-level fold.
         """
+        import mlflow
+        import tensorflow as tf
+
         fold_index, (train_idx, test_idx) = self.input
         self.fold_index = fold_index
-
-        # Prepare data
         X_train_fold = self.X[train_idx]
-        X_test_fold = self.X[test_idx]
         y_train_fold = self.y[train_idx]
+        X_test_fold = self.X[test_idx]
         y_test_fold = self.y[test_idx]
 
-        scaler = StandardScaler()
-        X_train_scaled = scaler.fit_transform(X_train_fold)
-        X_test_scaled = scaler.transform(X_test_fold)
-
-        # Start nested run for each fold
         mlflow.set_tracking_uri(self.mlflow_tracking_uri)
+
+        # Nested MLflow run for each fold
         with (
             mlflow.start_run(run_id=self.mlflow_run_id),
             mlflow.start_run(run_name=f"fold-{fold_index}", nested=True) as run,
         ):
             self.mlflow_fold_run_id = run.info.run_id
+
             mlflow.autolog(log_models=False)
-
-            model = RandomForestClassifier(random_state=42)
-            model.fit(X_train_scaled, y_train_fold)
-
-            y_pred_fold = model.predict(X_test_scaled)
-            self.fold_accuracy = accuracy_score(y_test_fold, y_pred_fold)
-
-            fold_report = classification_report(
-                y_test_fold, y_pred_fold, output_dict=True
+            model = baseline_1DCNN(
+                input_shape=(X_train_fold.shape[1], 1), num_classes=self.num_classes
             )
+
+            model.fit(
+                X_train_fold,
+                y_train_fold,
+                validation_data=(X_test_fold, y_test_fold),
+                epochs=self.num_epochs,
+                batch_size=self.batch_size,
+                verbose=0,
+            )
+
+            _, acc_test = model.evaluate(X_test_fold, y_test_fold, verbose=0)
+            self.fold_accuracy = float(acc_test)
+
             mlflow.log_metric(f"fold{fold_index}_accuracy", self.fold_accuracy)
-            mlflow.log_metric(
-                f"fold{fold_index}_f1_high_pa", fold_report["1"]["f1-score"]
-            )
 
-        print(f"Fold {fold_index} done. Accuracy={self.fold_accuracy:.3f}")
+        print(f"Fold {fold_index} -> accuracy={self.fold_accuracy:.3f}")
         self.next(self.join_folds)
 
     @card
@@ -279,25 +280,31 @@ class ECGTrainingFlow(FlowSpec):
 
     @card
     @step
-    def train(self):
+    def train_final(self):
         """
         Train a model on the entire dataset.
         """
-        mlflow.set_tracking_uri(self.mlflow_tracking_uri)
+        import tensorflow as tf
 
-        # # split data into features and labels
-        self.X = self.df_filtered.drop(
-            columns=["participant_id", "category", "label", "window_index"]
-        )
-        self.y = self.df_filtered["label"]
+        mlflow.set_tracking_uri(self.mlflow_tracking_uri)
 
         # Log the training process under the current MLflow run
         with mlflow.start_run(run_id=self.mlflow_run_id):
             mlflow.autolog(log_models=False)
 
             # Train a model on the entire dataset
-            self.model = RandomForestClassifier(random_state=42)
-            self.model.fit(self.X, self.y)
+            final_model = baseline_1DCNN(
+                input_shape=(self.X.shape[1], 1), num_classes=self.num_classes
+            )
+            final_model.fit(
+                self.X,
+                self.y,
+                epochs=self.num_epochs,
+                batch_size=self.batch_size,
+                verbose=0,
+            )
+
+            self.model = final_model
 
         # After training, register the model
         self.next(self.register)
@@ -313,11 +320,14 @@ class ECGTrainingFlow(FlowSpec):
 
         if self.cv_accuracy_mean >= self.accuracy_threshold:
             with mlflow.start_run(run_id=self.mlflow_run_id):
-                signature = infer_signature(self.X, self.model.predict(self.X))
-                mlflow.sklearn.log_model(
-                    sk_model=self.model,
+                sample_input = self.X[:5]
+                sample_output = self.model.predict(sample_input)
+                signature = infer_signature(sample_input, sample_output)
+
+                mlflow.keras.log_model(
+                    self.model,
                     artifact_path="model",
-                    registered_model_name="Test_RF",
+                    registered_model_name="baseline_1DCNN",
                     signature=signature,
                 )
                 print("Model successfully registered.")
