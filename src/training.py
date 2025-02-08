@@ -13,7 +13,7 @@ from sklearn.model_selection import GroupKFold
 from mlflow.models import infer_signature
 
 # Metaflow imports
-from metaflow import FlowSpec, step, card, Parameter, current, project
+from metaflow import FlowSpec, step, card, Parameter, current, project, environment
 
 # Local imports
 from common import (
@@ -199,6 +199,11 @@ class ECGTrainingFlow(FlowSpec):
         self.next(self.cross_validate_fold, foreach="folds")
 
     @card
+    @environment(
+        vars={
+            "KERAS_BACKEND": os.getenv("KERAS_BACKEND", "jax"),
+        },
+    )
     @step
     def cross_validate_fold(self):
         """
@@ -225,8 +230,7 @@ class ECGTrainingFlow(FlowSpec):
 
             mlflow.autolog(log_models=False)
             model = baseline_1DCNN(
-                input_shape=(X_train_fold.shape[1], 1), num_classes=self.num_classes
-            )
+                input_shape=(X_train_fold.shape[1], 1))
 
             model.fit(
                 X_train_fold,
@@ -279,12 +283,16 @@ class ECGTrainingFlow(FlowSpec):
         self.next(self.register)
 
     @card
+    @environment(
+        vars={
+            "KERAS_BACKEND": os.getenv("KERAS_BACKEND", "jax"),
+        },
+    )
     @step
     def train_final(self):
         """
         Train a model on the entire dataset.
         """
-        import tensorflow as tf
 
         mlflow.set_tracking_uri(self.mlflow_tracking_uri)
 
@@ -294,8 +302,7 @@ class ECGTrainingFlow(FlowSpec):
 
             # Train a model on the entire dataset
             final_model = baseline_1DCNN(
-                input_shape=(self.X.shape[1], 1), num_classes=self.num_classes
-            )
+                input_shape=(self.X.shape[1], 1))
             final_model.fit(
                 self.X,
                 self.y,
@@ -309,7 +316,11 @@ class ECGTrainingFlow(FlowSpec):
         # After training, register the model
         self.next(self.register)
 
-    @card
+    @environment(
+        vars={
+            "KERAS_BACKEND": os.getenv("KERAS_BACKEND", "jax"),
+        },
+    )
     @step
     def register(self, inputs):
         """Register the model if accuracy >= threshold"""

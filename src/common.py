@@ -14,9 +14,6 @@ from keras import layers, models, optimizers, losses, metrics
 from config import CATEGORY_MAPPING, FOLDERPATH, OUTPUT_DIR_PATH
 from utils import load_ecg_data
 
-
-
-
 # ------------------------------------------------------
 # 1) process_ecg_data with argument for HDF5 output path
 # ------------------------------------------------------
