@@ -118,8 +118,8 @@ class ECGTrainingFlow(FlowSpec):
             process_ecg_data(self.segmented_data_path)
 
         # Load memory
-        self.data = load_ecg_data(self.segmented_data_path)
-        print(f"Loaded {len(self.data)} (participant, category) pairs.")
+        #self.data = load_ecg_data(self.segmented_data_path)
+        #print(f"Loaded {len(self.data)} (participant, category) pairs.")
         self.next(self.clean_data)
 
     @step
@@ -138,8 +138,8 @@ class ECGTrainingFlow(FlowSpec):
             process_save_cleaned_data(self.segmented_data_path, self.cleaned_data_path)
 
         # Load memory
-        self.data = load_ecg_data(self.cleaned_data_path)
-        print(f"Loaded {len(self.data)} (participant, category) pairs.")
+        #self.data = load_ecg_data(self.cleaned_data_path)
+        #print(f"Loaded {len(self.data)} (participant, category) pairs.")
         self.next(self.segment_data_windows)
 
     @card
@@ -154,17 +154,17 @@ class ECGTrainingFlow(FlowSpec):
             print(f"Windowed data file found at {self.window_data_path}, loading...")
         else:
             print("Segmenting ECG data into windows...")
-            self.data = load_ecg_data(self.cleaned_data_path)
-            self.fs = 1000
-            self.window_size = 10
-            self.step_size = 1
+            #self.data = load_ecg_data(self.cleaned_data_path)
+            #self.fs = 1000
+            #self.window_size = 10
+            #self.step_size = 1
             segment_data_into_windows(
                 self.data, self.window_data_path, fs=1000, window_size=10, step_size=1
             )
             print(f"Windowed data saved to {self.window_data_path}")
 
-        self.data = load_ecg_data(self.window_data_path)
-        print(f"Loaded {len(self.data)} (participant, category) pairs.")
+        #self.data = load_ecg_data(self.window_data_path)
+        #print(f"Loaded {len(self.data)} (participant, category) pairs.")
         self.next(self.prepare_data_for_cnn)
 
     @card
@@ -210,7 +210,6 @@ class ECGTrainingFlow(FlowSpec):
         Step 4 (foreach): Train/evaluate a RandomForest for each participant-level fold.
         """
         import mlflow
-        import tensorflow as tf
 
         fold_index, (train_idx, test_idx) = self.input
         self.fold_index = fold_index
