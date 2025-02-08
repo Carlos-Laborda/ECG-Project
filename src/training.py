@@ -194,7 +194,7 @@ class ECGTrainingFlow(FlowSpec):
         """
         from sklearn.model_selection import GroupKFold
 
-        gkf = GroupKFold(n_splits=5)
+        gkf = GroupKFold(n_splits=2) # 2 splits for memory reasons
         self.folds = list(enumerate(gkf.split(self.X, self.y, groups=self.groups)))
         self.next(self.cross_validate_fold, foreach="folds")
 
