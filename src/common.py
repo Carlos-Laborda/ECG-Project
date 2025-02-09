@@ -349,3 +349,48 @@ def baseline_1DCNN(input_shape=(10000, 1)):
     )
 
     return model
+
+def baseline_1DCNN(input_shape=(10000, 1)):
+    """
+    Build a minimal 1D CNN for binary ECG classification.
+
+    Args:
+        input_shape (tuple): Shape of the input signal, e.g. (window_length, channels=1).
+
+    Returns:
+        keras.Model: A compiled Keras model with JAX as backend.
+    """
+    model = models.Sequential([
+        # Input layer
+        layers.Input(shape=input_shape),
+        
+        # First convolutional block
+        layers.Conv1D(32, kernel_size=5, activation="relu"),
+        layers.BatchNormalization(),
+        layers.MaxPooling1D(pool_size=2),
+        layers.Dropout(0.2),
+        
+        # Second convolutional block
+        layers.Conv1D(64, kernel_size=3, activation="relu"),
+        layers.BatchNormalization(),
+        layers.MaxPooling1D(pool_size=2),
+        layers.Dropout(0.2),
+        
+        # Third convolutional block
+        layers.Conv1D(128, kernel_size=3, activation="relu"),
+        layers.BatchNormalization(),
+        layers.GlobalAveragePooling1D(),
+        layers.Dropout(0.3),
+        
+        # Output layer
+        layers.Dense(64, activation="relu"),
+        layers.Dense(1, activation="sigmoid"),
+    ])
+
+    model.compile(
+        optimizer=optimizers.Adam(),
+        loss=losses.BinaryCrossentropy(),
+        metrics=[metrics.BinaryAccuracy()],
+    )
+
+    return model
