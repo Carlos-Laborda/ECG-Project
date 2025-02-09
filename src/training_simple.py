@@ -172,16 +172,36 @@ class ECGSimpleTrainingFlow(FlowSpec):
             )
             
             self.train_history = history.history
-            self.next(self.evaluate)
+            
+            logging.info(
+                "train_loss: %f - train_accuracy: %f",
+                history.history["loss"][-1],
+                history.history["binary_accuracy"][-1],
+            )
+            
+        self.next(self.evaluate)
 
     @card
     @step
     def evaluate(self):
         """Evaluate model performance"""
-        _, self.accuracy = self.model.evaluate(self.X_test, self.y_test, verbose=0)
-        print(f"\nTest accuracy: {self.accuracy:.3f}")
+        self.test_loss, self.test_accuracy = self.model.evaluate(
+            self.X_test, 
+            self.y_test, 
+            verbose=0,
+        )
+        print(f"\nTest accuracy: {self.test_accuracy:.3f}")
+        
+        logging.info(
+            "test_loss: %f - test_accuracy: %f",
+            self.test_loss,
+            self.test_accuracy,
+        )
 
-        mlflow.log_metric("test_accuracy", self.accuracy)
+        mlflow.log_metrics({
+            "test_loss": self.test_loss,
+            "test_accuracy": self.test_accuracy,
+        })
         self.next(self.register)
 
     @environment(vars={"KERAS_BACKEND": os.getenv("KERAS_BACKEND", "jax")})
@@ -190,7 +210,10 @@ class ECGSimpleTrainingFlow(FlowSpec):
         """Register model if accuracy meets threshold"""
         mlflow.set_tracking_uri(self.mlflow_tracking_uri)
 
-        if self.accuracy >= self.accuracy_threshold:
+        if self.test_accuracy >= self.accuracy_threshold:
+            self.registered = True
+            logging.info("Registering model...")
+            
             with mlflow.start_run(run_id=self.mlflow_run_id):
                 sample_input = self.X_test[:5]
                 sample_output = self.model.predict(sample_input)
@@ -199,12 +222,13 @@ class ECGSimpleTrainingFlow(FlowSpec):
                 mlflow.keras.log_model(
                     self.model,
                     artifact_path="model",
-                    registered_model_name="baseline_1DCNN_simple",
+                    registered_model_name="baseline_1DCNN",
                     signature=signature,
                 )
                 print("Model successfully registered!")
         else:
-            print(f"Model accuracy {self.accuracy:.3f} below threshold {self.accuracy_threshold}")
+            self.registered = False
+            print(f"Model accuracy {self.test_accuracy:.3f} below threshold {self.accuracy_threshold}")
         
         self.next(self.end)
 
@@ -213,7 +237,7 @@ class ECGSimpleTrainingFlow(FlowSpec):
     def end(self):
         """Finish the pipeline"""
         print("\n=== Training Pipeline Complete ===")
-        print(f"Final Test Accuracy: {self.accuracy:.3f}")
+        print(f"Final Test Accuracy: {self.test_accuracy:.3f}")
         print(f"Threshold: {self.accuracy_threshold}")
         print("Done!")
 
