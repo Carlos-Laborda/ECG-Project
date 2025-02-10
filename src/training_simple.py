@@ -11,6 +11,7 @@ from common import (
     process_ecg_data,
     process_save_cleaned_data,
     baseline_1DCNN,
+    baseline_1DCNN_improved,
 )
 from utils import load_ecg_data, prepare_cnn_data
 
@@ -59,7 +60,7 @@ class ECGSimpleTrainingFlow(FlowSpec):
     num_epochs = Parameter(
         "num_epochs",
         help="Training epochs",
-        default=10,
+        default=5,
     )
 
     batch_size = Parameter(
@@ -160,7 +161,7 @@ class ECGSimpleTrainingFlow(FlowSpec):
         with mlflow.start_run(run_id=self.mlflow_run_id):
             mlflow.autolog(log_models=False)
             
-            self.model = baseline_1DCNN(input_shape=(self.X_train.shape[1], 1))
+            self.model = baseline_1DCNN_improved(input_shape=(self.X_train.shape[1], 1))
             
             history = self.model.fit(
                 self.X_train,
