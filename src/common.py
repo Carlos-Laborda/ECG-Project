@@ -9,7 +9,7 @@ import scipy.signal
 import scipy.stats
 import keras
 from scipy.signal import butter, filtfilt, iirnotch
-from keras import layers, models, optimizers, losses, metrics
+from keras import Input, layers, models, optimizers, losses, metrics
 
 from config import CATEGORY_MAPPING, FOLDERPATH, OUTPUT_DIR_PATH
 from utils import load_ecg_data
@@ -343,7 +343,7 @@ def baseline_1DCNN(input_shape=(10000, 1)):
     ])
 
     model.compile(
-        optimizer=optimizers.Adam(),
+        optimizer=optimizers.Adam(learning_rate=0.01),
         loss=losses.BinaryCrossentropy(),
         metrics=[metrics.BinaryAccuracy()],
     )
@@ -391,6 +391,32 @@ def baseline_1DCNN_improved(input_shape=(10000, 1)):
         optimizer=optimizers.Adam(),
         loss=losses.BinaryCrossentropy(),
         metrics=[metrics.BinaryAccuracy()],
+    )
+
+    return model
+
+def neural_network(input_shape=(10000, 1)):
+    """Build and compile the neural network to predict the species of a penguin."""
+
+    model = models.Sequential([
+        # Reshape input to be 1D
+        layers.Reshape((input_shape,), input_shape=(input_shape,)),
+        
+        # Dense layers
+        layers.Dense(128, activation="relu"),
+        layers.Dropout(0.3),
+        layers.Dense(64, activation="relu"),
+        layers.Dropout(0.2),
+        layers.Dense(32, activation="relu"),
+        
+        # Output layer for binary classification
+        layers.Dense(1, activation="sigmoid")
+    ])
+
+    model.compile(
+        optimizer=optimizers.Adam(learning_rate=0.01),  # Changed to Adam
+        loss="binary_crossentropy",
+        metrics=["binary_accuracy"]
     )
 
     return model
