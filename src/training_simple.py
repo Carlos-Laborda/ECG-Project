@@ -137,17 +137,51 @@ class ECGSimpleTrainingFlow(FlowSpec):
     @step
     def prepare_data_for_cnn(self):
         """Prepare data for CNN training"""
-        self.X, self.y, _ = prepare_cnn_data(
+        self.X, self.y, self.groups = prepare_cnn_data(
             hdf5_path=self.window_data_path,
             label_map={"baseline": 0, "high_physical_activity": 1},
         )
         print(f"Data loaded: X shape={self.X.shape}, y shape={self.y.shape}")
 
-        # Split into train/test
-        self.X_train, self.X_test, self.y_train, self.y_test = train_test_split(
-            self.X, self.y, test_size=self.test_size, random_state=42
+        # Get unique participants
+        unique_participants = np.unique(self.groups)
+        n_participants = len(unique_participants)
+        n_train = int(n_participants * 0.8)  # 80% for training
+        
+        # Randomly select participants for train/test (with fixed seed for reproducibility)
+        np.random.seed(42)
+        train_participants = np.random.choice(
+            unique_participants, 
+            size=n_train, 
+            replace=False
         )
+        test_participants = np.array([
+            p for p in unique_participants if p not in train_participants
+        ])
+        
+        # Create masks for train/test split
+        train_mask = np.isin(self.groups, train_participants)
+        test_mask = np.isin(self.groups, test_participants)
+        
+        # Split the data
+        self.X_train = self.X[train_mask]
+        self.y_train = self.y[train_mask]
+        self.X_test = self.X[test_mask]
+        self.y_test = self.y[test_mask]
+        
+        # Print detailed information about the split
+        print("\nParticipant-level split details:")
+        print(f"Total participants: {n_participants}")
+        print(f"Training participants: {len(train_participants)} ({train_participants})")
+        print(f"Test participants: {len(test_participants)} ({test_participants})")
         print(f"Train size: {len(self.X_train)}, Test size: {len(self.X_test)}")
+        
+        # Print class distribution for both sets
+        train_dist = np.bincount(self.y_train) / len(self.y_train)
+        test_dist = np.bincount(self.y_test) / len(self.y_test)
+        print("\nClass distribution:")
+        print(f"Train - baseline: {train_dist[0]:.2f}, high activity: {train_dist[1]:.2f}")
+        print(f"Test  - baseline: {test_dist[0]:.2f}, high activity: {test_dist[1]:.2f}")
         
         self.next(self.train_model)
 
@@ -161,7 +195,7 @@ class ECGSimpleTrainingFlow(FlowSpec):
         with mlflow.start_run(run_id=self.mlflow_run_id):
             mlflow.autolog(log_models=False)
             
-            self.model = baseline_1DCNN_improved(input_shape=(self.X_train.shape[1], 1))
+            self.model = baseline_1DCNN(input_shape=(self.X_train.shape[1], 1))
             
             history = self.model.fit(
                 self.X_train,
