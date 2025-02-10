@@ -1,5 +1,6 @@
 import os
 import logging
+import keras
 import mlflow
 import mlflow.sklearn
 import numpy as np
@@ -12,6 +13,7 @@ from common import (
     process_save_cleaned_data,
     baseline_1DCNN,
     baseline_1DCNN_improved,
+    neural_network,
 )
 from utils import load_ecg_data, prepare_cnn_data
 
@@ -60,7 +62,7 @@ class ECGSimpleTrainingFlow(FlowSpec):
     num_epochs = Parameter(
         "num_epochs",
         help="Training epochs",
-        default=5,
+        default=25,
     )
 
     batch_size = Parameter(
@@ -139,7 +141,7 @@ class ECGSimpleTrainingFlow(FlowSpec):
         """Prepare data for CNN training"""
         self.X, self.y, self.groups = prepare_cnn_data(
             hdf5_path=self.window_data_path,
-            label_map={"baseline": 0, "high_physical_activity": 1},
+            label_map={"baseline": 0, "mental_stress": 1},
         )
         print(f"Data loaded: X shape={self.X.shape}, y shape={self.y.shape}")
 
@@ -169,19 +171,19 @@ class ECGSimpleTrainingFlow(FlowSpec):
         self.X_test = self.X[test_mask]
         self.y_test = self.y[test_mask]
         
-        # Print detailed information about the split
-        print("\nParticipant-level split details:")
-        print(f"Total participants: {n_participants}")
-        print(f"Training participants: {len(train_participants)} ({train_participants})")
-        print(f"Test participants: {len(test_participants)} ({test_participants})")
-        print(f"Train size: {len(self.X_train)}, Test size: {len(self.X_test)}")
+        # # Print detailed information about the split
+        # print("\nParticipant-level split details:")
+        # print(f"Total participants: {n_participants}")
+        # print(f"Training participants: {len(train_participants)} ({train_participants})")
+        # print(f"Test participants: {len(test_participants)} ({test_participants})")
+        # print(f"Train size: {len(self.X_train)}, Test size: {len(self.X_test)}")
         
-        # Print class distribution for both sets
-        train_dist = np.bincount(self.y_train) / len(self.y_train)
-        test_dist = np.bincount(self.y_test) / len(self.y_test)
-        print("\nClass distribution:")
-        print(f"Train - baseline: {train_dist[0]:.2f}, high activity: {train_dist[1]:.2f}")
-        print(f"Test  - baseline: {test_dist[0]:.2f}, high activity: {test_dist[1]:.2f}")
+        # # Print class distribution for both sets
+        # train_dist = np.bincount(self.y_train) / len(self.y_train)
+        # test_dist = np.bincount(self.y_test) / len(self.y_test)
+        # print("\nClass distribution:")
+        # print(f"Train - baseline: {train_dist[0]:.2f}, high activity: {train_dist[1]:.2f}")
+        # print(f"Test  - baseline: {test_dist[0]:.2f}, high activity: {test_dist[1]:.2f}")
         
         self.next(self.train_model)
 
@@ -195,15 +197,27 @@ class ECGSimpleTrainingFlow(FlowSpec):
         with mlflow.start_run(run_id=self.mlflow_run_id):
             mlflow.autolog(log_models=False)
             
-            self.model = baseline_1DCNN(input_shape=(self.X_train.shape[1], 1))
+            #self.model = baseline_1DCNN(input_shape=(self.X_train.shape[1], 1))
+            # Get input shape from data
+            n_features = self.X_train.shape[1]
+            self.model = neural_network(n_features)
+            
+            # Custom callback for clearer logging
+            class MLflowMetricsCallback(keras.callbacks.Callback):
+                def on_epoch_end(self, epoch, logs=None):
+                    print(f"\nEpoch {epoch + 1}/{self.params['epochs']}")
+                    print("Batch-level metrics (averaged):")
+                    print(f"├── Train accuracy: {logs['binary_accuracy']:.4f}")
+                    print(f"└── Train loss: {logs['loss']:.4f}")
             
             history = self.model.fit(
                 self.X_train,
                 self.y_train,
-                validation_data=(self.X_test, self.y_test),
+                #validation_data=(self.X_test, self.y_test),
                 epochs=self.num_epochs,
                 batch_size=self.batch_size,
-                verbose=1
+                verbose=0,
+                callbacks=[MLflowMetricsCallback()],
             )
             
             self.train_history = history.history
@@ -220,6 +234,8 @@ class ECGSimpleTrainingFlow(FlowSpec):
     @step
     def evaluate(self):
         """Evaluate model performance"""
+        mlflow.set_tracking_uri(self.mlflow_tracking_uri)
+        
         self.test_loss, self.test_accuracy = self.model.evaluate(
             self.X_test, 
             self.y_test, 
@@ -236,7 +252,7 @@ class ECGSimpleTrainingFlow(FlowSpec):
         mlflow.log_metrics({
             "test_loss": self.test_loss,
             "test_accuracy": self.test_accuracy,
-        })
+        }, run_id=self.mlflow_run_id)
         self.next(self.register)
 
     @environment(vars={"KERAS_BACKEND": os.getenv("KERAS_BACKEND", "jax")})
