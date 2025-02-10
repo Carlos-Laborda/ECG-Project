@@ -350,7 +350,7 @@ def baseline_1DCNN(input_shape=(10000, 1)):
 
     return model
 
-def baseline_1DCNN(input_shape=(10000, 1)):
+def baseline_1DCNN_improved(input_shape=(10000, 1)):
     """
     Build a minimal 1D CNN for binary ECG classification.
 
