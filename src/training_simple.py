@@ -197,10 +197,10 @@ class ECGSimpleTrainingFlow(FlowSpec):
         with mlflow.start_run(run_id=self.mlflow_run_id):
             mlflow.autolog(log_models=False)
             
-            #self.model = baseline_1DCNN(input_shape=(self.X_train.shape[1], 1))
+            self.model = baseline_1DCNN(input_shape=(self.X_train.shape[1], 1))
             # Get input shape from data
-            n_features = self.X_train.shape[1]
-            self.model = neural_network(n_features)
+            #n_features = self.X_train.shape[1]
+            #self.model = neural_network(n_features)
             
             # Custom callback for clearer logging
             class MLflowMetricsCallback(keras.callbacks.Callback):
