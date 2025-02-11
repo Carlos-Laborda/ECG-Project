@@ -343,7 +343,7 @@ def baseline_1DCNN(input_shape=(10000, 1)):
     ])
 
     model.compile(
-        optimizer=optimizers.Adam(learning_rate=0.01),
+        optimizer=optimizers.Adam(learning_rate=0.001),
         loss=losses.BinaryCrossentropy(),
         metrics=[metrics.BinaryAccuracy()],
     )
