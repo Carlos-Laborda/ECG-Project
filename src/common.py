@@ -368,32 +368,85 @@ def baseline_1DCNN_improved(input_shape=(10000, 1)):
         layers.Conv1D(32, kernel_size=5, activation="relu"),
         layers.BatchNormalization(),
         layers.MaxPooling1D(pool_size=2),
-        layers.Dropout(0.2),
+        layers.Dropout(0.3),
         
         # Second convolutional block
         layers.Conv1D(64, kernel_size=3, activation="relu"),
         layers.BatchNormalization(),
         layers.MaxPooling1D(pool_size=2),
-        layers.Dropout(0.2),
+        layers.Dropout(0.3),
         
         # Third convolutional block
         layers.Conv1D(128, kernel_size=3, activation="relu"),
         layers.BatchNormalization(),
         layers.GlobalAveragePooling1D(),
-        layers.Dropout(0.3),
+        layers.Dropout(0.4),
         
-        # Output layer
-        layers.Dense(64, activation="relu"),
-        layers.Dense(1, activation="sigmoid"),
+        # Reduced dense layers
+        layers.Dense(64, activation="relu", 
+                    kernel_regularizer=keras.regularizers.l2(0.01)),
+        layers.Dense(1, activation="sigmoid")
     ])
 
     model.compile(
-        optimizer=optimizers.Adam(learning_rate=0.0001),
+        optimizer=optimizers.Adam(learning_rate=0.001),
         loss=losses.BinaryCrossentropy(),
         metrics=[metrics.BinaryAccuracy()],
     )
 
     return model
+
+# def baseline_1DCNN_improved(input_shape=(10000, 1)):
+#     """
+#     Build a 1D CNN for binary ECG classification with improved generalization.
+
+#     Args:
+#         input_shape (tuple): Shape of the input signal (window_length, channels=1)
+
+#     Returns:
+#         keras.Model: Compiled Keras model optimized for generalization
+#     """
+#     model = models.Sequential([
+#         # Input layer
+#         layers.Input(shape=input_shape),
+        
+#         # First convolutional block - reduced complexity
+#         layers.Conv1D(16, kernel_size=7, activation="relu", padding='same'),
+#         layers.BatchNormalization(),
+#         layers.MaxPooling1D(pool_size=4),
+#         layers.Dropout(0.3),
+        
+#         # Second convolutional block - moderate size
+#         layers.Conv1D(32, kernel_size=5, activation="relu", padding='same'),
+#         layers.BatchNormalization(),
+#         layers.MaxPooling1D(pool_size=4),
+#         layers.Dropout(0.3),
+        
+#         # Final convolutional block - keep it small
+#         layers.Conv1D(64, kernel_size=3, activation="relu", padding='same'),
+#         layers.BatchNormalization(),
+#         layers.GlobalAveragePooling1D(),
+#         layers.Dropout(0.4),
+        
+#         # Reduced dense layers
+#         layers.Dense(32, activation="relu", 
+#                     kernel_regularizer=keras.regularizers.l2(0.01)),
+#         layers.Dense(1, activation="sigmoid")
+#     ])
+
+#     model.compile(
+#         optimizer=optimizers.Adam(
+#             learning_rate=0.001,  # Increased learning rate
+#             clipnorm=1.0  # Gradient clipping
+#         ),
+#         loss=losses.BinaryCrossentropy(label_smoothing=0.1),  # Label smoothing
+#         metrics=[
+#             metrics.BinaryAccuracy(),
+#             metrics.AUC(),  # Added ROC-AUC monitoring
+#         ]
+#     )
+
+#     return model
 
 def neural_network(input_shape=(10000, 1)):
     """Build and compile the neural network to predict the species of a penguin."""
