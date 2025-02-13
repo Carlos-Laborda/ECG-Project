@@ -138,7 +138,7 @@ class ECGSimpleTrainingFlow(FlowSpec):
     @card
     @step
     def prepare_data_for_cnn(self):
-        """Prepare data for CNN training"""
+        """Prepare data for CNN training with validation split"""
         self.X, self.y, self.groups = prepare_cnn_data(
             hdf5_path=self.window_data_path,
             label_map={"baseline": 0, "mental_stress": 1},
@@ -148,42 +148,50 @@ class ECGSimpleTrainingFlow(FlowSpec):
         # Get unique participants
         unique_participants = np.unique(self.groups)
         n_participants = len(unique_participants)
-        n_train = int(n_participants * 0.8)  # 80% for training
         
-        # Randomly select participants for train/test (with fixed seed for reproducibility)
+        # Split participants: 60% train, 20% validation, 20% test
+        n_train = int(n_participants * 0.6)
+        n_val = int(n_participants * 0.2)
+        
+        # Randomly select participants with fixed seed
         np.random.seed(42)
         train_participants = np.random.choice(
             unique_participants, 
             size=n_train, 
             replace=False
         )
-        test_participants = np.array([
+        
+        remaining_participants = np.array([
             p for p in unique_participants if p not in train_participants
         ])
         
-        # Create masks for train/test split
+        val_participants = np.random.choice(
+            remaining_participants,
+            size=n_val,
+            replace=False
+        )
+        
+        test_participants = np.array([
+            p for p in remaining_participants if p not in val_participants
+        ])
+        
+        # Create masks for splits
         train_mask = np.isin(self.groups, train_participants)
+        val_mask = np.isin(self.groups, val_participants)
         test_mask = np.isin(self.groups, test_participants)
         
         # Split the data
         self.X_train = self.X[train_mask]
         self.y_train = self.y[train_mask]
+        self.X_val = self.X[val_mask]
+        self.y_val = self.y[val_mask]
         self.X_test = self.X[test_mask]
         self.y_test = self.y[test_mask]
         
-        # # Print detailed information about the split
-        # print("\nParticipant-level split details:")
-        # print(f"Total participants: {n_participants}")
-        # print(f"Training participants: {len(train_participants)} ({train_participants})")
-        # print(f"Test participants: {len(test_participants)} ({test_participants})")
-        # print(f"Train size: {len(self.X_train)}, Test size: {len(self.X_test)}")
-        
-        # # Print class distribution for both sets
-        # train_dist = np.bincount(self.y_train) / len(self.y_train)
-        # test_dist = np.bincount(self.y_test) / len(self.y_test)
-        # print("\nClass distribution:")
-        # print(f"Train - baseline: {train_dist[0]:.2f}, high activity: {train_dist[1]:.2f}")
-        # print(f"Test  - baseline: {test_dist[0]:.2f}, high activity: {test_dist[1]:.2f}")
+        print("\nData split sizes:")
+        print(f"Train: {len(self.X_train)} samples")
+        print(f"Validation: {len(self.X_val)} samples")
+        print(f"Test: {len(self.X_test)} samples")
         
         self.next(self.train_model)
 
@@ -197,7 +205,7 @@ class ECGSimpleTrainingFlow(FlowSpec):
         with mlflow.start_run(run_id=self.mlflow_run_id):
             mlflow.autolog(log_models=False)
             
-            self.model = baseline_1DCNN_improved(input_shape=(self.X_train.shape[1], 1))
+            self.model = baseline_1DCNN(input_shape=(self.X_train.shape[1], 1))
             # Get input shape from data
             #n_features = self.X_train.shape[1]
             #self.model = neural_network(n_features)
@@ -206,14 +214,16 @@ class ECGSimpleTrainingFlow(FlowSpec):
             class MLflowMetricsCallback(keras.callbacks.Callback):
                 def on_epoch_end(self, epoch, logs=None):
                     print(f"\nEpoch {epoch + 1}/{self.params['epochs']}")
-                    print("Batch-level metrics (averaged):")
+                    print("Metrics:")
                     print(f"├── Train accuracy: {logs['binary_accuracy']:.4f}")
-                    print(f"└── Train loss: {logs['loss']:.4f}")
+                    print(f"├── Train loss: {logs['loss']:.4f}")
+                    print(f"├── Val accuracy: {logs['val_binary_accuracy']:.4f}")
+                    print(f"└── Val loss: {logs['val_loss']:.4f}")
             
             history = self.model.fit(
                 self.X_train,
                 self.y_train,
-                #validation_data=(self.X_test, self.y_test),
+                validation_data=(self.X_val, self.y_val),
                 epochs=self.num_epochs,
                 batch_size=self.batch_size,
                 verbose=0,
@@ -223,9 +233,11 @@ class ECGSimpleTrainingFlow(FlowSpec):
             self.train_history = history.history
             
             logging.info(
-                "train_loss: %f - train_accuracy: %f",
+                "train_loss: %f - train_accuracy: %f - val_loss: %f - val_accuracy: %f",
                 history.history["loss"][-1],
                 history.history["binary_accuracy"][-1],
+                history.history["val_loss"][-1],
+                history.history["val_binary_accuracy"][-1],
             )
             
         self.next(self.evaluate)
