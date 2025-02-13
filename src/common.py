@@ -9,7 +9,7 @@ import scipy.signal
 import scipy.stats
 import keras
 from scipy.signal import butter, filtfilt, iirnotch
-from keras import Input, layers, models, optimizers, losses, metrics
+from keras import Input, layers, models, optimizers, losses, metrics, regularizers
 
 from config import CATEGORY_MAPPING, FOLDERPATH, OUTPUT_DIR_PATH
 from utils import load_ecg_data
@@ -351,47 +351,46 @@ def baseline_1DCNN(input_shape=(10000, 1)):
     return model
 
 def baseline_1DCNN_improved(input_shape=(10000, 1)):
-    """
-    Build a minimal 1D CNN for binary ECG classification.
+    model = models.Sequential()
 
-    Args:
-        input_shape (tuple): Shape of the input signal, e.g. (window_length, channels=1).
+    # First conv block
+    model.add(layers.Conv1D(filters=16, kernel_size=3,
+                            kernel_regularizer=regularizers.l2(0.001),
+                            padding='same',
+                            activation='relu',
+                            input_shape=input_shape))
+    model.add(layers.BatchNormalization())
+    model.add(layers.SpatialDropout1D(0.2))
+    model.add(layers.MaxPooling1D(pool_size=2))
 
-    Returns:
-        keras.Model: A compiled Keras model with JAX as backend.
-    """
-    model = models.Sequential([
-        # Input layer
-        layers.Input(shape=input_shape),
-        
-        # First convolutional block
-        layers.Conv1D(32, kernel_size=5, activation="relu"),
-        layers.BatchNormalization(),
-        layers.MaxPooling1D(pool_size=2),
-        layers.Dropout(0.3),
-        
-        # Second convolutional block
-        layers.Conv1D(64, kernel_size=3, activation="relu"),
-        layers.BatchNormalization(),
-        layers.MaxPooling1D(pool_size=2),
-        layers.Dropout(0.3),
-        
-        # Third convolutional block
-        layers.Conv1D(128, kernel_size=3, activation="relu"),
-        layers.BatchNormalization(),
-        layers.GlobalAveragePooling1D(),
-        layers.Dropout(0.4),
-        
-        # Reduced dense layers
-        layers.Dense(64, activation="relu", 
-                    kernel_regularizer=keras.regularizers.l2(0.01)),
-        layers.Dense(1, activation="sigmoid")
-    ])
+    # Second conv block
+    model.add(layers.Conv1D(filters=32, kernel_size=3,
+                            kernel_regularizer=regularizers.l2(0.001),
+                            padding='same',
+                            activation='relu'))
+    model.add(layers.BatchNormalization())
+    model.add(layers.SpatialDropout1D(0.2))
+    model.add(layers.MaxPooling1D(pool_size=2))
+
+    # Third conv block (optional deeper)
+    model.add(layers.Conv1D(filters=64, kernel_size=3,
+                            kernel_regularizer=regularizers.l2(0.001),
+                            padding='same',
+                            activation='relu'))
+    model.add(layers.BatchNormalization())
+    model.add(layers.SpatialDropout1D(0.3))
+    model.add(layers.GlobalAveragePooling1D())
+
+    # Dense classifier
+    model.add(layers.Dense(32, activation='relu',
+                           kernel_regularizer=regularizers.l2(0.001)))
+    model.add(layers.Dropout(0.5))
+    model.add(layers.Dense(1, activation='sigmoid'))
 
     model.compile(
-        optimizer=optimizers.Adam(learning_rate=0.0001),
-        loss=losses.BinaryCrossentropy(),
-        metrics=[metrics.BinaryAccuracy()],
+        optimizer=optimizers.Adam(learning_rate=1e-4),
+        loss=losses.BinaryCrossentropy(label_smoothing=0.1),
+        metrics=[metrics.BinaryAccuracy()]
     )
 
     return model
