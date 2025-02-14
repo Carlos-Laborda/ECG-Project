@@ -5,7 +5,6 @@ import mlflow
 import mlflow.sklearn
 import numpy as np
 from metaflow import FlowSpec, step, card, Parameter, current, project, environment
-from sklearn.model_selection import train_test_split
 from mlflow.models import infer_signature
 
 from common import (
