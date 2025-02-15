@@ -420,3 +420,38 @@ def neural_network(input_shape=(10000, 1)):
     )
 
     return model
+
+def baseline_LSTM(input_shape=(10000, 1)):
+    """
+    Build a simple LSTM model for binary ECG classification.
+    
+    Args:
+        input_shape (tuple): Shape of input signal (window_length, channels)
+        
+    Returns:
+        keras.Model: Compiled Keras model with LSTM architecture
+    """
+    model = models.Sequential([
+        # LSTM layers
+        layers.LSTM(64, return_sequences=True, 
+                   input_shape=input_shape),
+        layers.BatchNormalization(),
+        layers.Dropout(0.2),
+        
+        # Second LSTM layer
+        layers.LSTM(32),
+        layers.BatchNormalization(),
+        layers.Dropout(0.2),
+        
+        # Dense layers for classification
+        layers.Dense(16, activation='relu'),
+        layers.Dense(1, activation='sigmoid')
+    ])
+    
+    model.compile(
+        optimizer=optimizers.Adam(learning_rate=0.001),
+        loss=losses.BinaryCrossentropy(),
+        metrics=[metrics.BinaryAccuracy()]
+    )
+    
+    return model
