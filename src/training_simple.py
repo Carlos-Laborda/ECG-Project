@@ -71,12 +71,6 @@ class ECGSimpleTrainingFlow(FlowSpec):
         default=32,
     )
 
-    test_size = Parameter(
-        "test_size",
-        help="Proportion of data for testing",
-        default=0.2,
-    )
-
     @card
     @step
     def start(self):
