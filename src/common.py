@@ -46,7 +46,7 @@ def process_ecg_data(hdf5_path):
 
     # Create or overwrite HDF5 file
     with h5py.File(hdf5_path, "w") as f:
-        for p, participant_id in enumerate(participants[:40]):  # first 10 participants
+        for p, participant_id in enumerate(participants[:20]):  # first 20 participants
             print(
                 f"Processing Participant {participant_id} ({p + 1}/{len(participants)})"
             )
@@ -372,7 +372,7 @@ def baseline_1DCNN_improved(input_shape=(10000, 1)):
     model.add(layers.SpatialDropout1D(0.2))
     model.add(layers.MaxPooling1D(pool_size=2))
 
-    # Third conv block (optional deeper)
+    # Third conv block
     model.add(layers.Conv1D(filters=64, kernel_size=3,
                             kernel_regularizer=regularizers.l2(0.001),
                             padding='same',
@@ -414,7 +414,7 @@ def neural_network(input_shape=(10000, 1)):
     ])
 
     model.compile(
-        optimizer=optimizers.Adam(learning_rate=0.01),  # Changed to Adam
+        optimizer=optimizers.Adam(learning_rate=0.01), 
         loss="binary_crossentropy",
         metrics=["binary_accuracy"]
     )
