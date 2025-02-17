@@ -3,6 +3,7 @@ import logging
 import keras
 import mlflow
 import mlflow.sklearn
+import mlflow.keras 
 import numpy as np
 from metaflow import FlowSpec, step, card, Parameter, current, project, environment
 from mlflow.models import infer_signature
