@@ -3,6 +3,7 @@ import h5py
 import matplotlib.pyplot as plt
 import seaborn as sns
 from collections import Counter
+from scipy.signal import find_peaks  
 
 from utils import prepare_cnn_data
 
@@ -96,10 +97,56 @@ def exploratory_analysis_ecg(hdf5_path, label_map=None):
     # RMS
     print_stats("Baseline (RMS)", baseline_rms)
     print_stats("Mental stress (RMS)", stress_rms)
+    
+    peak_counts_baseline = []
+    peak_counts_stress = []
+    
+    # Parameters for peak detection 
+    height = np.mean(X_2d) + 0.5 * np.std(X_2d)  # Minimum peak height
+    distance = 20  # Minimum samples between peaks
+    
+    for window in X_2d[baseline_mask]:
+        peaks, _ = find_peaks(window, height=height, distance=distance)
+        peak_counts_baseline.append(len(peaks))
+        
+    for window in X_2d[stress_mask]:
+        peaks, _ = find_peaks(window, height=height, distance=distance)
+        peak_counts_stress.append(len(peaks))
+    
+    peak_counts_baseline = np.array(peak_counts_baseline)
+    peak_counts_stress = np.array(peak_counts_stress)
+    
+    print("\n---- Peak Analysis ----")
+    print("Baseline peaks per window:")
+    print(f"  Mean: {np.mean(peak_counts_baseline):.2f}")
+    print(f"  Std:  {np.std(peak_counts_baseline):.2f}")
+    print("Mental stress peaks per window:")
+    print(f"  Mean: {np.mean(peak_counts_stress):.2f}")
+    print(f"  Std:  {np.std(peak_counts_stress):.2f}")
+    
+    # Add a boxplot for peak counts
+    plt.figure(figsize=(10, 4))
+    sns.boxplot(
+        x=['baseline'] * len(peak_counts_baseline) + ['mental_stress'] * len(peak_counts_stress),
+        y=np.concatenate([peak_counts_baseline, peak_counts_stress])
+    )
+    plt.title("Distribution of Peak Counts in Windows")
+    plt.ylabel("Number of peaks")
+    plt.show()
+    
+    # Example plot of peak detection for one window
+    example_idx = np.random.choice(len(X_2d))
+    example_window = X_2d[example_idx]
+    example_peaks, _ = find_peaks(example_window, height=height, distance=distance)
+    
+    plt.figure(figsize=(15, 4))
+    plt.plot(example_window)
+    plt.plot(example_peaks, example_window[example_peaks], "x", label="peaks")
+    plt.title(f"Peak Detection Example ({'baseline' if y[example_idx] == label_map['baseline'] else 'mental stress'})")
+    plt.legend()
+    plt.show()
 
     # 5) Some plots
-    # We'll demonstrate range & RMS as examples
-
     # (a) Boxplot of range
     plt.figure(figsize=(10, 4))
     sns.boxplot(
