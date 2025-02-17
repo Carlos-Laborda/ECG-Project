@@ -6,103 +6,123 @@ from collections import Counter
 
 from utils import prepare_cnn_data
 
-def exploratory_analysis(hdf5_path, label_map=None):
+def exploratory_analysis_ecg(hdf5_path, label_map=None):
     """
-    Loads the windowed ECG data with `prepare_cnn_data` and performs
-    exploratory data analysis comparing 'baseline' vs. 'mental_stress' windows.
+    Loads windowed ECG data with prepare_cnn_data and performs
+    extended EDA on various per-window stats, comparing baseline vs. mental stress.
     """
     if label_map is None:
         label_map = {"baseline": 0, "mental_stress": 1}
-    
-    # ---------------------------
-    # 1) Load data via prepare_cnn_data
-    # ---------------------------
+
+    # 1) Load data
     X, y, groups = prepare_cnn_data(hdf5_path, label_map=label_map)
+    # X shape: (N, window_length, 1)
+    # Flatten out the last channel => (N, window_length)
+    X_2d = X[..., 0]
 
     print("---- Data Shapes ----")
     print(f"X shape: {X.shape}   (N, window_length, 1)")
     print(f"y shape: {y.shape}   (N,)")
     print(f"groups shape: {groups.shape}")
-    X_2d = X[..., 0]  # shape (N, window_length)
 
-    # ---------------------------
     # 2) Label distribution
-    # ---------------------------
     print("\n---- Label Distribution ----")
     label_counts = Counter(y)
     for label_val, count_val in label_counts.items():
         label_name = [k for k, v in label_map.items() if v == label_val]
         label_str = label_name[0] if label_name else f"label_{label_val}"
         print(f"{label_str}: {count_val} samples")
-    # e.g. baseline: XXX, mental_stress: YYY
 
-    # ---------------------------
-    # 3) Basic descriptive stats per label
-    # ---------------------------
-
-    # 2) Quick data check: random sample
+    # 3) Quick data check
     idx = np.random.choice(X_2d.shape[0])
     print(f"\nRandom sample index: {idx}")
     print("First 30 samples of that window:", X_2d[idx, :30])
-
     print("Global min:", X_2d.min())
     print("Global max:", X_2d.max())
     print("Global mean:", np.mean(X_2d))
 
-    # 3) Basic stats across windows
-    sample_means = np.mean(X_2d, axis=1)
+    # 4) Compute some window-level statistics
+    # For each window i:
+    # - mean_i = mean(X_2d[i])
+    # - std_i = std(X_2d[i])
+    # - range_i = max(X_2d[i]) - min(X_2d[i])
+    # - rms_i = sqrt(mean(X_2d[i]^2))
+
+    window_means = np.mean(X_2d, axis=1)
+    window_stds = np.std(X_2d, axis=1)
+    window_mins = np.min(X_2d, axis=1)
+    window_maxs = np.max(X_2d, axis=1)
+    window_ranges = window_maxs - window_mins
+    window_rms = np.sqrt(np.mean(X_2d**2, axis=1))
+
+    # Split by label
     baseline_mask = (y == label_map['baseline'])
     stress_mask = (y == label_map['mental_stress'])
 
-    baseline_means = sample_means[baseline_mask]
-    stress_means = sample_means[stress_mask]
+    baseline_means = window_means[baseline_mask]
+    stress_means   = window_means[stress_mask]
 
-    print("\n---- Basic Stats for Mean ECG amplitude per window ----")
+    baseline_stds  = window_stds[baseline_mask]
+    stress_stds    = window_stds[stress_mask]
 
+    baseline_rng   = window_ranges[baseline_mask]
+    stress_rng     = window_ranges[stress_mask]
 
-    print(f"Baseline: mean={baseline_means.mean():.8f}, std={baseline_means.std():.8f}")
-    print(f"Mental stress: mean={stress_means.mean():.8f}, std={stress_means.std():.8f}")
+    baseline_rms   = window_rms[baseline_mask]
+    stress_rms     = window_rms[stress_mask]
 
-    # Scientific 
-    print("(in scientific notation)")
-    print("Baseline: mean={}, std={}".format(
-        np.format_float_scientific(baseline_means.mean(), precision=6),
-        np.format_float_scientific(baseline_means.std(), precision=6)
-    ))
-    print("Mental stress: mean={}, std={}".format(
-        np.format_float_scientific(stress_means.mean(), precision=6),
-        np.format_float_scientific(stress_means.std(), precision=6)
-    ))
+    print("\n---- Extended Stats (per-window) ----")
+    def print_stats(label, arr):
+        print(f"{label}:")
+        # Use scientific notation or more decimals to see very small values
+        print(f"  Mean of means: {np.mean(arr):.8e}")
+        print(f"  Std of means:  {np.std(arr):.8e}")
+        print(f"  Min:           {arr.min():.8e}")
+        print(f"  Max:           {arr.max():.8e}")
+        print(f"  Median:        {np.median(arr):.8e}")
 
-    # ---------------------------
-    # 4) Visual comparisons
-    # ---------------------------
+    # Means
+    print_stats("Baseline (mean amplitude)", baseline_means)
+    print_stats("Mental stress (mean amplitude)", stress_means)
 
-    # (a) Boxplot or violin plot
-    plt.figure(figsize=(8, 5))
+    # Standard dev
+    print_stats("Baseline (std dev)", baseline_stds)
+    print_stats("Mental stress (std dev)", stress_stds)
+
+    # Range
+    print_stats("Baseline (range)", baseline_rng)
+    print_stats("Mental stress (range)", stress_rng)
+
+    # RMS
+    print_stats("Baseline (RMS)", baseline_rms)
+    print_stats("Mental stress (RMS)", stress_rms)
+
+    # 5) Some plots
+    # We'll demonstrate range & RMS as examples
+
+    # (a) Boxplot of range
+    plt.figure(figsize=(10, 4))
     sns.boxplot(
-        x=['baseline'] * len(baseline_means) + ['mental_stress'] * len(stress_means),
-        y=np.concatenate([baseline_means, stress_means])
+        x=['baseline'] * len(baseline_rng) + ['mental_stress'] * len(stress_rng),
+        y=np.concatenate([baseline_rng, stress_rng])
     )
-    plt.title("Distribution of Mean ECG Amplitude (per window)")
-    plt.ylabel("Mean ECG amplitude")
+    plt.title("Distribution of (Max - Min) range in windows")
+    plt.ylabel("ECG amplitude range")
     plt.show()
 
-    # (b) Histograms or kernel density estimates
-    plt.figure(figsize=(8, 5))
-    sns.kdeplot(baseline_means, label='baseline', shade=True)
-    sns.kdeplot(stress_means, label='mental_stress', shade=True)
-    plt.title("KDE Plot of Mean ECG amplitude (Baseline vs. Stress)")
-    plt.xlabel("Mean ECG amplitude")
+    # (b) Distribution of RMS
+    plt.figure(figsize=(10, 4))
+    sns.kdeplot(baseline_rms, label='baseline (RMS)', shade=True)
+    sns.kdeplot(stress_rms, label='mental_stress (RMS)', shade=True)
+    plt.title("KDE Plot of RMS amplitude (Baseline vs. Stress)")
+    plt.xlabel("RMS amplitude")
     plt.legend()
     plt.show()
 
-    # (c) Possibly correlation with number of participants, etc.
+    # 6) Windows per participant
     print("\n---- Windows per participant ----")
     participant_counts = Counter(groups)
     for pid, cnt in participant_counts.items():
         print(f"Participant {pid}: {cnt} windows")
 
-    return
-
-exploratory_analysis("../data/interim/windowed_data.h5")
+exploratory_analysis_ecg("../data/interim/windowed_data.h5")
