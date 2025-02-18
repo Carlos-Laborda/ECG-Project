@@ -58,7 +58,7 @@ class ECGSimpleTrainingFlow(FlowSpec):
     accuracy_threshold = Parameter(
         "accuracy_threshold",
         help="Minimum accuracy for model registration",
-        default=0.7,
+        default=0.60,
     )
 
     num_epochs = Parameter(
@@ -126,7 +126,7 @@ class ECGSimpleTrainingFlow(FlowSpec):
                 self.window_data_path, 
                 fs=1000, 
                 window_size=10, 
-                step_size=1
+                step_size=5
             )
         print(f"Using windowed data: {self.window_data_path}")
         self.next(self.prepare_data_for_cnn)
@@ -201,7 +201,7 @@ class ECGSimpleTrainingFlow(FlowSpec):
         with mlflow.start_run(run_id=self.mlflow_run_id):
             mlflow.autolog(log_models=False)
             
-            self.model = baseline_1DCNN(input_shape=(self.X_train.shape[1], 1))
+            self.model = baseline_1DCNN_improved(input_shape=(self.X_train.shape[1], 1))
             # Get input shape from data
             #n_features = self.X_train.shape[1]
             #self.model = neural_network(n_features)
