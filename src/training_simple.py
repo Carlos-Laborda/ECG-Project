@@ -6,6 +6,7 @@ import mlflow.sklearn
 import mlflow.keras 
 import numpy as np
 from tqdm.keras import TqdmCallback
+from sklearn.metrics import confusion_matrix, classification_report
 from metaflow import FlowSpec, step, card, Parameter, current, project, environment
 from mlflow.models import infer_signature
 
@@ -247,11 +248,26 @@ class ECGSimpleTrainingFlow(FlowSpec):
         """Evaluate model performance"""
         mlflow.set_tracking_uri(self.mlflow_tracking_uri)
         
+        y_pred = (self.model.predict(self.X_test) > 0.5).astype(int)
         self.test_loss, self.test_accuracy = self.model.evaluate(
             self.X_test, 
             self.y_test, 
             verbose=0,
         )
+        
+        # Print confusion matrix
+        cm = confusion_matrix(self.y_test, y_pred)
+        print("\nConfusion Matrix:")
+        print("--------------- Predicted")
+        print("--------------- Baseline  Mental Stress")
+        print(f"Actual Baseline    {cm[0][0]:4d}         {cm[0][1]:4d}")
+        print(f"Mental Stress      {cm[1][0]:4d}         {cm[1][1]:4d}")
+        
+        # Print classification report
+        print("\nClassification Report:")
+        print(classification_report(self.y_test, y_pred, 
+                                target_names=['Baseline', 'Mental Stress']))
+        
         print(f"\nTest accuracy: {self.test_accuracy:.3f}")
         
         logging.info(
