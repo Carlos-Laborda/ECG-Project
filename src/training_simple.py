@@ -189,6 +189,27 @@ class ECGSimpleTrainingFlow(FlowSpec):
         print(f"Train: {len(self.X_train)} samples")
         print(f"Validation: {len(self.X_val)} samples")
         print(f"Test: {len(self.X_test)} samples")
+    
+        # check class distributions:
+        def print_class_distribution(y, split_name):
+            unique, counts = np.unique(y, return_counts=True)
+            total = len(y)
+            print(f"\n{split_name} Class Distribution:")
+            for label, count in zip(unique, counts):
+                percentage = (count / total) * 100
+                class_name = "Baseline" if label == 0 else "Mental Stress"
+                print(f"{class_name}: {count} samples ({percentage:.1f}%)")
+        
+        # Print distributions for each split
+        print("\n=== Class Distribution Analysis ===")
+        print_class_distribution(self.y_train, "Training")
+        print_class_distribution(self.y_val, "Validation")
+        print_class_distribution(self.y_test, "Test")
+        
+        print("\nData split sizes:")
+        print(f"Train: {len(self.X_train)} samples")
+        print(f"Validation: {len(self.X_val)} samples")
+        print(f"Test: {len(self.X_test)} samples")
         
         self.next(self.train_model)
 
@@ -202,7 +223,7 @@ class ECGSimpleTrainingFlow(FlowSpec):
         with mlflow.start_run(run_id=self.mlflow_run_id):
             mlflow.autolog(log_models=False)
             
-            self.model = baseline_1DCNN_improved(input_shape=(self.X_train.shape[1], 1))
+            self.model = baseline_LSTM(input_shape=(self.X_train.shape[1], 1))
             # Get input shape from data
             #n_features = self.X_train.shape[1]
             #self.model = neural_network(n_features)
