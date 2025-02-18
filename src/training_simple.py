@@ -5,6 +5,7 @@ import mlflow
 import mlflow.sklearn
 import mlflow.keras 
 import numpy as np
+from tqdm.keras import TqdmCallback
 from metaflow import FlowSpec, step, card, Parameter, current, project, environment
 from mlflow.models import infer_signature
 
@@ -200,20 +201,20 @@ class ECGSimpleTrainingFlow(FlowSpec):
         with mlflow.start_run(run_id=self.mlflow_run_id):
             mlflow.autolog(log_models=False)
             
-            self.model = baseline_LSTM(input_shape=(self.X_train.shape[1], 1))
+            self.model = baseline_1DCNN(input_shape=(self.X_train.shape[1], 1))
             # Get input shape from data
             #n_features = self.X_train.shape[1]
             #self.model = neural_network(n_features)
             
-            # Custom callback for clearer logging
-            class MLflowMetricsCallback(keras.callbacks.Callback):
+            class PrintEpochMetricsCallback(keras.callbacks.Callback):
                 def on_epoch_end(self, epoch, logs=None):
-                    print(f"\nEpoch {epoch + 1}/{self.params['epochs']}")
-                    print("Metrics:")
-                    print(f"├── Train accuracy: {logs['binary_accuracy']:.4f}")
-                    print(f"├── Train loss: {logs['loss']:.4f}")
-                    print(f"├── Val accuracy: {logs['val_binary_accuracy']:.4f}")
-                    print(f"└── Val loss: {logs['val_loss']:.4f}")
+                    print(
+                        f"Epoch {epoch+1}: "
+                        f"loss={logs.get('loss'):.3f}, "
+                        f"binary_accuracy={logs.get('binary_accuracy'):.3f}, "
+                        f"val_loss={logs.get('val_loss'):.3f}, "
+                        f"val_binary_accuracy={logs.get('val_binary_accuracy'):.3f}"
+                    )
             
             history = self.model.fit(
                 self.X_train,
@@ -221,10 +222,13 @@ class ECGSimpleTrainingFlow(FlowSpec):
                 validation_data=(self.X_val, self.y_val),
                 epochs=self.num_epochs,
                 batch_size=self.batch_size,
-                verbose=0,
-                callbacks=[MLflowMetricsCallback()],
+                verbose=0, 
+                callbacks=[
+                    TqdmCallback(verbose=1),  
+                    PrintEpochMetricsCallback() 
+                ],
             )
-            
+                
             self.train_history = history.history
             
             logging.info(
