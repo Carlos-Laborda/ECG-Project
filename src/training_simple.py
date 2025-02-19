@@ -60,7 +60,7 @@ class ECGSimpleTrainingFlow(FlowSpec):
     accuracy_threshold = Parameter(
         "accuracy_threshold",
         help="Minimum accuracy for model registration",
-        default=0.55,
+        default=0.60,
     )
 
     num_epochs = Parameter(
@@ -224,7 +224,7 @@ class ECGSimpleTrainingFlow(FlowSpec):
         with mlflow.start_run(run_id=self.mlflow_run_id):
             mlflow.autolog(log_models=False)
             
-            self.model = baseline_1DCNN_improved2(input_shape=(self.X_train.shape[1], 1))
+            self.model = baseline_1DCNN_improved(input_shape=(self.X_train.shape[1], 1))
             # Get input shape from data
             #n_features = self.X_train.shape[1]
             #self.model = neural_network(n_features)
@@ -322,7 +322,7 @@ class ECGSimpleTrainingFlow(FlowSpec):
                 mlflow.keras.log_model(
                     self.model,
                     artifact_path="model",
-                    registered_model_name="baseline_LSTM_30/5sec",
+                    registered_model_name="baseline_1DCNN",
                     signature=signature,
                 )
                 print("Model successfully registered!")
