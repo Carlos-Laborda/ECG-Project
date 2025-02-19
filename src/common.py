@@ -326,6 +326,8 @@ def segment_data_into_windows(data, hdf5_path, fs=1000, window_size=10, step_siz
 # ------------------------------------------------------
 # 4) Model Building
 # ------------------------------------------------------
+
+### CNNs
 def baseline_1DCNN(input_shape=(10000, 1)):
     """
     Build a minimal 1D CNN for binary ECG classification.
@@ -395,32 +397,47 @@ def baseline_1DCNN_improved(input_shape=(10000, 1)):
 
     return model
 
-def neural_network(input_shape=(10000, 1)):
-    """Build and compile the neural network to predict the species of a penguin."""
+def baseline_1DCNN_improved2(input_shape=(10000, 1)):
+    """
+    Improved 1D CNN for binary ECG classification with increased capacity and reduced regularization,
+    aimed at addressing underfitting.
+    """
+    model = models.Sequential()
 
-    model = models.Sequential([
-        # Reshape input to be 1D
-        layers.Reshape((input_shape,), input_shape=(input_shape,)),
-        
-        # Dense layers
-        layers.Dense(128, activation="relu"),
-        layers.Dropout(0.3),
-        layers.Dense(64, activation="relu"),
-        layers.Dropout(0.2),
-        layers.Dense(32, activation="relu"),
-        
-        # Output layer for binary classification
-        layers.Dense(1, activation="sigmoid")
-    ])
+    # First conv block
+    model.add(layers.Conv1D(filters=32, kernel_size=3, padding='same', activation='relu', input_shape=input_shape))
+    model.add(layers.BatchNormalization())
+    # Reduced dropout for underfitting: 10%
+    model.add(layers.SpatialDropout1D(0.1))
+    model.add(layers.MaxPooling1D(pool_size=2))
+
+    # Second conv block
+    model.add(layers.Conv1D(filters=64, kernel_size=3, padding='same', activation='relu'))
+    model.add(layers.BatchNormalization())
+    model.add(layers.SpatialDropout1D(0.1))
+    model.add(layers.MaxPooling1D(pool_size=2))
+
+    # Third conv block
+    model.add(layers.Conv1D(filters=128, kernel_size=3, padding='same', activation='relu'))
+    model.add(layers.BatchNormalization())
+    model.add(layers.SpatialDropout1D(0.15))
+    # Use GlobalMaxPooling1D to capture prominent features
+    model.add(layers.GlobalMaxPooling1D())
+
+    # Dense classifier
+    model.add(layers.Dense(64, activation='relu'))
+    model.add(layers.Dropout(0.3))
+    model.add(layers.Dense(1, activation='sigmoid'))
 
     model.compile(
-        optimizer=optimizers.Adam(learning_rate=0.01), 
-        loss="binary_crossentropy",
-        metrics=["binary_accuracy"]
+        optimizer=optimizers.Adam(learning_rate=1e-4),
+        loss=losses.BinaryCrossentropy(),
+        metrics=[metrics.BinaryAccuracy()]
     )
 
     return model
 
+### LSTMs
 def baseline_LSTM(input_shape=(10000, 1)):
     """
     Build a simple LSTM model for binary ECG classification.
@@ -454,4 +471,31 @@ def baseline_LSTM(input_shape=(10000, 1)):
         metrics=[metrics.BinaryAccuracy()]
     )
     
+    return model
+
+### Neural Networks
+def neural_network(input_shape=(10000, 1)):
+    """Build and compile the neural network to predict the species of a penguin."""
+
+    model = models.Sequential([
+        # Reshape input to be 1D
+        layers.Reshape((input_shape,), input_shape=(input_shape,)),
+        
+        # Dense layers
+        layers.Dense(128, activation="relu"),
+        layers.Dropout(0.3),
+        layers.Dense(64, activation="relu"),
+        layers.Dropout(0.2),
+        layers.Dense(32, activation="relu"),
+        
+        # Output layer for binary classification
+        layers.Dense(1, activation="sigmoid")
+    ])
+
+    model.compile(
+        optimizer=optimizers.Adam(learning_rate=0.01), 
+        loss="binary_crossentropy",
+        metrics=["binary_accuracy"]
+    )
+
     return model
