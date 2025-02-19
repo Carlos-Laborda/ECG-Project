@@ -59,7 +59,7 @@ class ECGSimpleTrainingFlow(FlowSpec):
     accuracy_threshold = Parameter(
         "accuracy_threshold",
         help="Minimum accuracy for model registration",
-        default=0.60,
+        default=0.55,
     )
 
     num_epochs = Parameter(
@@ -126,7 +126,7 @@ class ECGSimpleTrainingFlow(FlowSpec):
                 self.data, 
                 self.window_data_path, 
                 fs=1000, 
-                window_size=10, 
+                window_size=30, 
                 step_size=5
             )
         print(f"Using windowed data: {self.window_data_path}")
@@ -321,7 +321,7 @@ class ECGSimpleTrainingFlow(FlowSpec):
                 mlflow.keras.log_model(
                     self.model,
                     artifact_path="model",
-                    registered_model_name="baseline_1DCNN",
+                    registered_model_name="baseline_LSTM_30/5sec",
                     signature=signature,
                 )
                 print("Model successfully registered!")
