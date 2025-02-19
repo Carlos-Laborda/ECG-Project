@@ -15,6 +15,7 @@ from common import (
     process_save_cleaned_data,
     baseline_1DCNN,
     baseline_1DCNN_improved,
+    baseline_1DCNN_improved2,
     neural_network,
     baseline_LSTM,
 )
@@ -223,7 +224,7 @@ class ECGSimpleTrainingFlow(FlowSpec):
         with mlflow.start_run(run_id=self.mlflow_run_id):
             mlflow.autolog(log_models=False)
             
-            self.model = baseline_LSTM(input_shape=(self.X_train.shape[1], 1))
+            self.model = baseline_1DCNN_improved2(input_shape=(self.X_train.shape[1], 1))
             # Get input shape from data
             #n_features = self.X_train.shape[1]
             #self.model = neural_network(n_features)
