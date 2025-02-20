@@ -339,17 +339,43 @@ def baseline_1DCNN(input_shape=(10000, 1)):
         keras.Model: A compiled Keras model with JAX as backend.
     """
     model = models.Sequential([
-        layers.Conv1D(8, kernel_size=3, activation="relu", input_shape=input_shape),
-        layers.GlobalAveragePooling1D(),  
-        layers.Dense(1, activation="sigmoid"),
+        layers.Conv1D(32, 3, activation='relu', input_shape=(10000,1)),
+        layers.Flatten(),
+        layers.Dense(16, activation='relu'),
+        layers.Dense(1, activation='sigmoid')
     ])
 
     model.compile(
-        optimizer=optimizers.Adam(learning_rate=0.0001),
-        loss=losses.BinaryCrossentropy(),
-        metrics=[metrics.BinaryAccuracy()],
+        optimizer=optimizers.Adam(learning_rate=1e-2), 
+        loss='binary_crossentropy',
+        metrics=['binary_accuracy']
     )
 
+    return model
+
+def cnn_overfit(input_length=10000):
+    """1D CNN model"""
+    model = models.Sequential([
+        # Input layer
+        layers.Input(shape=(input_length, 1)),
+        
+        # Convolutional layer
+        layers.Conv1D(filters=32, kernel_size=3, activation='relu'),
+        
+        # Global Average Pooling 
+        layers.GlobalAveragePooling1D(),
+        
+        # Dense layers
+        layers.Dense(16, activation='relu'),
+        layers.Dense(1, activation='sigmoid')
+    ])
+    
+    model.compile(
+        optimizer=optimizers.Adam(learning_rate=0.01),
+        loss='binary_crossentropy',
+        metrics=['binary_accuracy']
+    )
+    
     return model
 
 def baseline_1DCNN_improved(input_shape=(10000, 1)):
