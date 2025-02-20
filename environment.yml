@@ -21,6 +21,9 @@ dependencies:
   - pyedflib
   - pyarrow
   - fastparquet
+  - pytorch
+  - torchvision
+  - torchaudio
   - pip:
       - numpy==1.23.5
       - pandas==1.5.3
