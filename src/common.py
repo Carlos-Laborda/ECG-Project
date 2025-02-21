@@ -354,7 +354,7 @@ def baseline_1DCNN(input_shape=(10000, 1)):
     return model
 
 def cnn_overfit_simple(input_length=10000):
-    """1D CNN model designed for overfitting tests"""
+    """1D CNN model designed for overfitting tests (2 participants)"""
     model = models.Sequential([
         # Input layer
         layers.Input(shape=(input_length, 1)),
@@ -379,80 +379,76 @@ def cnn_overfit_simple(input_length=10000):
     return model
 
 def cnn_overfit(input_length=10000):
-    """1D CNN model designed for overfitting tests with input normalization"""
+    """ it overfits the data 20 participants"""
     model = models.Sequential([
-        # Input layer and normalization
         layers.Input(shape=(input_length, 1)),
         layers.BatchNormalization(),
         
         # First conv block
-        layers.Conv1D(filters=32, kernel_size=3, activation='relu'),
+        layers.Conv1D(filters=32, kernel_size=3, activation='relu', padding='same'),
         layers.MaxPooling1D(pool_size=2),
         layers.BatchNormalization(),
         
         # Second conv block
-        layers.Conv1D(filters=64, kernel_size=3, activation='relu'),
+        layers.Conv1D(filters=64, kernel_size=3, activation='relu', padding='same'),
         layers.MaxPooling1D(pool_size=2),
         layers.BatchNormalization(),
         
-        # Flatten and dense layers
-        layers.Flatten(),
-        layers.Dense(32, activation='relu'),  # Increased units from 16 to 32
+        # Third conv block for increased capacity
+        layers.Conv1D(filters=128, kernel_size=3, activation='relu', padding='same'),
+        layers.MaxPooling1D(pool_size=2),
+        layers.BatchNormalization(),
+        
+        # Global pooling summarizes features without overcompressing spatial info
+        layers.GlobalAveragePooling1D(),
+        
+        layers.Dense(32, activation='relu'),
         layers.Dense(1, activation='sigmoid')
     ])
     
     model.compile(
-        optimizer=optimizers.Adam(learning_rate=0.001),
+        optimizer=optimizers.Adam(learning_rate=0.0005),
         loss='binary_crossentropy',
         metrics=['binary_accuracy']
     )
     
     return model
 
-def baseline_1DCNN_improved(input_shape=(10000, 1)):
-    model = models.Sequential()
-
-    # First conv block
-    model.add(layers.Conv1D(filters=16, kernel_size=3,
-                            kernel_regularizer=regularizers.l2(0.001),
-                            padding='same',
-                            activation='relu',
-                            input_shape=input_shape))
-    model.add(layers.BatchNormalization())
-    model.add(layers.SpatialDropout1D(0.2))
-    model.add(layers.MaxPooling1D(pool_size=2))
-
-    # Second conv block
-    model.add(layers.Conv1D(filters=32, kernel_size=3,
-                            kernel_regularizer=regularizers.l2(0.001),
-                            padding='same',
-                            activation='relu'))
-    model.add(layers.BatchNormalization())
-    model.add(layers.SpatialDropout1D(0.2))
-    model.add(layers.MaxPooling1D(pool_size=2))
-
-    # Third conv block
-    model.add(layers.Conv1D(filters=64, kernel_size=3,
-                            kernel_regularizer=regularizers.l2(0.001),
-                            padding='same',
-                            activation='relu'))
-    model.add(layers.BatchNormalization())
-    model.add(layers.SpatialDropout1D(0.3))
-    model.add(layers.GlobalAveragePooling1D())
-
-    # Dense classifier
-    model.add(layers.Dense(32, activation='relu',
-                           kernel_regularizer=regularizers.l2(0.001)))
-    model.add(layers.Dropout(0.5))
-    model.add(layers.Dense(1, activation='sigmoid'))
-
+def baseline_1DCNN(input_length=10000):
+    inputs = layers.Input(shape=(input_length, 1))
+    x = layers.BatchNormalization()(inputs)
+    
+    # Convolution Block 1
+    x = layers.Conv1D(32, 3, activation='relu', padding='same')(x)
+    x = layers.Conv1D(32, 3, activation='relu', padding='same')(x)
+    x = layers.MaxPooling1D(2)(x)
+    x = layers.BatchNormalization()(x)
+    
+    # Convolution Block 2
+    x = layers.Conv1D(64, 3, activation='relu', padding='same')(x)
+    x = layers.Conv1D(64, 3, activation='relu', padding='same')(x)
+    x = layers.MaxPooling1D(2)(x)
+    x = layers.BatchNormalization()(x)
+    
+    # Convolution Block 3
+    x = layers.Conv1D(128, 3, activation='relu', padding='same')(x)
+    x = layers.Conv1D(128, 3, activation='relu', padding='same')(x)
+    x = layers.GlobalAveragePooling1D()(x)
+    
+    # Dense layers with dropout
+    x = layers.Dense(64, activation='relu')(x)
+    x = layers.Dropout(0.5)(x)
+    outputs = layers.Dense(1, activation='sigmoid')(x)
+    
+    model = models.Model(inputs, outputs)
     model.compile(
-        optimizer=optimizers.Adam(learning_rate=1e-4),
-        loss=losses.BinaryCrossentropy(label_smoothing=0.1),
-        metrics=[metrics.BinaryAccuracy()]
+        optimizer=optimizers.Adam(learning_rate=0.0001),
+        loss='binary_crossentropy',
+        metrics=['binary_accuracy']
     )
-
     return model
+
+
 
 ### LSTMs
 def baseline_LSTM(input_shape=(10000, 1)):
