@@ -14,11 +14,12 @@ from common import (
     process_ecg_data,
     process_save_cleaned_data,
     baseline_1DCNN,
-    baseline_1DCNN_improved,
-    baseline_1DCNN_improved2,
+    cnn_overfit_simple,
+    cnn_overfit,
     neural_network,
     baseline_LSTM,
 )
+
 from utils import load_ecg_data, prepare_cnn_data
 
 
@@ -72,7 +73,7 @@ class ECGSimpleTrainingFlow(FlowSpec):
     batch_size = Parameter(
         "batch_size",
         help="Training batch size",
-        default=32,
+        default=16,
     )
 
     @card
@@ -224,7 +225,7 @@ class ECGSimpleTrainingFlow(FlowSpec):
         with mlflow.start_run(run_id=self.mlflow_run_id):
             mlflow.autolog(log_models=False)
             
-            self.model = baseline_1DCNN_improved(input_shape=(self.X_train.shape[1], 1))
+            self.model = baseline_1DCNN(input_length=10000)
             # Get input shape from data
             #n_features = self.X_train.shape[1]
             #self.model = neural_network(n_features)
