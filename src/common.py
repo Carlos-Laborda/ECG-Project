@@ -353,25 +353,56 @@ def baseline_1DCNN(input_shape=(10000, 1)):
 
     return model
 
-def cnn_overfit(input_length=10000):
-    """1D CNN model"""
+def cnn_overfit_simple(input_length=10000):
+    """1D CNN model designed for overfitting tests"""
     model = models.Sequential([
         # Input layer
         layers.Input(shape=(input_length, 1)),
         
         # Convolutional layer
         layers.Conv1D(filters=32, kernel_size=3, activation='relu'),
+        layers.MaxPooling1D(pool_size=2),
+        layers.BatchNormalization(),
         
-        # Global Average Pooling 
-        layers.GlobalAveragePooling1D(),
-        
-        # Dense layers
+        # Flaten and Dense layers
+        layers.Flatten(),
         layers.Dense(16, activation='relu'),
         layers.Dense(1, activation='sigmoid')
     ])
     
     model.compile(
-        optimizer=optimizers.Adam(learning_rate=0.01),
+        optimizer=optimizers.Adam(learning_rate=0.001),
+        loss='binary_crossentropy',
+        metrics=['binary_accuracy']
+    )
+    
+    return model
+
+def cnn_overfit(input_length=10000):
+    """1D CNN model designed for overfitting tests with input normalization"""
+    model = models.Sequential([
+        # Input layer and normalization
+        layers.Input(shape=(input_length, 1)),
+        layers.BatchNormalization(),
+        
+        # First conv block
+        layers.Conv1D(filters=32, kernel_size=3, activation='relu'),
+        layers.MaxPooling1D(pool_size=2),
+        layers.BatchNormalization(),
+        
+        # Second conv block
+        layers.Conv1D(filters=64, kernel_size=3, activation='relu'),
+        layers.MaxPooling1D(pool_size=2),
+        layers.BatchNormalization(),
+        
+        # Flatten and dense layers
+        layers.Flatten(),
+        layers.Dense(32, activation='relu'),  # Increased units from 16 to 32
+        layers.Dense(1, activation='sigmoid')
+    ])
+    
+    model.compile(
+        optimizer=optimizers.Adam(learning_rate=0.001),
         loss='binary_crossentropy',
         metrics=['binary_accuracy']
     )
@@ -418,46 +449,6 @@ def baseline_1DCNN_improved(input_shape=(10000, 1)):
     model.compile(
         optimizer=optimizers.Adam(learning_rate=1e-4),
         loss=losses.BinaryCrossentropy(label_smoothing=0.1),
-        metrics=[metrics.BinaryAccuracy()]
-    )
-
-    return model
-
-def baseline_1DCNN_improved2(input_shape=(10000, 1)):
-    """
-    Improved 1D CNN for binary ECG classification with increased capacity and reduced regularization,
-    aimed at addressing underfitting.
-    """
-    model = models.Sequential()
-
-    # First conv block
-    model.add(layers.Conv1D(filters=32, kernel_size=3, padding='same', activation='relu', input_shape=input_shape))
-    model.add(layers.BatchNormalization())
-    # Reduced dropout for underfitting: 10%
-    model.add(layers.SpatialDropout1D(0.1))
-    model.add(layers.MaxPooling1D(pool_size=2))
-
-    # Second conv block
-    model.add(layers.Conv1D(filters=64, kernel_size=3, padding='same', activation='relu'))
-    model.add(layers.BatchNormalization())
-    model.add(layers.SpatialDropout1D(0.1))
-    model.add(layers.MaxPooling1D(pool_size=2))
-
-    # Third conv block
-    model.add(layers.Conv1D(filters=128, kernel_size=3, padding='same', activation='relu'))
-    model.add(layers.BatchNormalization())
-    model.add(layers.SpatialDropout1D(0.15))
-    # Use GlobalMaxPooling1D to capture prominent features
-    model.add(layers.GlobalMaxPooling1D())
-
-    # Dense classifier
-    model.add(layers.Dense(64, activation='relu'))
-    model.add(layers.Dropout(0.3))
-    model.add(layers.Dense(1, activation='sigmoid'))
-
-    model.compile(
-        optimizer=optimizers.Adam(learning_rate=1e-4),
-        loss=losses.BinaryCrossentropy(),
         metrics=[metrics.BinaryAccuracy()]
     )
 
