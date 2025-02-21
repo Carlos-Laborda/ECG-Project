@@ -67,13 +67,13 @@ class ECGSimpleTrainingFlow(FlowSpec):
     num_epochs = Parameter(
         "num_epochs",
         help="Training epochs",
-        default=25,
+        default=100,
     )
 
     batch_size = Parameter(
         "batch_size",
         help="Training batch size",
-        default=32,
+        default=8,
     )
 
     @card
