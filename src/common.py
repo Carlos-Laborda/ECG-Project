@@ -15,7 +15,7 @@ from config import CATEGORY_MAPPING, FOLDERPATH, OUTPUT_DIR_PATH
 from utils import load_ecg_data
 
 # ------------------------------------------------------
-# 1) process_ecg_data with argument for HDF5 output path
+# Match ECG data with labels
 # ------------------------------------------------------
 def process_ecg_data(hdf5_path):
     """
@@ -114,8 +114,9 @@ def process_ecg_data(hdf5_path):
 
     print(f"ECG data successfully written to {hdf5_path}")
 
-
-# Clean the data
+# ------------------------------------------------------
+# Cleaning functions
+# ------------------------------------------------------
 def highpass_filter(signal, fs, cutoff=0.5, order=5):
     """
     Apply a Butterworth high-pass filter to remove baseline wander.
@@ -175,7 +176,9 @@ def clean_ecg_signal(signal, fs):
     cleaned_signal = notch_filter(hp_filtered, fs, notch_freq=50.0, quality_factor=30)
     return cleaned_signal
 
-
+# ------------------------------------------------------
+# Saving cleaned data
+# ------------------------------------------------------
 def process_save_cleaned_data(segmented_data_path, output_hdf5_path, fs=1000):
     """
     Loads ECG data from segmented_data_path, cleans it, and saves the cleaned signals to output_hdf5_path.
@@ -206,7 +209,7 @@ def process_save_cleaned_data(segmented_data_path, output_hdf5_path, fs=1000):
     print(f"Cleaned ECG data saved to {output_hdf5_path}")
 
 # ------------------------------------------------------
-# 2) Helper Functions for Feature Extraction
+# Function for Feature Extraction (not relevant for the project)
 # ------------------------------------------------------
 def extract_ecg_features(ecg_signal, fs):
     """
@@ -234,7 +237,9 @@ def extract_ecg_features(ecg_signal, fs):
 
     return features
 
-
+# ------------------------------------------------------
+# Sliding Window Function
+# ------------------------------------------------------
 def sliding_window(signal: np.ndarray, window_size: int, step_size: int):
     """
     Generate sliding windows from a 1D signal.
@@ -262,7 +267,7 @@ def sliding_window(signal: np.ndarray, window_size: int, step_size: int):
 
 
 # ------------------------------------------------------
-# 3) preprocess_features
+# Preprocess_features function (not relevant for the project)
 # ------------------------------------------------------
 def preprocess_features(data, fs=1000, window_size=10, step_size=1):
     """
@@ -324,35 +329,9 @@ def segment_data_into_windows(data, hdf5_path, fs=1000, window_size=10, step_siz
     print(f"Segmented data saved to {hdf5_path}")
 
 # ------------------------------------------------------
-# 4) Model Building
+# Models for ECG Classification
 # ------------------------------------------------------
-
 ### CNNs
-def baseline_1DCNN(input_shape=(10000, 1)):
-    """
-    Build a minimal 1D CNN for binary ECG classification.
-
-    Args:
-        input_shape (tuple): Shape of the input signal, e.g. (window_length, channels=1).
-
-    Returns:
-        keras.Model: A compiled Keras model with JAX as backend.
-    """
-    model = models.Sequential([
-        layers.Conv1D(32, 3, activation='relu', input_shape=(10000,1)),
-        layers.Flatten(),
-        layers.Dense(16, activation='relu'),
-        layers.Dense(1, activation='sigmoid')
-    ])
-
-    model.compile(
-        optimizer=optimizers.Adam(learning_rate=1e-2), 
-        loss='binary_crossentropy',
-        metrics=['binary_accuracy']
-    )
-
-    return model
-
 def cnn_overfit_simple(input_length=10000):
     """1D CNN model designed for overfitting tests (2 participants)"""
     model = models.Sequential([
@@ -415,6 +394,7 @@ def cnn_overfit(input_length=10000):
     return model
 
 def baseline_1DCNN(input_length=10000):
+    """sets the baseline performance for the 1D CNN model"""
     inputs = layers.Input(shape=(input_length, 1))
     x = layers.BatchNormalization()(inputs)
     
@@ -447,7 +427,6 @@ def baseline_1DCNN(input_length=10000):
         metrics=['binary_accuracy']
     )
     return model
-
 
 
 ### LSTMs
