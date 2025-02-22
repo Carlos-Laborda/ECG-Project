@@ -61,7 +61,7 @@ class ECGSimpleTrainingFlow(FlowSpec):
     accuracy_threshold = Parameter(
         "accuracy_threshold",
         help="Minimum accuracy for model registration",
-        default=0.60,
+        default=0.7,
     )
 
     num_epochs = Parameter(
