@@ -128,7 +128,7 @@ class ECGSimpleTrainingFlow(FlowSpec):
                 self.data, 
                 self.window_data_path, 
                 fs=1000, 
-                window_size=30, 
+                window_size=10, 
                 step_size=5
             )
         print(f"Using windowed data: {self.window_data_path}")
@@ -226,10 +226,6 @@ class ECGSimpleTrainingFlow(FlowSpec):
             mlflow.autolog(log_models=False)
             
             self.model = baseline_1DCNN(input_length=10000)
-            # Get input shape from data
-            #n_features = self.X_train.shape[1]
-            #self.model = neural_network(n_features)
-            
             class PrintEpochMetricsCallback(keras.callbacks.Callback):
                 def on_epoch_end(self, epoch, logs=None):
                     print(
