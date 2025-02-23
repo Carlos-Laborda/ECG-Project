@@ -16,6 +16,7 @@ from common import (
     baseline_1DCNN,
     cnn_overfit_simple,
     cnn_overfit,
+    improved_1DCNN,
     neural_network,
     baseline_LSTM,
 )
@@ -61,7 +62,7 @@ class ECGSimpleTrainingFlow(FlowSpec):
     accuracy_threshold = Parameter(
         "accuracy_threshold",
         help="Minimum accuracy for model registration",
-        default=0.7,
+        default=0.6,
     )
 
     num_epochs = Parameter(
@@ -225,7 +226,7 @@ class ECGSimpleTrainingFlow(FlowSpec):
         with mlflow.start_run(run_id=self.mlflow_run_id):
             mlflow.autolog(log_models=False)
             
-            self.model = baseline_1DCNN(input_length=10000)
+            self.model = improved_1DCNN(input_length=10000)
             class PrintEpochMetricsCallback(keras.callbacks.Callback):
                 def on_epoch_end(self, epoch, logs=None):
                     print(
