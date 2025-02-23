@@ -428,50 +428,38 @@ def baseline_1DCNN(input_length=10000):
     )
     return model
 
-def improved_1DCNN(input_length=10000):
-    """Improved 1D CNN model with multi-scale convolutions, residual connections, and enhanced regularization."""
+def baseline_1DCNN_residual(input_length=10000):
+    """Baseline 1D CNN model with residual connections"""
     inputs = layers.Input(shape=(input_length, 1))
     x = layers.BatchNormalization()(inputs)
-    
-    # Multi-scale convolution: parallel convolutions with different kernel sizes
-    conv3 = layers.Conv1D(32, kernel_size=3, activation='relu', padding='same')(x)
-    conv5 = layers.Conv1D(32, kernel_size=5, activation='relu', padding='same')(x)
-    conv7 = layers.Conv1D(32, kernel_size=7, activation='relu', padding='same')(x)
-    
-    # Concatenate multi-scale features
-    x = layers.concatenate([conv3, conv5, conv7], axis=-1)
-    x = layers.BatchNormalization()(x)
-    x = layers.MaxPooling1D(pool_size=2)(x)
-    x = layers.Dropout(0.2)(x)
 
-    # Residual block for deeper feature extraction
-    residual = x
-    # Adjust residual channels from 96 to 64 using a 1x1 convolution
-    residual = layers.Conv1D(64, kernel_size=1, padding='same')(residual)
-    x = layers.Conv1D(64, kernel_size=3, activation='relu', padding='same')(x)
+    # Convolution Block 1
+    conv1 = layers.Conv1D(32, 3, activation='relu', padding='same')(x)
+    conv1 = layers.Conv1D(32, 3, activation='relu', padding='same')(conv1)
+    x = layers.MaxPooling1D(2)(conv1)
     x = layers.BatchNormalization()(x)
-    x = layers.Conv1D(64, kernel_size=3, activation='relu', padding='same')(x)
+
+    # Convolution Block 2
+    conv2 = layers.Conv1D(64, 3, activation='relu', padding='same')(x)
+    conv2 = layers.Conv1D(64, 3, activation='relu', padding='same')(conv2)
+    x = layers.MaxPooling1D(2)(conv2)
     x = layers.BatchNormalization()(x)
-    x = layers.add([x, residual])
-    
-    # Additional convolutional block
-    x = layers.Conv1D(128, kernel_size=3, activation='relu', padding='same')(x)
-    x = layers.BatchNormalization()(x)
-    x = layers.Conv1D(128, kernel_size=3, activation='relu', padding='same')(x)
-    x = layers.BatchNormalization()(x)
-    x = layers.MaxPooling1D(pool_size=2)(x)
-    x = layers.Dropout(0.4)(x)
-    
-    # Combine different pooling strategies to summarize features
-    avg_pool = layers.GlobalAveragePooling1D()(x)
-    max_pool = layers.GlobalMaxPooling1D()(x)
-    x = layers.concatenate([avg_pool, max_pool])
-    
-    # Dense layers for classification with dropout
+
+    # Convolution Block 3
+    conv3 = layers.Conv1D(128, 3, activation='relu', padding='same')(x)
+    conv3 = layers.Conv1D(128, 3, activation='relu', padding='same')(conv3)
+
+    # Residual connection
+    residual = layers.Conv1D(128, 1, padding='same')(x)  # Adjust filters to match
+    x = layers.add([conv3, residual])  # Add residual
+
+    x = layers.GlobalAveragePooling1D()(x)
+
+    # Dense layers with dropout
     x = layers.Dense(64, activation='relu')(x)
     x = layers.Dropout(0.5)(x)
     outputs = layers.Dense(1, activation='sigmoid')(x)
-    
+
     model = models.Model(inputs, outputs)
     model.compile(
         optimizer=optimizers.Adam(learning_rate=0.0001),
@@ -479,7 +467,6 @@ def improved_1DCNN(input_length=10000):
         metrics=['binary_accuracy']
     )
     return model
-
 
 ### LSTMs
 def baseline_LSTM(input_shape=(10000, 1)):
