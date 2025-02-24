@@ -226,7 +226,7 @@ class ECGSimpleTrainingFlow(FlowSpec):
         with mlflow.start_run(run_id=self.mlflow_run_id):
             mlflow.autolog(log_models=False)
             
-            self.model = baseline_1DCNN_residual(input_length=10000)
+            self.model = baseline_1DCNN(input_length=10000)
             class PrintEpochMetricsCallback(keras.callbacks.Callback):
                 def on_epoch_end(self, epoch, logs=None):
                     print(
@@ -237,6 +237,14 @@ class ECGSimpleTrainingFlow(FlowSpec):
                         f"val_binary_accuracy={logs.get('val_binary_accuracy'):.3f}"
                     )
             
+            # Define ReduceLROnPlateau callback
+            reduce_lr = keras.callbacks.ReduceLROnPlateau(
+                monitor='val_loss',  # Metric to monitor
+                factor=0.1,          # Factor by which to reduce the learning rate
+                patience=5,          # Number of epochs with no improvement after which learning rate will be reduced
+                min_lr=0.00001       # Lower bound on the learning rate
+            )
+            
             history = self.model.fit(
                 self.X_train,
                 self.y_train,
@@ -246,7 +254,8 @@ class ECGSimpleTrainingFlow(FlowSpec):
                 verbose=0, 
                 callbacks=[
                     TqdmCallback(verbose=1),  
-                    PrintEpochMetricsCallback() 
+                    PrintEpochMetricsCallback(),
+                    reduce_lr  # Add ReduceLROnPlateau callback
                 ],
             )
                 
