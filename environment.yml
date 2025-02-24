@@ -46,6 +46,9 @@ dependencies:
       - keras
       - scikit-learn
       - seaborn
+      - jax
       - jax[cpu]
+      - jaxlib
+      - tqdm
       - metaflow
       - metaflow-card-html
