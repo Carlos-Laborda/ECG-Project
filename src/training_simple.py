@@ -237,13 +237,13 @@ class ECGSimpleTrainingFlow(FlowSpec):
                         f"val_binary_accuracy={logs.get('val_binary_accuracy'):.3f}"
                     )
             
-            # Define ReduceLROnPlateau callback
-            reduce_lr = keras.callbacks.ReduceLROnPlateau(
-                monitor='val_loss',  # Metric to monitor
-                factor=0.1,          # Factor by which to reduce the learning rate
-                patience=5,          # Number of epochs with no improvement after which learning rate will be reduced
-                min_lr=0.00001       # Lower bound on the learning rate
-            )
+            # # Define ReduceLROnPlateau callback
+            # reduce_lr = keras.callbacks.ReduceLROnPlateau(
+            #     monitor='val_loss',  # Metric to monitor
+            #     factor=0.1,          # Factor by which to reduce the learning rate
+            #     patience=5,          # Number of epochs with no improvement after which learning rate will be reduced
+            #     min_lr=0.00001       # Lower bound on the learning rate
+            # )
             
             history = self.model.fit(
                 self.X_train,
@@ -255,7 +255,7 @@ class ECGSimpleTrainingFlow(FlowSpec):
                 callbacks=[
                     TqdmCallback(verbose=1),  
                     PrintEpochMetricsCallback(),
-                    reduce_lr  # Add ReduceLROnPlateau callback
+                    #reduce_lr  # Add ReduceLROnPlateau callback
                 ],
             )
                 
