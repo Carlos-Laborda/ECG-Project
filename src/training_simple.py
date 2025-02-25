@@ -221,11 +221,6 @@ class ECGSimpleTrainingFlow(FlowSpec):
         print_class_distribution(self.y_val, "Validation")
         print_class_distribution(self.y_test, "Test")
         
-        print("\nData split sizes:")
-        print(f"Train: {len(self.X_train)} samples")
-        print(f"Validation: {len(self.X_val)} samples")
-        print(f"Test: {len(self.X_test)} samples")
-        
         self.next(self.train_model)
 
     @card
