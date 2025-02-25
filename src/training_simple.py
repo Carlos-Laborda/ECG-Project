@@ -59,6 +59,18 @@ class ECGSimpleTrainingFlow(FlowSpec):
         default="../data/interim/windowed_data.h5",
     )
 
+    model_type = Parameter(
+        "model_type",
+        help="Type of model being trained (e.g., cnn, lstm, transformer)",
+        default=""
+    )
+
+    model_description = Parameter(
+        "model_description",
+        help="Additional description for the model run (e.g., testing residual connections)",
+        default=""
+    )
+    
     accuracy_threshold = Parameter(
         "accuracy_threshold",
         help="Minimum accuracy for model registration",
@@ -224,6 +236,12 @@ class ECGSimpleTrainingFlow(FlowSpec):
         mlflow.set_tracking_uri(self.mlflow_tracking_uri)
 
         with mlflow.start_run(run_id=self.mlflow_run_id):
+            # Add tags for better organization
+            mlflow.set_tags({
+                "model_type": self.model_type,
+                "description": self.model_description,
+            })
+            
             mlflow.autolog(log_models=False)
             
             self.model = baseline_1DCNN(input_length=10000)
