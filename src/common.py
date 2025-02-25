@@ -462,7 +462,7 @@ def baseline_1DCNN_residual(input_length=10000):
 
     model = models.Model(inputs, outputs)
     model.compile(
-        optimizer=optimizers.Adam(learning_rate=0.0001),
+        optimizer=optimizers.Adam(learning_rate=0.00001),
         loss='binary_crossentropy',
         metrics=['binary_accuracy']
     )
