@@ -17,8 +17,7 @@ from common import (
     cnn_overfit_simple,
     cnn_overfit,
     baseline_1DCNN_residual,
-    neural_network,
-    baseline_LSTM,
+    improved_1DCNN,
 )
 
 from utils import load_ecg_data, prepare_cnn_data
@@ -239,7 +238,7 @@ class ECGSimpleTrainingFlow(FlowSpec):
             
             mlflow.autolog(log_models=False)
             
-            self.model = baseline_1DCNN(input_length=10000)
+            self.model = improved_1DCNN(input_length=10000)
             class PrintEpochMetricsCallback(keras.callbacks.Callback):
                 def on_epoch_end(self, epoch, logs=None):
                     print(

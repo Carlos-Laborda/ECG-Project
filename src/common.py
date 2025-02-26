@@ -379,9 +379,10 @@ def cnn_overfit(input_length=10000):
         layers.BatchNormalization(),
         
         # Global pooling summarizes features without overcompressing spatial info
-        layers.GlobalAveragePooling1D(),
+        #layers.GlobalAveragePooling1D(),
+        layers.Flatten(),
         
-        layers.Dense(32, activation='relu'),
+        layers.Dense(64, activation='relu'),
         layers.Dense(1, activation='sigmoid')
     ])
     
@@ -463,6 +464,51 @@ def baseline_1DCNN_residual(input_length=10000):
     model = models.Model(inputs, outputs)
     model.compile(
         optimizer=optimizers.Adam(learning_rate=0.0001),
+        loss='binary_crossentropy',
+        metrics=['binary_accuracy']
+    )
+    return model
+
+def improved_1DCNN(input_length=10000):
+    inputs = layers.Input(shape=(input_length, 1))
+    x = layers.BatchNormalization()(inputs)
+    
+    # Convolution Block 1 - smaller filters for local patterns
+    x = layers.Conv1D(32, 5, activation='relu', padding='same')(x)
+    x = layers.Conv1D(32, 5, activation='relu', padding='same')(x)
+    x = layers.MaxPooling1D(2)(x)
+    x = layers.BatchNormalization()(x)
+    x = layers.SpatialDropout1D(0.1)(x)  # Feature map dropout
+    
+    # Convolution Block 2 - medium filters
+    x = layers.Conv1D(64, 11, activation='relu', padding='same')(x)
+    x = layers.Conv1D(64, 11, activation='relu', padding='same')(x)
+    x = layers.MaxPooling1D(2)(x)
+    x = layers.BatchNormalization()(x)
+    x = layers.SpatialDropout1D(0.1)(x)
+    
+    # Convolution Block 3 - larger filters for context
+    x = layers.Conv1D(128, 17, activation='relu', padding='same')(x)
+    x = layers.Conv1D(128, 17, activation='relu', padding='same')(x)
+    x = layers.GlobalAveragePooling1D()(x)
+    
+    # Dense layers
+    x = layers.Dense(128, activation='relu')(x)
+    x = layers.Dropout(0.3)(x)
+    x = layers.Dense(64, activation='relu')(x)
+    x = layers.Dropout(0.3)(x)
+    outputs = layers.Dense(1, activation='sigmoid')(x)
+    
+    model = models.Model(inputs, outputs)
+    
+    # Use a schedule to reduce learning rate
+    lr_schedule = optimizers.schedules.ExponentialDecay(
+        initial_learning_rate=0.001,
+        decay_steps=1000,
+        decay_rate=0.9)
+    
+    model.compile(
+        optimizer=optimizers.Adam(learning_rate=lr_schedule),
         loss='binary_crossentropy',
         metrics=['binary_accuracy']
     )
