@@ -503,8 +503,8 @@ def improved_1DCNN(input_length=10000):
     
     # Use a schedule to reduce learning rate
     lr_schedule = optimizers.schedules.ExponentialDecay(
-        initial_learning_rate=0.001,
-        decay_steps=1000,
+        initial_learning_rate=0.0001,
+        decay_steps=337,
         decay_rate=0.9)
     
     model.compile(
