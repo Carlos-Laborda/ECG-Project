@@ -7,6 +7,8 @@ from torch.utils.data import Dataset
 from torchinfo import summary
 import mlflow
 import mlflow.pytorch
+import tempfile
+from pathlib import Path
 
 def load_processed_data(hdf5_path, label_map=None):
     """
@@ -101,7 +103,35 @@ class ECGDataset(Dataset):
 # ----------------------
 # CNN Model Class
 # ----------------------
+class Simple1DCNN(nn.Module):
+    """
+    A very simple 1D CNN with two convolutional layers and a single dense layer.
+    Intended for quick tests and validation with minimal training time.
+    """
+    def __init__(self):
+        super(Simple1DCNN, self).__init__()
+        # Conv block 1: 1 -> 8 channels
+        self.conv1 = nn.Conv1d(in_channels=1, out_channels=8, kernel_size=3, padding=1)
+        self.pool1 = nn.MaxPool1d(kernel_size=2)
+        # Conv block 2: 8 -> 16 channels
+        self.conv2 = nn.Conv1d(in_channels=8, out_channels=16, kernel_size=3, padding=1)
+        self.pool2 = nn.MaxPool1d(kernel_size=2)
+        # Global average pooling to get a single feature per channel
+        self.gap = nn.AdaptiveAvgPool1d(output_size=1)
+        # Final fully-connected layer for binary classification
+        self.fc1 = nn.Linear(16, 1)
 
+    def forward(self, x):
+        # x shape: (batch_size, 1, sequence_length)
+        x = F.relu(self.conv1(x))
+        x = self.pool1(x)
+        x = F.relu(self.conv2(x))
+        x = self.pool2(x)
+        x = self.gap(x)  # shape: (batch_size, 16, 1)
+        x = x.view(x.size(0), -1)  # flatten to (batch_size, 16)
+        x = torch.sigmoid(self.fc1(x))  # shape: (batch_size, 1)
+        return x
+    
 class Improved1DCNN(nn.Module):
     def __init__(self):
         super(Improved1DCNN, self).__init__()
@@ -160,7 +190,6 @@ class Improved1DCNN(nn.Module):
 # ----------------------
 # Training and Evaluation Functions
 # ----------------------
-
 def train(model, train_loader, optimizer, loss_fn, device, epoch, log_interval=100):
     model.train()
     running_loss = 0.0
@@ -207,9 +236,11 @@ def test(model, data_loader, loss_fn, device):
     mlflow.log_metric("test_accuracy", accuracy)
     print(f"Test set: Average loss: {avg_loss:.4f}, Accuracy: {accuracy*100:.2f}%")
     return accuracy
-
+        
 def log_model_summary(model, input_size):
     # Write model summary to a file and log as an artifact
-    with open("model_summary.txt", "w") as f:
-        f.write(str(summary(model, input_size=input_size)))
-    mlflow.log_artifact("model_summary.txt")
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        summmary_path = Path(tmp_dir) / "model_summary.txt"
+        with open(summmary_path, "w") as f:
+            f.write(str(summary(model, input_size=input_size)))
+        mlflow.log_artifact(summmary_path)
