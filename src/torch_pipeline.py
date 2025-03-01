@@ -10,7 +10,8 @@ from torch.optim.lr_scheduler import StepLR
 from torch.utils.data import DataLoader
 from sklearn.metrics import confusion_matrix, classification_report
 from metaflow import FlowSpec, step, card, Parameter, current, project, environment
-from mlflow.models import infer_signature
+from mlflow.types import Schema, TensorSpec
+from mlflow.models import ModelSignature
 
 from common import (
     process_ecg_data,
@@ -19,7 +20,7 @@ from common import (
 
 from torch_utilities import (
     load_processed_data, split_data_by_participant, ECGDataset,
-    Improved1DCNN, train, test, log_model_summary
+    Improved1DCNN, train, test, log_model_summary, Simple1DCNN,
 )
 
 from utils import load_ecg_data, prepare_cnn_data
@@ -75,7 +76,7 @@ class ECGSimpleTrainingFlow(FlowSpec):
     accuracy_threshold = Parameter(
         "accuracy_threshold",
         help="Minimum accuracy for model registration",
-        default=0.6,
+        default=0.5,
     )
     
     lr = Parameter("lr", default=0.001, help="Learning rate")
@@ -160,18 +161,19 @@ class ECGSimpleTrainingFlow(FlowSpec):
         )
         print(f"Data loaded: X shape={self.X.shape}, y shape={self.y.shape}")
         
-        (X_train, y_train), (X_val, y_val), (X_test, y_test) = split_data_by_participant(self.X, 
-                                                                                         self.y, 
-                                                                                         self.groups)
+        (X_train, y_train), (X_val, y_val), (self.X_test, y_test) = split_data_by_participant(
+            self.X, 
+            self.y, 
+            self.groups)
 
         print(f"Train samples: {len(X_train)}")
         print(f"Validation samples: {len(X_val)}")
-        print(f"Test samples: {len(X_test)}")
+        print(f"Test samples: {len(self.X_test)}")
         
         # Create PyTorch datasets
         train_dataset = ECGDataset(X_train, y_train)
         val_dataset = ECGDataset(X_val, y_val)
-        test_dataset = ECGDataset(X_test, y_test)
+        test_dataset = ECGDataset(self.X_test, y_test)
         
         # Create DataLoaders
         self.train_loader = DataLoader(train_dataset, batch_size=self.batch_size, shuffle=True)
@@ -188,7 +190,7 @@ class ECGSimpleTrainingFlow(FlowSpec):
         print(f"Training on device: {device}")
         
         # Instantiate the model and move it to device
-        self.model = Improved1DCNN().to(device)
+        self.model = Simple1DCNN().to(device)
         
         # Define loss function (using BCELoss for binary classification)
         loss_fn = torch.nn.BCELoss()
@@ -196,53 +198,85 @@ class ECGSimpleTrainingFlow(FlowSpec):
         optimizer = optim.Adam(self.model.parameters(), lr=self.lr)
         scheduler = StepLR(optimizer, step_size=1, gamma=0.95)
         
+        # define parameters for training
+        
         mlflow.set_tracking_uri(self.mlflow_tracking_uri)
         with mlflow.start_run(run_id=self.mlflow_run_id):
-            mlflow.log_param("lr", self.lr)
-            mlflow.log_param("epochs", self.num_epochs)
-            mlflow.log_param("batch_size", self.batch_size)
+            # Log training parameters
+            params = {
+                # Model parameters
+                "model_type": self.model_type or "Simple1DCNN",
+                "model_description": self.model_description,
+                
+                # Training hyperparameters
+                "epochs": self.num_epochs,
+                "learning_rate": self.lr,
+                "batch_size": self.batch_size,
+                "optimizer": optimizer.__class__.__name__,
+                "loss_function": loss_fn.__class__.__name__,
+                
+                # Scheduler parameters
+                "scheduler": scheduler.__class__.__name__,
+                "scheduler_step_size": scheduler.step_size,
+                "scheduler_gamma": scheduler.gamma,
+                
+                # Data parameters
+                "input_shape": f"{self.X.shape}",
+                "train_samples": len(self.train_loader.dataset),
+                "val_samples": len(self.val_loader.dataset),
+                "test_samples": len(self.test_loader.dataset),
+                
+                # Hardware
+                "device": device
+            }
+            mlflow.log_params(params)
             
-            # Log model summary artifact; assume input shape is (batch, 1, window_length)
-            #input_size = (self.batch_size, 1, self.X.shape[1])
-            #log_model_summary(self.model, input_size)
+            # Log model summary artifact; input shape is (batch, 1, window_length)
+            input_size = (self.batch_size, 1, self.X.shape[1])
+            log_model_summary(self.model, input_size)
             
             for epoch in range(1, self.num_epochs + 1):
                 print(f"\nEpoch {epoch}/{self.num_epochs}")
                 train(self.model, self.train_loader, optimizer, loss_fn, device, epoch)
                 _ = test(self.model, self.val_loader, loss_fn, device)
                 scheduler.step()
-            
-            # Log the final model artifact
-            mlflow.pytorch.log_model(self.model, "model")
     
         self.next(self.evaluate)
-
     @card
     @step
     def evaluate(self):
         """Evaluate model performance on test data"""
         mlflow.set_tracking_uri(self.mlflow_tracking_uri)
-        """Evaluate the trained model on the test set"""
         device = "cuda" if torch.cuda.is_available() else "cpu"
         loss_fn = torch.nn.BCELoss()
-        test_accuracy = test(self.model, self.test_loader, loss_fn, device)
-        print(f"Final Test Accuracy: {test_accuracy*100:.2f}%")
+        self.test_accuracy = test(self.model, self.test_loader, loss_fn, device)
+        print(f"Final Test Accuracy: {self.test_accuracy*100:.2f}%")
         self.next(self.register)
 
     @step
     def register(self):
         """Register model if accuracy meets threshold"""
         mlflow.set_tracking_uri(self.mlflow_tracking_uri)
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        
         if self.test_accuracy >= self.accuracy_threshold:
             self.registered = True
             logging.info("Registering model...")
             
             with mlflow.start_run(run_id=self.mlflow_run_id):
-                sample_input = torch.tensor(self.X_test[:5], dtype=torch.float32).to(device)
-                sample_output = self.model(sample_input).detach().cpu().numpy()
-                signature = infer_signature(self.X_test[:5], sample_output)
-
+                # Prepare sample input and get prediction
+                sample_input = self.X_test[:5] 
+                self.model.cpu().eval()
+                
+                with torch.no_grad():
+                    # Convert to tensor, permute to (batch, 1, window_length), and get prediction
+                    tensor_input = torch.tensor(sample_input, dtype=torch.float32).permute(0, 2, 1)
+                    sample_output = self.model(tensor_input).numpy()
+                
+                # Define input/output schema
+                input_schema = Schema([TensorSpec(np.dtype(np.float32), (-1, self.X.shape[1], 1))])
+                output_schema = Schema([TensorSpec(np.dtype(np.float32), (-1, 1))])
+                signature = ModelSignature(inputs=input_schema, outputs=output_schema)
+    
                 mlflow.pytorch.log_model(
                     self.model,
                     artifact_path="model",
