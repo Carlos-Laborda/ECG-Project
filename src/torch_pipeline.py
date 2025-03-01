@@ -197,15 +197,13 @@ class ECGSimpleTrainingFlow(FlowSpec):
         # Define optimizer and scheduler
         optimizer = optim.Adam(self.model.parameters(), lr=self.lr)
         scheduler = StepLR(optimizer, step_size=1, gamma=0.95)
-        
-        # define parameters for training
-        
+                
         mlflow.set_tracking_uri(self.mlflow_tracking_uri)
         with mlflow.start_run(run_id=self.mlflow_run_id):
             # Log training parameters
             params = {
                 # Model parameters
-                "model_type": self.model_type or "Simple1DCNN",
+                "model_type": self.model_type,
                 "model_description": self.model_description,
                 
                 # Training hyperparameters
@@ -235,12 +233,23 @@ class ECGSimpleTrainingFlow(FlowSpec):
             input_size = (self.batch_size, 1, self.X.shape[1])
             log_model_summary(self.model, input_size)
             
+            # Training loop with validation
             for epoch in range(1, self.num_epochs + 1):
                 print(f"\nEpoch {epoch}/{self.num_epochs}")
-                train(self.model, self.train_loader, optimizer, loss_fn, device, epoch)
-                _ = test(self.model, self.val_loader, loss_fn, device)
+                
+                # Train and log metrics
+                self.train_loss, self.train_acc = train(
+                    self.model, self.train_loader, optimizer, 
+                    loss_fn, device, epoch)
+                
+                # Validate and log metrics
+                self.val_loss, self.val_acc = test(
+                    self.model, self.val_loader, loss_fn, 
+                    device, phase='val', epoch=epoch)
+                
+                # Update learning rate
                 scheduler.step()
-    
+        
         self.next(self.evaluate)
     @card
     @step
@@ -249,8 +258,12 @@ class ECGSimpleTrainingFlow(FlowSpec):
         mlflow.set_tracking_uri(self.mlflow_tracking_uri)
         device = "cuda" if torch.cuda.is_available() else "cpu"
         loss_fn = torch.nn.BCELoss()
-        self.test_accuracy = test(self.model, self.test_loader, loss_fn, device)
-        print(f"Final Test Accuracy: {self.test_accuracy*100:.2f}%")
+        with mlflow.start_run(run_id=self.mlflow_run_id):
+            # Evaluate and log test metrics
+            self.test_loss, self.test_accuracy = test(
+                self.model, self.test_loader, loss_fn, 
+                device, phase='test')
+            print(f"Final Test Accuracy: {self.test_accuracy*100:.2f}%")
         self.next(self.register)
 
     @step
