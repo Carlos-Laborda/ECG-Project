@@ -191,51 +191,93 @@ class Improved1DCNN(nn.Module):
 # Training and Evaluation Functions
 # ----------------------
 def train(model, train_loader, optimizer, loss_fn, device, epoch, log_interval=100):
+    """Train for one epoch and log metrics"""
     model.train()
     running_loss = 0.0
+    correct = 0
+    total_samples = 0
+    
     for batch_idx, (data, target) in enumerate(train_loader):
-        # Data comes in shape (batch, window_length, 1) -> permute to (batch, 1, window_length)
+        # Data preprocessing
         data = data.to(device).permute(0, 2, 1)
-        # For binary classification using BCELoss, convert target to float
         target = target.to(device).float()
+        
+        # Forward pass
         optimizer.zero_grad()
         output = model(data)
-        # Flatten output from (batch, 1) to (batch,)
         output = output.view(-1)
+        
+        # Calculate loss and backpropagate
         loss = loss_fn(output, target)
         loss.backward()
         optimizer.step()
-        running_loss += loss.item()
-
+        
+        # Accumulate metrics
+        running_loss += loss.item() * data.size(0)
+        preds = (output > 0.5).float()
+        correct += preds.eq(target).sum().item()
+        total_samples += data.size(0)
+        
+        # Log intermediate training loss
         if batch_idx % log_interval == 0:
-            avg_loss = running_loss / (batch_idx + 1)
-            mlflow.log_metric("train_loss", avg_loss, step=epoch * len(train_loader) + batch_idx)
-            print(f"Epoch {epoch} Batch {batch_idx}/{len(train_loader)} Loss: {avg_loss:.4f}")
+            batch_avg_loss = running_loss / total_samples
+            print(f"Epoch {epoch} [{batch_idx}/{len(train_loader)}] "
+                  f"Loss: {batch_avg_loss:.4f}")
+    
+    # Log epoch metrics
+    epoch_loss = running_loss / total_samples
+    epoch_acc = correct / total_samples
+    mlflow.log_metrics({
+        "train_loss": epoch_loss,
+        "train_accuracy": epoch_acc
+    }, step=epoch)
+    
+    return epoch_loss, epoch_acc
 
-def test(model, data_loader, loss_fn, device):
+def test(model, data_loader, loss_fn, device, phase='val', epoch=None):
+    """Evaluate model and log metrics. Phase can be 'val' or 'test'"""
     model.eval()
-    test_loss = 0.0
+    running_loss = 0.0
     correct = 0
     total_samples = 0
+    
     with torch.no_grad():
         for data, target in data_loader:
+            # Data preprocessing
             data = data.to(device).permute(0, 2, 1)
             target = target.to(device).float()
+            
+            # Forward pass
             output = model(data)
             output = output.view(-1)
             loss = loss_fn(output, target)
-            test_loss += loss.item() * data.size(0)
-            # Use 0.5 threshold for binary prediction
+            
+            # Accumulate metrics
+            running_loss += loss.item() * data.size(0)
             preds = (output > 0.5).float()
             correct += preds.eq(target).sum().item()
             total_samples += data.size(0)
     
-    avg_loss = test_loss / total_samples
+    # Calculate final metrics
+    avg_loss = running_loss / total_samples
     accuracy = correct / total_samples
-    mlflow.log_metric("test_loss", avg_loss)
-    mlflow.log_metric("test_accuracy", accuracy)
-    print(f"Test set: Average loss: {avg_loss:.4f}, Accuracy: {accuracy*100:.2f}%")
-    return accuracy
+    
+    # Log metrics with appropriate names based on phase
+    metrics = {
+        f"{phase}_loss": avg_loss,
+        f"{phase}_accuracy": accuracy
+    }
+    
+    # For validation, include epoch for tracking
+    if epoch is not None:
+        mlflow.log_metrics(metrics, step=epoch)
+    else:
+        mlflow.log_metrics(metrics)
+    
+    print(f"{phase.capitalize()} set: Average loss: {avg_loss:.4f}, "
+          f"Accuracy: {accuracy*100:.2f}%")
+    
+    return avg_loss, accuracy
         
 def log_model_summary(model, input_size):
     # Write model summary to a file and log as an artifact
