@@ -9,7 +9,8 @@ import torch.optim as optim
 from torch.optim.lr_scheduler import StepLR
 from torch.utils.data import DataLoader
 from sklearn.metrics import confusion_matrix, classification_report
-from metaflow import FlowSpec, step, card, Parameter, current, project, environment
+from metaflow import (FlowSpec, step, card, Parameter, current, 
+                      project, conda_base, environment)
 from mlflow.types import Schema, TensorSpec
 from mlflow.models import ModelSignature
 
@@ -24,8 +25,7 @@ from torch_utilities import (
 )
 
 from utils import load_ecg_data, prepare_cnn_data
-
-
+ 
 @project(name="ecg_training_simple")
 class ECGSimpleTrainingFlow(FlowSpec):
     """
@@ -76,10 +76,10 @@ class ECGSimpleTrainingFlow(FlowSpec):
     accuracy_threshold = Parameter(
         "accuracy_threshold",
         help="Minimum accuracy for model registration",
-        default=0.5,
+        default=0.6,
     )
     
-    lr = Parameter("lr", default=0.001, help="Learning rate")
+    lr = Parameter("lr", default=0.0001, help="Learning rate")
 
     num_epochs = Parameter(
         "num_epochs",
@@ -176,9 +176,12 @@ class ECGSimpleTrainingFlow(FlowSpec):
         test_dataset = ECGDataset(self.X_test, y_test)
         
         # Create DataLoaders
-        self.train_loader = DataLoader(train_dataset, batch_size=self.batch_size, shuffle=True)
-        self.val_loader = DataLoader(val_dataset, batch_size=self.batch_size, shuffle=False)
-        self.test_loader = DataLoader(test_dataset, batch_size=self.batch_size, shuffle=False)
+        self.train_loader = DataLoader(train_dataset, batch_size=self.batch_size, 
+                                       shuffle=True, num_workers=4, pin_memory=True)
+        self.val_loader = DataLoader(val_dataset, batch_size=self.batch_size, shuffle=False, 
+                                     num_workers=4, pin_memory=True)
+        self.test_loader = DataLoader(test_dataset, batch_size=self.batch_size, shuffle=False, 
+                                      num_workers=4, pin_memory=True)
         
         self.next(self.train_model)
 
@@ -189,14 +192,16 @@ class ECGSimpleTrainingFlow(FlowSpec):
         device = "cuda" if torch.cuda.is_available() else "cpu"
         print(f"Training on device: {device}")
         
-        # Instantiate the model and move it to device
-        self.model = Simple1DCNN().to(device)
-        
-        # Define loss function (using BCELoss for binary classification)
+        # Model setup
+        self.model = Improved1DCNN().to(device)
         loss_fn = torch.nn.BCELoss()
-        # Define optimizer and scheduler
         optimizer = optim.Adam(self.model.parameters(), lr=self.lr)
-        scheduler = StepLR(optimizer, step_size=1, gamma=0.95)
+        
+        # ExponentialLR scheduler
+        scheduler = optim.lr_scheduler.ExponentialLR(
+            optimizer,
+            gamma=0.9  # decay rate per epoch
+        )
                 
         mlflow.set_tracking_uri(self.mlflow_tracking_uri)
         with mlflow.start_run(run_id=self.mlflow_run_id):
@@ -215,7 +220,6 @@ class ECGSimpleTrainingFlow(FlowSpec):
                 
                 # Scheduler parameters
                 "scheduler": scheduler.__class__.__name__,
-                "scheduler_step_size": scheduler.step_size,
                 "scheduler_gamma": scheduler.gamma,
                 
                 # Data parameters
