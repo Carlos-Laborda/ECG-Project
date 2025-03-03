@@ -1,3 +1,6 @@
+import tempfile
+from pathlib import Path
+
 import numpy as np
 import h5py
 import torch
@@ -5,10 +8,12 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import Dataset
 from torchinfo import summary
+
+# MLflow imports
 import mlflow
 import mlflow.pytorch
-import tempfile
-from pathlib import Path
+from mlflow.types import Schema, TensorSpec
+from mlflow.models import ModelSignature
 
 def load_processed_data(hdf5_path, label_map=None):
     """
@@ -286,3 +291,22 @@ def log_model_summary(model, input_size):
         with open(summmary_path, "w") as f:
             f.write(str(summary(model, input_size=input_size)))
         mlflow.log_artifact(summmary_path)
+        
+def prepare_model_signature(model, sample_input):
+    """Prepare model signature for MLflow registration"""
+    model.cpu().eval()
+    with torch.no_grad():
+        tensor_input = torch.tensor(
+            sample_input, 
+            dtype=torch.float32
+        ).permute(0, 2, 1)
+        sample_output = model(tensor_input).numpy()
+    
+    input_schema = Schema([
+        TensorSpec(np.dtype(np.float32), (-1, sample_input.shape[1], 1))
+    ])
+    output_schema = Schema([
+        TensorSpec(np.dtype(np.float32), (-1, 1))
+    ])
+    
+    return ModelSignature(inputs=input_schema, outputs=output_schema)
