@@ -10,7 +10,7 @@ from torch.optim.lr_scheduler import StepLR
 from torch.utils.data import DataLoader
 from sklearn.metrics import confusion_matrix, classification_report
 from metaflow import (FlowSpec, step, card, Parameter, current, 
-                      project, conda_base, environment)
+                      project, resources, conda_base, environment)
 from mlflow.types import Schema, TensorSpec
 from mlflow.models import ModelSignature
 
@@ -177,11 +177,11 @@ class ECGSimpleTrainingFlow(FlowSpec):
         
         # Create DataLoaders
         self.train_loader = DataLoader(train_dataset, batch_size=self.batch_size, 
-                                       shuffle=True, num_workers=4, pin_memory=True)
+                                       shuffle=True, num_workers=8, pin_memory=True)
         self.val_loader = DataLoader(val_dataset, batch_size=self.batch_size, shuffle=False, 
-                                     num_workers=4, pin_memory=True)
+                                     num_workers=8, pin_memory=True)
         self.test_loader = DataLoader(test_dataset, batch_size=self.batch_size, shuffle=False, 
-                                      num_workers=4, pin_memory=True)
+                                      num_workers=8, pin_memory=True)
         
         self.next(self.train_model)
 
