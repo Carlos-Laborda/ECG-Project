@@ -11,8 +11,6 @@ from torch.utils.data import DataLoader
 from sklearn.metrics import confusion_matrix, classification_report
 from metaflow import (FlowSpec, step, card, Parameter, current, 
                       project, resources, conda_base, environment)
-from mlflow.types import Schema, TensorSpec
-from mlflow.models import ModelSignature
 
 from common import (
     process_ecg_data,
@@ -21,7 +19,8 @@ from common import (
 
 from torch_utilities import (
     load_processed_data, split_data_by_participant, ECGDataset,
-    Improved1DCNN, train, test, log_model_summary, Simple1DCNN,
+    Improved1DCNN, train, test, log_model_summary, prepare_model_signature,
+    Simple1DCNN,
 )
 
 from utils import load_ecg_data, prepare_cnn_data
@@ -280,19 +279,10 @@ class ECGSimpleTrainingFlow(FlowSpec):
             logging.info("Registering model...")
             
             with mlflow.start_run(run_id=self.mlflow_run_id):
-                # Prepare sample input and get prediction
-                sample_input = self.X_test[:5] 
-                self.model.cpu().eval()
-                
-                with torch.no_grad():
-                    # Convert to tensor, permute to (batch, 1, window_length), and get prediction
-                    tensor_input = torch.tensor(sample_input, dtype=torch.float32).permute(0, 2, 1)
-                    sample_output = self.model(tensor_input).numpy()
-                
-                # Define input/output schema
-                input_schema = Schema([TensorSpec(np.dtype(np.float32), (-1, self.X.shape[1], 1))])
-                output_schema = Schema([TensorSpec(np.dtype(np.float32), (-1, 1))])
-                signature = ModelSignature(inputs=input_schema, outputs=output_schema)
+                signature = prepare_model_signature(
+                self.model, 
+                self.X_test[:5]
+                )
     
                 mlflow.pytorch.log_model(
                     self.model,
