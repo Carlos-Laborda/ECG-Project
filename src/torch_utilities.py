@@ -142,19 +142,19 @@ class Improved1DCNN(nn.Module):
         super(Improved1DCNN, self).__init__()
         self.bn_input = nn.BatchNorm1d(1)
         # Block 1
-        self.conv1_1 = nn.Conv1d(1, 32, kernel_size=5, padding=2)
+        self.conv1_1 = nn.Conv1d(1, 32, kernel_size=5, padding=2, bias=False)
         self.conv1_2 = nn.Conv1d(32, 32, kernel_size=5, padding=2)
         self.pool1 = nn.MaxPool1d(kernel_size=2)
         self.bn1 = nn.BatchNorm1d(32)
         self.dropout1 = nn.Dropout(0.1)
         # Block 2
-        self.conv2_1 = nn.Conv1d(32, 64, kernel_size=11, padding=5)
+        self.conv2_1 = nn.Conv1d(32, 64, kernel_size=11, padding=5, bias=False)
         self.conv2_2 = nn.Conv1d(64, 64, kernel_size=11, padding=5)
         self.pool2 = nn.MaxPool1d(kernel_size=2)
         self.bn2 = nn.BatchNorm1d(64)
         self.dropout2 = nn.Dropout(0.1)
         # Block 3
-        self.conv3_1 = nn.Conv1d(64, 128, kernel_size=17, padding=8)
+        self.conv3_1 = nn.Conv1d(64, 128, kernel_size=17, padding=8, bias=False)
         self.conv3_2 = nn.Conv1d(128, 128, kernel_size=17, padding=8)
         self.gap = nn.AdaptiveAvgPool1d(1)
         # Dense layers
