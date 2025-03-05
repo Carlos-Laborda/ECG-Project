@@ -175,25 +175,14 @@ class ECGSimpleTrainingFlow(FlowSpec):
         train_dataset = ECGDataset(X_train, y_train)
         val_dataset = ECGDataset(X_val, y_val)
         test_dataset = ECGDataset(self.X_test, y_test)
-
-        # Benchmark to find optimal number of workers
-        print("\nBenchmarking DataLoader workers...")
-        results = benchmark_dataloader_workers(
-            dataset=train_dataset,
-            batch_size=self.batch_size,
-            num_epochs=2
-        )
-        
-        # Use the optimal number of workers
-        optimal_workers = min(results, key=results.get)
         
         # Create DataLoaders
         self.train_loader = DataLoader(train_dataset, batch_size=self.batch_size, 
-                                       shuffle=True, num_workers=optimal_workers, pin_memory=True)
+                                       shuffle=True, num_workers=0, pin_memory=True)
         self.val_loader = DataLoader(val_dataset, batch_size=self.batch_size, shuffle=False, 
-                                     num_workers=optimal_workers, pin_memory=True)
+                                     num_workers=0, pin_memory=True)
         self.test_loader = DataLoader(test_dataset, batch_size=self.batch_size, shuffle=False, 
-                                      num_workers=optimal_workers, pin_memory=True)
+                                      num_workers=0, pin_memory=True)
         
         self.next(self.train_model)
 
