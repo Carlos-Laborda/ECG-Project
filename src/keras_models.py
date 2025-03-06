@@ -102,46 +102,6 @@ def baseline_1DCNN(input_length=10000):
     )
     return model
 
-def baseline_1DCNN_residual(input_length=10000):
-    """Baseline 1D CNN model with residual connections"""
-    inputs = layers.Input(shape=(input_length, 1))
-    x = layers.BatchNormalization()(inputs)
-
-    # Convolution Block 1
-    conv1 = layers.Conv1D(32, 3, activation='relu', padding='same')(x)
-    conv1 = layers.Conv1D(32, 3, activation='relu', padding='same')(conv1)
-    x = layers.MaxPooling1D(2)(conv1)
-    x = layers.BatchNormalization()(x)
-
-    # Convolution Block 2
-    conv2 = layers.Conv1D(64, 3, activation='relu', padding='same')(x)
-    conv2 = layers.Conv1D(64, 3, activation='relu', padding='same')(conv2)
-    x = layers.MaxPooling1D(2)(conv2)
-    x = layers.BatchNormalization()(x)
-
-    # Convolution Block 3
-    conv3 = layers.Conv1D(128, 3, activation='relu', padding='same')(x)
-    conv3 = layers.Conv1D(128, 3, activation='relu', padding='same')(conv3)
-
-    # Residual connection
-    residual = layers.Conv1D(128, 1, padding='same')(x)  # Adjust filters to match
-    x = layers.add([conv3, residual])  # Add residual
-
-    x = layers.GlobalAveragePooling1D()(x)
-
-    # Dense layers with dropout
-    x = layers.Dense(64, activation='relu')(x)
-    x = layers.Dropout(0.5)(x)
-    outputs = layers.Dense(1, activation='sigmoid')(x)
-
-    model = models.Model(inputs, outputs)
-    model.compile(
-        optimizer=optimizers.Adam(learning_rate=0.0001),
-        loss='binary_crossentropy',
-        metrics=['binary_accuracy']
-    )
-    return model
-
 def improved_1DCNN(input_length=10000):
     inputs = layers.Input(shape=(input_length, 1))
     x = layers.BatchNormalization()(inputs)
