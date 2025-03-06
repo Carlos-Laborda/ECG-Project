@@ -153,9 +153,7 @@ class ECGSimpleTrainingFlow(FlowSpec):
     @card
     @step
     def prepare_data_for_cnn(self):
-        """Prepare data for CNN training"""
-        from torch_utilities import benchmark_dataloader_workers
-        
+        """Prepare data for CNN training"""        
         self.X, self.y, self.groups = load_processed_data(
             hdf5_path=self.window_data_path,
             label_map={"baseline": 0, "mental_stress": 1},
@@ -256,6 +254,7 @@ class ECGSimpleTrainingFlow(FlowSpec):
                 scheduler.step()
         
         self.next(self.evaluate)
+
     @card
     @step
     def evaluate(self):
