@@ -19,8 +19,8 @@ from common import (
 
 from torch_utilities import (
     load_processed_data, split_data_by_participant, ECGDataset,
-    Improved1DCNN, train, test, log_model_summary, prepare_model_signature,
-    Simple1DCNN,
+    train, test, log_model_summary, prepare_model_signature,
+    set_seed, Simple1DCNN, Improved1DCNN
 )
 
 from utils import load_ecg_data, prepare_cnn_data
@@ -40,6 +40,12 @@ class ECGSimpleTrainingFlow(FlowSpec):
         "mlflow_tracking_uri",
         help="MLflow tracking server location",
         default=os.getenv("MLFLOW_TRACKING_URI", "https://127.0.0.1:5000"),
+    )
+    
+    seed = Parameter(
+        "seed",
+        help="Random seed for reproducibility",
+        default=42
     )
 
     segmented_data_path = Parameter(
@@ -188,6 +194,8 @@ class ECGSimpleTrainingFlow(FlowSpec):
     @step
     def train_model(self):
         """Train the CNN model using PyTorch"""
+        set_seed(self.seed)
+        
         device = "cuda" if torch.cuda.is_available() else "cpu"
         print(f"Training on device: {device}")
         
@@ -209,6 +217,8 @@ class ECGSimpleTrainingFlow(FlowSpec):
                 # Model parameters
                 "model_type": self.model_type,
                 "model_description": self.model_description,
+                "random_seed": self.seed,
+                "deterministic": True,
                 
                 # Training hyperparameters
                 "epochs": self.num_epochs,
