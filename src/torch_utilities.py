@@ -208,7 +208,7 @@ def train(model, train_loader, optimizer, loss_fn, device, epoch, log_interval=1
         target = target.to(device).float()
         
         # Forward pass
-        optimizer.zero_grad()
+        optimizer.zero_grad(set_to_none=True)
         output = model(data)
         output = output.view(-1)
         
