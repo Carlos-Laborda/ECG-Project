@@ -84,7 +84,7 @@ class ECGSimpleTrainingFlow(FlowSpec):
     batch_size = Parameter(
         "batch_size",
         help="Training batch size",
-        default=16,
+        default=32,
     )
 
     @card
