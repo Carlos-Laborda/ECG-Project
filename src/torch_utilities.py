@@ -138,6 +138,10 @@ class Simple1DCNN(nn.Module):
         return x
     
 class Improved1DCNN(nn.Module):
+    """
+    A more complex 1D CNN model with 3 convolutional blocks with 
+    3-layer classification head with dropout.
+    """
     def __init__(self):
         super(Improved1DCNN, self).__init__()
         self.bn_input = nn.BatchNorm1d(1)
