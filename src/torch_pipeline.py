@@ -23,8 +23,8 @@ from torch_utilities import (
     set_seed, Simple1DCNN, Improved1DCNN
 )
 
-from utils import load_ecg_data, prepare_cnn_data
- 
+from utils import load_ecg_data
+
 @project(name="ecg_training_simple")
 class ECGSimpleTrainingFlow(FlowSpec):
     """
