@@ -37,6 +37,7 @@ dependencies:
       - python-dotenv
       - pytest
       - pylint
+      - tensorflow
       - mlflow
       - mlflow[extras]
       - mlserver
