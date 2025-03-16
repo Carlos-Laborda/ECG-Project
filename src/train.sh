@@ -18,7 +18,7 @@ source /var/scratch/cla224/ecg_venv/bin/activate
 
 # --- Upgrade pip and install minimal required packages (no-cache to save space) ---
 pip install --upgrade pip
-pip install torch torchvision mlflow metaflow h5py scikit-learn --no-cache-dir
+pip install torch torchvision torchinfo mlflow metaflow tensorflow h5py scikit-learn mne keras pandas neurokit2 jax --no-cache-dir
 
 # --- Debug: Verify Python and pip installations ---
 echo "Python version: $(python --version)"
