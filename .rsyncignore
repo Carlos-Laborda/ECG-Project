@@ -2,7 +2,11 @@
 .gitignore
 .gitmodules
 .DS_Store
+.env
 __pycache__/
+LICENCE
+README.md
+requirements.txt
 *.log
 *.tmp
 *.code-workspace
@@ -41,5 +45,6 @@ src/remove_outliers.py
 src/synthetic_test.py
 src/training_ML.py
 src/training_cv.py
+src/keras_models.py
 
 #data/interim/*.h5
