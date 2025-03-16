@@ -7,9 +7,7 @@ import numpy as np
 import pandas as pd
 import scipy.signal
 import scipy.stats
-import keras
 from scipy.signal import butter, filtfilt, iirnotch
-from keras import Input, layers, models, optimizers, losses, metrics, regularizers
 
 from config import CATEGORY_MAPPING, FOLDERPATH, OUTPUT_DIR_PATH
 from utils import load_ecg_data
