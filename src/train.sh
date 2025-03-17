@@ -16,11 +16,7 @@ source /var/scratch/cla224/miniconda3/etc/profile.d/conda.sh
 # --- Activate your conda environment ---
 source activate /var/scratch/cla224/ECG_env
 
-# --- Disable the oneDNN fuser to avoid the undefined symbol error ---
-export TORCH_JIT_DISABLE_ONEDNN_FUSER=1
-
 # --- Set the MLflow tracking URI to HTTP on port 5005 ---
-#export MLFLOW_TRACKING_URI=http://127.0.0.1:5005
 export MLFLOW_TRACKING_URI=http://fs0.das6.cs.vu.nl:5005
 echo "MLFLOW_TRACKING_URI is set to: $MLFLOW_TRACKING_URI"
 
