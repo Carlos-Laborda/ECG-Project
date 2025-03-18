@@ -150,6 +150,65 @@ class Improved1DCNN(nn.Module):
         self.conv1_2 = nn.Conv1d(32, 32, kernel_size=5, padding=2)
         self.pool1 = nn.MaxPool1d(kernel_size=2)
         self.bn1 = nn.BatchNorm1d(32)
+        self.dropout1 = nn.Dropout(0.2)
+        # Block 2
+        self.conv2_1 = nn.Conv1d(32, 64, kernel_size=5, padding=2, bias=False)
+        self.conv2_2 = nn.Conv1d(64, 64, kernel_size=5, padding=2)
+        self.pool2 = nn.MaxPool1d(kernel_size=2)
+        self.bn2 = nn.BatchNorm1d(64)
+        self.dropout2 = nn.Dropout(0.2)
+        # Block 3
+        self.conv3_1 = nn.Conv1d(64, 128, kernel_size=5, padding=2, bias=False)
+        self.conv3_2 = nn.Conv1d(128, 128, kernel_size=5, padding=2)
+        self.gap = nn.AdaptiveAvgPool1d(1)
+        # Dense layers
+        self.fc1 = nn.Linear(128, 64)
+        self.dropout3 = nn.Dropout(0.4)
+        self.fc2 = nn.Linear(64, 32)
+        self.dropout4 = nn.Dropout(0.4)
+        self.fc3 = nn.Linear(32, 1)
+    
+    def forward(self, x):
+        # Input x: (batch, channels, length)
+        x = self.bn_input(x)
+        # Block 1
+        x = F.relu(self.conv1_1(x))
+        x = F.relu(self.conv1_2(x))
+        x = self.pool1(x)
+        x = self.bn1(x)
+        x = self.dropout1(x)
+        # Block 2
+        x = F.relu(self.conv2_1(x))
+        x = F.relu(self.conv2_2(x))
+        x = self.pool2(x)
+        x = self.bn2(x)
+        x = self.dropout2(x)
+        # Block 3
+        x = F.relu(self.conv3_1(x))
+        x = F.relu(self.conv3_2(x))
+        x = self.gap(x)  # shape: (batch, 128, 1)
+        x = x.view(x.size(0), -1)  # flatten to (batch, 128)
+        # Dense layers
+        x = F.relu(self.fc1(x))
+        x = self.dropout3(x)
+        x = F.relu(self.fc2(x))
+        x = self.dropout4(x)
+        x = torch.sigmoid(self.fc3(x))
+        return x
+    
+class Improved1DCNN_v2(nn.Module):
+    """
+    A more complex 1D CNN model with 3 convolutional blocks with 
+    3-layer classification head with dropout.
+    """
+    def __init__(self):
+        super(Improved1DCNN, self).__init__()
+        self.bn_input = nn.BatchNorm1d(1)
+        # Block 1
+        self.conv1_1 = nn.Conv1d(1, 32, kernel_size=5, padding=2, bias=False)
+        self.conv1_2 = nn.Conv1d(32, 32, kernel_size=5, padding=2)
+        self.pool1 = nn.MaxPool1d(kernel_size=2)
+        self.bn1 = nn.BatchNorm1d(32)
         self.dropout1 = nn.Dropout(0.1)
         # Block 2
         self.conv2_1 = nn.Conv1d(32, 64, kernel_size=11, padding=5, bias=False)
