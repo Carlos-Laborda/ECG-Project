@@ -23,6 +23,4 @@ export MLFLOW_TRACKING_URI=http://fs0.das6.cs.vu.nl:5005
 # --- Run training script ---
 python torch_pipeline.py run \
   --mlflow_tracking_uri "http://fs0.das6.cs.vu.nl:5005" \
-  --model_type "1DCNN_improved" \
-  --model_description "1DCNN_improved with increased batch size 32" \
   --num_epochs 25
