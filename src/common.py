@@ -44,7 +44,7 @@ def process_ecg_data(hdf5_path):
 
     # Create or overwrite HDF5 file
     with h5py.File(hdf5_path, "w") as f:
-        for p, participant_id in enumerate(participants[:20]):  # first 20 participants
+        for p, participant_id in enumerate(participants[:40]):  # first 40 participants
             print(
                 f"Processing Participant {participant_id} ({p + 1}/{len(participants)})"
             )
@@ -102,12 +102,13 @@ def process_ecg_data(hdf5_path):
                     print(f"No data for {label} (Participant {participant_id}).")
                     continue
 
-                concatenated_segments = np.concatenate(segments)
+                concatenated_segments = np.concatenate(segments).astype(np.float32)
                 participant_group.create_dataset(
                     label,
                     data=concatenated_segments,
                     compression="gzip",
                     compression_opts=4,
+                    dtype=np.float32,
                 )
 
     print(f"ECG data successfully written to {hdf5_path}")
@@ -202,7 +203,11 @@ def process_save_cleaned_data(segmented_data_path, output_hdf5_path, fs=1000):
             else:
                 grp = f_out[group_name]
             grp.create_dataset(
-                category, data=signal, compression="gzip", compression_opts=4
+                category, 
+                data=signal.astype(np.float32),  
+                compression="gzip", 
+                compression_opts=4,
+                dtype='float32'  
             )
     print(f"Cleaned ECG data saved to {output_hdf5_path}")
 
