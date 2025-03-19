@@ -136,6 +136,62 @@ class Simple1DCNN(nn.Module):
         x = x.view(x.size(0), -1)  # flatten to (batch_size, 16)
         x = torch.sigmoid(self.fc1(x))  # shape: (batch_size, 1)
         return x
+
+class Simple1DCNN_v2(nn.Module):
+    """
+    A balanced CNN architecture between Simple1DCNN and Improved1DCNN
+    with moderate capacity and regularization for ECG stress classification.
+    """
+    def __init__(self, dropout_rate=0.2):
+        super(Simple1DCNN_v2, self).__init__()
+        self.bn_input = nn.BatchNorm1d(1)
+        
+        # Block 1
+        self.conv1 = nn.Conv1d(1, 16, kernel_size=5, padding=2)
+        self.bn1 = nn.BatchNorm1d(16)
+        self.pool1 = nn.MaxPool1d(kernel_size=4)  # More aggressive pooling
+        self.dropout1 = nn.Dropout(dropout_rate)
+        
+        # Block 2
+        self.conv2 = nn.Conv1d(16, 32, kernel_size=7, padding=3)
+        self.bn2 = nn.BatchNorm1d(32)
+        self.pool2 = nn.MaxPool1d(kernel_size=4)  # More aggressive pooling
+        self.dropout2 = nn.Dropout(dropout_rate)
+        
+        # Global pooling
+        self.gap = nn.AdaptiveAvgPool1d(1)
+        
+        # Classifier
+        self.fc1 = nn.Linear(32, 16)
+        self.dropout3 = nn.Dropout(dropout_rate)
+        self.fc2 = nn.Linear(16, 1)
+    
+    def forward(self, x):
+        # Input normalization
+        x = self.bn_input(x)
+        
+        # Block 1
+        x = F.relu(self.conv1(x))
+        x = self.bn1(x)
+        x = self.pool1(x)
+        x = self.dropout1(x)
+        
+        # Block 2
+        x = F.relu(self.conv2(x))
+        x = self.bn2(x)
+        x = self.pool2(x)
+        x = self.dropout2(x)
+        
+        # Global pooling
+        x = self.gap(x)
+        x = x.view(x.size(0), -1)  # Flatten
+        
+        # Classifier
+        x = F.relu(self.fc1(x))
+        x = self.dropout3(x)
+        x = torch.sigmoid(self.fc2(x))  
+        
+        return x
     
 class Improved1DCNN(nn.Module):
     """
@@ -202,7 +258,7 @@ class Improved1DCNN_v2(nn.Module):
     3-layer classification head with dropout.
     """
     def __init__(self):
-        super(Improved1DCNN, self).__init__()
+        super(Improved1DCNN_v2, self).__init__()
         self.bn_input = nn.BatchNorm1d(1)
         # Block 1
         self.conv1_1 = nn.Conv1d(1, 32, kernel_size=5, padding=2, bias=False)
