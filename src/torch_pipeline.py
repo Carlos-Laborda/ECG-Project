@@ -200,7 +200,7 @@ class ECGSimpleTrainingFlow(FlowSpec):
         print(f"Training on device: {device}")
         
         # Model setup
-        self.model = Simple1DCNN_v2().to(device)
+        self.model = Improved1DCNN().to(device)
         loss_fn = torch.nn.BCELoss()
         optimizer = optim.Adam(self.model.parameters(), lr=self.lr)
         
@@ -217,6 +217,7 @@ class ECGSimpleTrainingFlow(FlowSpec):
                 # Model parameters
                 "model_type": self.model_type,
                 "model_description": self.model_description,
+                "model_name": self.model.__class__.__name__,
                 "random_seed": self.seed,
                 "deterministic": True,
                 
