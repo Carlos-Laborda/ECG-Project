@@ -19,7 +19,7 @@ from common import (
 
 from torch_utilities import (
     load_processed_data, split_data_by_participant, ECGDataset,
-    train, test, log_model_summary, prepare_model_signature,
+    train, test, EarlyStopping, log_model_summary, prepare_model_signature,
     set_seed, Simple1DCNN, Simple1DCNN_v2, Improved1DCNN, Improved1DCNN_v2
 )
 
@@ -209,6 +209,8 @@ class ECGSimpleTrainingFlow(FlowSpec):
             optimizer,
             gamma=0.9  # decay rate per epoch
         )
+        
+        early_stopping = EarlyStopping(patience=3)
                 
         mlflow.set_tracking_uri(self.mlflow_tracking_uri)
         with mlflow.start_run(run_id=self.mlflow_run_id):
@@ -260,6 +262,12 @@ class ECGSimpleTrainingFlow(FlowSpec):
                 self.val_loss, self.val_acc, self.val_auc = test(
                     self.model, self.val_loader, loss_fn, 
                     device, phase='val', epoch=epoch)
+
+                # Early stopping
+                early_stopping(self.val_loss)
+                if early_stopping.early_stop:
+                    print("Early stopping triggered")
+                    break
                 
                 # Update learning rate
                 scheduler.step()
