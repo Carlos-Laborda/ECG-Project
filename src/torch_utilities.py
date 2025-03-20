@@ -421,6 +421,29 @@ def test(model, data_loader, loss_fn, device, phase='val', epoch=None):
           f"Accuracy: {accuracy*100:.2f}%, AUC-ROC: {auc_roc:.4f}")
     
     return avg_loss, accuracy, auc_roc
+
+class EarlyStopping:
+    """
+    Early stopping to prevent overfitting.
+    Stops training when validation loss doesn't improve for 'patience' epochs.
+    """
+    def __init__(self, patience=3):
+        self.patience = patience
+        self.counter = 0
+        self.best_loss = None
+        self.early_stop = False
+        
+    def __call__(self, val_loss):
+        if self.best_loss is None:
+            self.best_loss = val_loss
+        elif val_loss > self.best_loss:
+            self.counter += 1
+            print(f'EarlyStopping counter: {self.counter} out of {self.patience}')
+            if self.counter >= self.patience:
+                self.early_stop = True
+        else:
+            self.best_loss = val_loss
+            self.counter = 0
         
 def log_model_summary(model, input_size):
     # Write model summary to a file and log as an artifact
