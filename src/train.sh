@@ -14,7 +14,6 @@ module add cuda12.3/toolkit/12.3
 export CUDA_VISIBLE_DEVICES=0
 
 # --- Initialize Conda ---
-source /var/scratch/cla224/miniconda3/etc/profile.d/conda.sh
 source activate /var/scratch/cla224/ECG_env
 
 # --- Set MLflow tracking server ---
@@ -23,5 +22,5 @@ export MLFLOW_TRACKING_URI=http://fs0.das6.cs.vu.nl:5005
 # --- Run training script ---
 python torch_pipeline.py run \
   --mlflow_tracking_uri "http://fs0.das6.cs.vu.nl:5005" \
-  --model_type "Simple1DCNN_v2" \
+  --model_description "" \
   --num_epochs 25
