@@ -252,12 +252,12 @@ class ECGSimpleTrainingFlow(FlowSpec):
                 print(f"\nEpoch {epoch}/{self.num_epochs}")
                 
                 # Train and log metrics
-                self.train_loss, self.train_acc = train(
+                self.train_loss, self.train_acc, self.train_auc = train(
                     self.model, self.train_loader, optimizer, 
                     loss_fn, device, epoch)
                 
                 # Validate and log metrics
-                self.val_loss, self.val_acc = test(
+                self.val_loss, self.val_acc, self.val_auc = test(
                     self.model, self.val_loader, loss_fn, 
                     device, phase='val', epoch=epoch)
                 
@@ -275,7 +275,7 @@ class ECGSimpleTrainingFlow(FlowSpec):
         loss_fn = torch.nn.BCELoss()
         with mlflow.start_run(run_id=self.mlflow_run_id):
             # Evaluate and log test metrics
-            self.test_loss, self.test_accuracy = test(
+            self.test_loss, self.test_accuracy, self.test_auc = test(
                 self.model, self.test_loader, loss_fn, 
                 device, phase='test')
             print(f"Final Test Accuracy: {self.test_accuracy*100:.2f}%")
