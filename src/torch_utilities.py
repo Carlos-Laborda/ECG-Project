@@ -7,6 +7,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
+from torcheval.metrics import BinaryAUROC
 from torchinfo import summary
 
 # MLflow imports
@@ -321,6 +322,9 @@ def train(model, train_loader, optimizer, loss_fn, device, epoch, log_interval=1
     correct = 0
     total_samples = 0
     
+    # Initialize metrics
+    auroc_metric = BinaryAUROC()
+    
     for batch_idx, (data, target) in enumerate(train_loader):
         # Data preprocessing
         data = data.to(device).permute(0, 2, 1)
@@ -330,6 +334,9 @@ def train(model, train_loader, optimizer, loss_fn, device, epoch, log_interval=1
         optimizer.zero_grad(set_to_none=True)
         output = model(data)
         output = output.view(-1)
+        
+        # Update AUROC metric
+        auroc_metric.update(output.detach().cpu(), target.cpu().int())
         
         # Calculate loss and backpropagate
         loss = loss_fn(output, target)
@@ -351,12 +358,14 @@ def train(model, train_loader, optimizer, loss_fn, device, epoch, log_interval=1
     # Log epoch metrics
     epoch_loss = running_loss / total_samples
     epoch_acc = correct / total_samples
+    auc_roc = auroc_metric.compute().item()
     mlflow.log_metrics({
         "train_loss": epoch_loss,
-        "train_accuracy": epoch_acc
+        "train_accuracy": epoch_acc,
+        "train_auc_roc": auc_roc
     }, step=epoch)
     
-    return epoch_loss, epoch_acc
+    return epoch_loss, epoch_acc, auc_roc
 
 def test(model, data_loader, loss_fn, device, phase='val', epoch=None):
     """Evaluate model and log metrics. Phase can be 'val' or 'test'"""
@@ -364,6 +373,9 @@ def test(model, data_loader, loss_fn, device, phase='val', epoch=None):
     running_loss = 0.0
     correct = 0
     total_samples = 0
+    
+    # Initialize metrics
+    auroc_metric = BinaryAUROC()
     
     with torch.no_grad():
         for data, target in data_loader:
@@ -374,6 +386,11 @@ def test(model, data_loader, loss_fn, device, phase='val', epoch=None):
             # Forward pass
             output = model(data)
             output = output.view(-1)
+            
+            # Update AUROC metric
+            auroc_metric.update(output.cpu(), target.cpu().int())
+            
+            # Calculate loss
             loss = loss_fn(output, target)
             
             # Accumulate metrics
@@ -385,11 +402,13 @@ def test(model, data_loader, loss_fn, device, phase='val', epoch=None):
     # Calculate final metrics
     avg_loss = running_loss / total_samples
     accuracy = correct / total_samples
+    auc_roc = auroc_metric.compute().item()
     
     # Log metrics with appropriate names based on phase
     metrics = {
         f"{phase}_loss": avg_loss,
-        f"{phase}_accuracy": accuracy
+        f"{phase}_accuracy": accuracy,
+        f"{phase}_auc_roc": auc_roc
     }
     
     # For validation, include epoch for tracking
@@ -399,9 +418,9 @@ def test(model, data_loader, loss_fn, device, phase='val', epoch=None):
         mlflow.log_metrics(metrics)
     
     print(f"{phase.capitalize()} set: Average loss: {avg_loss:.4f}, "
-          f"Accuracy: {accuracy*100:.2f}%")
+          f"Accuracy: {accuracy*100:.2f}%, AUC-ROC: {auc_roc:.4f}")
     
-    return avg_loss, accuracy
+    return avg_loss, accuracy, auc_roc
         
 def log_model_summary(model, input_size):
     # Write model summary to a file and log as an artifact
