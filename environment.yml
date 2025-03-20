@@ -54,3 +54,4 @@ dependencies:
       - tqdm
       - metaflow
       - metaflow-card-html
+      - torcheval
