@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=ECG_training    # Job name
+#SBATCH --job-name=ECG             # Job name
 #SBATCH --time=00:30:00            # Max run time (HH:MM:SS)
 #SBATCH -N 1                       # Number of nodes
 #SBATCH --gres=gpu:1               # Request 1 GPU
@@ -23,4 +23,3 @@ export MLFLOW_TRACKING_URI=http://fs0.das6.cs.vu.nl:5005
 python torch_pipeline.py run \
   --mlflow_tracking_uri "http://fs0.das6.cs.vu.nl:5005" \
   --model_description "" \
-  --num_epochs 25
