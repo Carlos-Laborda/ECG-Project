@@ -85,6 +85,12 @@ class ECGSimpleTrainingFlow(FlowSpec):
     )
     
     lr = Parameter("lr", default=0.00001, help="Learning rate")
+    
+    patience = Parameter(
+        "patience",
+        help="Early stopping patience",
+        default=3,
+    )
 
     num_epochs = Parameter(
         "num_epochs",
@@ -210,7 +216,7 @@ class ECGSimpleTrainingFlow(FlowSpec):
             gamma=0.9  # decay rate per epoch
         )
         
-        early_stopping = EarlyStopping(patience=3)
+        early_stopping = EarlyStopping(patience=self.patience)
                 
         mlflow.set_tracking_uri(self.mlflow_tracking_uri)
         with mlflow.start_run(run_id=self.mlflow_run_id):
@@ -233,6 +239,9 @@ class ECGSimpleTrainingFlow(FlowSpec):
                 # Scheduler parameters
                 "scheduler": scheduler.__class__.__name__,
                 "scheduler_gamma": scheduler.gamma,
+                
+                # Early stopping
+                "patience": self.patience,
                 
                 # Data parameters
                 "input_shape": f"{self.X.shape}",
