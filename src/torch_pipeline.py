@@ -84,7 +84,7 @@ class ECGSimpleTrainingFlow(FlowSpec):
         default=0.75,
     )
     
-    lr = Parameter("lr", default=0.0001, help="Learning rate")
+    lr = Parameter("lr", default=0.00001, help="Learning rate")
 
     num_epochs = Parameter(
         "num_epochs",
@@ -200,7 +200,7 @@ class ECGSimpleTrainingFlow(FlowSpec):
         print(f"Training on device: {device}")
         
         # Model setup
-        self.model = Improved1DCNN().to(device)
+        self.model = Improved1DCNN_v2().to(device)
         loss_fn = torch.nn.BCELoss()
         optimizer = optim.Adam(self.model.parameters(), lr=self.lr)
         
