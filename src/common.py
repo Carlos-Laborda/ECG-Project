@@ -44,7 +44,7 @@ def process_ecg_data(hdf5_path):
 
     # Create or overwrite HDF5 file
     with h5py.File(hdf5_path, "w") as f:
-        for p, participant_id in enumerate(participants[:40]):  # first 40 participants
+        for p, participant_id in enumerate(participants):  # take all participants
             print(
                 f"Processing Participant {participant_id} ({p + 1}/{len(participants)})"
             )
