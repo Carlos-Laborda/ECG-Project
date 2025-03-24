@@ -3,12 +3,15 @@ from pathlib import Path
 
 import numpy as np
 import h5py
+import json
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
 from torcheval.metrics import BinaryAUROC
 from torchinfo import summary
+from sklearn.metrics import roc_curve, auc
+
 
 # MLflow imports
 import mlflow
@@ -377,6 +380,11 @@ def test(model, data_loader, loss_fn, device, phase='val', epoch=None):
     # Initialize metrics
     auroc_metric = BinaryAUROC()
     
+    # Lists to store all predictions and labels for ROC curve
+    all_preds = []
+    all_labels = []
+    is_test_phase = (phase == 'test')
+    
     with torch.no_grad():
         for data, target in data_loader:
             # Data preprocessing
@@ -389,6 +397,11 @@ def test(model, data_loader, loss_fn, device, phase='val', epoch=None):
             
             # Update AUROC metric
             auroc_metric.update(output.cpu(), target.cpu().int())
+            
+            # Store predictions and labels for ROC curve
+            if is_test_phase:
+                all_preds.extend(output.cpu().numpy())
+                all_labels.extend(target.cpu().numpy())
             
             # Calculate loss
             loss = loss_fn(output, target)
@@ -403,6 +416,32 @@ def test(model, data_loader, loss_fn, device, phase='val', epoch=None):
     avg_loss = running_loss / total_samples
     accuracy = correct / total_samples
     auc_roc = auroc_metric.compute().item()
+    
+    # Convert lists to numpy arrays
+    if is_test_phase:
+        all_preds = np.array(all_preds)
+        all_labels = np.array(all_labels)
+    
+        # Calculate ROC curve points
+        fpr, tpr, thresholds = roc_curve(all_labels, all_preds)
+        
+        # Log ROC curve data as JSON artifact
+        roc_data = {
+            "fpr": fpr.tolist(),
+            "tpr": tpr.tolist(),
+            "thresholds": thresholds.tolist(),
+            "auc": auc_roc
+        }
+        
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.json') as f:
+            json.dump(roc_data, f)
+            f.flush()
+            
+            # Log the file with a name based on phase and epoch
+            if epoch is not None:
+                mlflow.log_artifact(f.name, f"{phase}_roc_data_epoch_{epoch}.json")
+            else:
+                mlflow.log_artifact(f.name, f"{phase}_roc_data.json")
     
     # Log metrics with appropriate names based on phase
     metrics = {
