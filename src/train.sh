@@ -20,8 +20,11 @@ source activate /var/scratch/cla224/ECG_env
 export MLFLOW_TRACKING_URI=http://fs0.das6.cs.vu.nl:5005
 
 # --- Run training script ---
-python torch_pipeline.py run \
+python torch_pipeline2.py run \
   --mlflow_tracking_uri "http://fs0.das6.cs.vu.nl:5005" \
   --segmented_data_path "../../../../var/scratch/cla224/ECG-Project/data/ecg_data_segmented.h5" \
   --cleaned_data_path "../../../../var/scratch/cla224/ECG-Project/data/ecg_data_cleaned.h5" \
-  --window_data_path "../../../../var/scratch/cla224/ECG-Project/data/windowed_data.h5"
+  --window_data_path "../../../../var/scratch/cla224/ECG-Project/data/windowed_data.h5" \
+  --num_epochs 25 \
+  --patience 25 \
+  --lr 0.0001 \
