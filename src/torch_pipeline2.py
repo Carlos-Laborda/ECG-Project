@@ -6,7 +6,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.optim.lr_scheduler import StepLR
+from torch.optim.lr_scheduler import StepLR, ReduceLROnPlateau
 from torch.utils.data import DataLoader
 from sklearn.metrics import confusion_matrix, classification_report
 from metaflow import (FlowSpec, step, card, Parameter, current, 
@@ -212,9 +212,19 @@ class ECGSimpleTrainingFlow(FlowSpec):
         optimizer = optim.Adam(self.model.parameters(), lr=self.lr)
         
         # ExponentialLR scheduler
-        scheduler = optim.lr_scheduler.ExponentialLR(
+        # scheduler = optim.lr_scheduler.ExponentialLR(
+        #     optimizer,
+        #     gamma=0.9  # decay rate per epoch
+        # )
+        
+        # ReduceLROnPlateau scheduler
+        scheduler = optim.lr_scheduler.ReduceLROnPlateau(
             optimizer,
-            gamma=0.9  # decay rate per epoch
+            mode='min',           # reduce LR when the validation loss stops decreasing
+            factor=0.5,           # multiply LR by this factor when reducing
+            patience=2,           # number of epochs with no improvement after which LR is reduced
+            verbose=False,         # print message when LR is reduced
+            min_lr=1e-9           # lower bound on the learning rate
         )
         
         early_stopping = EarlyStopping(patience=self.patience)
@@ -239,7 +249,11 @@ class ECGSimpleTrainingFlow(FlowSpec):
                 
                 # Scheduler parameters
                 "scheduler": scheduler.__class__.__name__,
-                "scheduler_gamma": scheduler.gamma,
+                #"scheduler_gamma": scheduler.gamma,
+                "scheduler_mode": "min",
+                "scheduler_factor": 0.5,
+                "scheduler_patience": 2,
+                "scheduler_min_lr": 1e-9,
                 
                 # Early stopping
                 "patience": self.patience,
@@ -280,7 +294,7 @@ class ECGSimpleTrainingFlow(FlowSpec):
                     break
                 
                 # Update learning rate
-                scheduler.step()
+                scheduler.step(self.val_loss)
         
         self.next(self.evaluate)
 
