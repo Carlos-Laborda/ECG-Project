@@ -6,7 +6,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.optim.lr_scheduler import StepLR
+from torch.optim.lr_scheduler import StepLR, ReduceLROnPlateau
 from torch.utils.data import DataLoader
 from sklearn.metrics import confusion_matrix, classification_report
 from metaflow import (FlowSpec, step, card, Parameter, current, 
@@ -167,33 +167,20 @@ class ECGSimpleTrainingFlow(FlowSpec):
     @step
     def prepare_data_for_cnn(self):
         """Prepare data for CNN training"""        
-        self.X, self.y, self.groups = load_processed_data(
+        X, y, groups = load_processed_data(
             hdf5_path=self.window_data_path,
             label_map={"baseline": 0, "mental_stress": 1},
         )
-        print(f"Data loaded: X shape={self.X.shape}, y shape={self.y.shape}")
+        print(f"Data loaded: X shape={X.shape}, y shape={y.shape}")
         
-        (X_train, y_train), (X_val, y_val), (self.X_test, y_test) = split_data_by_participant(
-            self.X, 
-            self.y, 
-            self.groups)
+        (self.X_train, self.y_train), (self.X_val, self.y_val), (self.X_test, self.y_test) = split_data_by_participant(
+            X, 
+            y, 
+            groups)
 
-        print(f"Train samples: {len(X_train)}")
-        print(f"Validation samples: {len(X_val)}")
+        print(f"Train samples: {len(self.X_train)}")
+        print(f"Validation samples: {len(self.X_val)}")
         print(f"Test samples: {len(self.X_test)}")
-        
-        # Create PyTorch datasets
-        train_dataset = ECGDataset(X_train, y_train)
-        val_dataset = ECGDataset(X_val, y_val)
-        test_dataset = ECGDataset(self.X_test, y_test)
-        
-        # Create DataLoaders
-        self.train_loader = DataLoader(train_dataset, batch_size=self.batch_size, 
-                                       shuffle=True, num_workers=0, pin_memory=True)
-        self.val_loader = DataLoader(val_dataset, batch_size=self.batch_size, shuffle=False, 
-                                     num_workers=0, pin_memory=True)
-        self.test_loader = DataLoader(test_dataset, batch_size=self.batch_size, shuffle=False, 
-                                      num_workers=0, pin_memory=True)
         
         self.next(self.train_model)
 
@@ -202,6 +189,19 @@ class ECGSimpleTrainingFlow(FlowSpec):
     def train_model(self):
         """Train the CNN model using PyTorch"""
         set_seed(self.seed)
+        
+        # Create PyTorch datasets
+        train_dataset = ECGDataset(self.X_train, self.y_train)
+        val_dataset = ECGDataset(self.X_val, self.y_val)
+        test_dataset = ECGDataset(self.X_test, self.y_test)
+        
+        # Create DataLoaders
+        train_loader = DataLoader(train_dataset, batch_size=self.batch_size, 
+                                       shuffle=True, num_workers=0, pin_memory=True)
+        val_loader = DataLoader(val_dataset, batch_size=self.batch_size, shuffle=False, 
+                                     num_workers=0, pin_memory=True)
+        self.test_loader = DataLoader(test_dataset, batch_size=self.batch_size, shuffle=False, 
+                                      num_workers=0, pin_memory=True)
         
         device = "cuda" if torch.cuda.is_available() else "cpu"
         print(f"Training on device: {device}")
@@ -212,9 +212,19 @@ class ECGSimpleTrainingFlow(FlowSpec):
         optimizer = optim.Adam(self.model.parameters(), lr=self.lr)
         
         # ExponentialLR scheduler
-        scheduler = optim.lr_scheduler.ExponentialLR(
+        # scheduler = optim.lr_scheduler.ExponentialLR(
+        #     optimizer,
+        #     gamma=0.9  # decay rate per epoch
+        # )
+        
+        # ReduceLROnPlateau scheduler
+        scheduler = optim.lr_scheduler.ReduceLROnPlateau(
             optimizer,
-            gamma=0.9  # decay rate per epoch
+            mode='min',           # reduce LR when the validation loss stops decreasing
+            factor=0.5,           # multiply LR by this factor when reducing
+            patience=2,           # number of epochs with no improvement after which LR is reduced
+            verbose=False,         # print message when LR is reduced
+            min_lr=1e-9           # lower bound on the learning rate
         )
         
         early_stopping = EarlyStopping(patience=self.patience)
@@ -239,15 +249,19 @@ class ECGSimpleTrainingFlow(FlowSpec):
                 
                 # Scheduler parameters
                 "scheduler": scheduler.__class__.__name__,
-                "scheduler_gamma": scheduler.gamma,
+                #"scheduler_gamma": scheduler.gamma,
+                "scheduler_mode": "min",
+                "scheduler_factor": 0.5,
+                "scheduler_patience": 2,
+                "scheduler_min_lr": 1e-9,
                 
                 # Early stopping
                 "patience": self.patience,
                 
                 # Data parameters
-                "input_shape": f"{self.X.shape}",
-                "train_samples": len(self.train_loader.dataset),
-                "val_samples": len(self.val_loader.dataset),
+                #"input_shape": f"{self.X.shape}",
+                "train_samples": len(train_loader.dataset),
+                "val_samples": len(val_loader.dataset),
                 "test_samples": len(self.test_loader.dataset),
                 
                 # Hardware
@@ -256,8 +270,8 @@ class ECGSimpleTrainingFlow(FlowSpec):
             mlflow.log_params(params)
             
             # Log model summary artifact; input shape is (batch, 1, window_length)
-            input_size = (self.batch_size, 1, self.X.shape[1])
-            log_model_summary(self.model, input_size)
+            #input_size = (self.batch_size, 1, self.X.shape[1])
+            #log_model_summary(self.model, input_size)
             
             # Training loop with validation
             for epoch in range(1, self.num_epochs + 1):
@@ -265,12 +279,12 @@ class ECGSimpleTrainingFlow(FlowSpec):
                 
                 # Train and log metrics
                 self.train_loss, self.train_acc, self.train_auc = train(
-                    self.model, self.train_loader, optimizer, 
+                    self.model, train_loader, optimizer, 
                     loss_fn, device, epoch)
                 
                 # Validate and log metrics
                 self.val_loss, self.val_acc, self.val_auc = test(
-                    self.model, self.val_loader, loss_fn, 
+                    self.model, val_loader, loss_fn, 
                     device, phase='val', epoch=epoch)
 
                 # Early stopping
@@ -280,7 +294,7 @@ class ECGSimpleTrainingFlow(FlowSpec):
                     break
                 
                 # Update learning rate
-                scheduler.step()
+                scheduler.step(self.val_loss)
         
         self.next(self.evaluate)
 
@@ -344,7 +358,6 @@ class ECGSimpleTrainingFlow(FlowSpec):
         del self.model
         del self.test_loader
         print("Done!")
-
 
 if __name__ == "__main__":
     ECGSimpleTrainingFlow()
