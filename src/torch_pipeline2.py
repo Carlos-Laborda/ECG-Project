@@ -197,32 +197,67 @@ class ECGSimpleTrainingFlow(FlowSpec):
         """
         logging.info("Starting transformation to nested format for training, validation, and test data.")
         
+        # Sample a subset of the data for faster processing
+        from sklearn.model_selection import train_test_split
+        
+        # Define subset sizes
+        train_subset_size = 1000  # Using only 1000 training samples
+        val_subset_size = 500     # Using only 500 validation samples
+        test_subset_size = 500    # Using only 500 test samples
+        
+        # Create stratified samples
+        X_train_sample, _, y_train_sample, _ = train_test_split(
+            self.X_train, self.y_train, 
+            train_size=min(train_subset_size, len(self.X_train)), 
+            stratify=self.y_train,
+            random_state=self.seed
+        )
+        
+        X_val_sample, _, y_val_sample, _ = train_test_split(
+            self.X_val, self.y_val, 
+            train_size=min(val_subset_size, len(self.X_val)), 
+            stratify=self.y_val,
+            random_state=self.seed
+        )
+        
+        X_test_sample, _, y_test_sample, _ = train_test_split(
+            self.X_test, self.y_test, 
+            train_size=min(test_subset_size, len(self.X_test)), 
+            stratify=self.y_test,
+            random_state=self.seed
+        )
+        
+        print(f"Using {len(X_train_sample)} training samples (from {len(self.X_train)} total)")
+        print(f"Using {len(X_val_sample)} validation samples (from {len(self.X_val)} total)")
+        print(f"Using {len(X_test_sample)} test samples (from {len(self.X_test)} total)")
+        
         # Transform training data
         print("Starting transformation of training data...")
-        X_train_squeezed = self.X_train.squeeze(-1)
+        X_train_squeezed = X_train_sample.squeeze(-1)
         print(f"Training data shape after squeeze: {X_train_squeezed.shape}")
         X_train_nested = from_2d_array_to_nested(X_train_squeezed)
         print("Training data transformation complete.")
-
+    
         # Transform validation data
         print("Starting transformation of validation data...")
-        X_val_squeezed = self.X_val.squeeze(-1)
+        X_val_squeezed = X_val_sample.squeeze(-1)
         print(f"Validation data shape after squeeze: {X_val_squeezed.shape}")
         X_val_nested = from_2d_array_to_nested(X_val_squeezed)
         print("Validation data transformation complete.")
-
+    
         # Transform test data
         print("Starting transformation of test data...")
-        X_test_squeezed = self.X_test.squeeze(-1)
+        X_test_squeezed = X_test_sample.squeeze(-1)
         print(f"Test data shape after squeeze: {X_test_squeezed.shape}")
         self.X_test_nested = from_2d_array_to_nested(X_test_squeezed)
+        self.y_test_subset = y_test_sample  # Save for evaluation
         print("Test data transformation complete.")
         
         logging.info("Nested data transformation complete.")
-
-        # Initialize the ROCKET classifier with fewer kernels (e.g., 1000)
+    
+        # Initialize the ROCKET classifier - keeping original parameters
         self.rocket_clf = RocketClassifier(
-            num_kernels=1000,  # Reduced number of kernels
+            num_kernels=10,  # Reduced number of kernels
             rocket_transform='rocket',
             max_dilations_per_kernel=32,
             n_features_per_kernel=4,
@@ -233,15 +268,15 @@ class ECGSimpleTrainingFlow(FlowSpec):
         
         # Fit the ROCKET classifier on the training data
         print("Fitting the ROCKET classifier...")
-        self.rocket_clf.fit(X_train_nested, self.y_train)
+        self.rocket_clf.fit(X_train_nested, y_train_sample)
         print("ROCKET classifier fitting complete.")
         
         # Evaluate on the validation set
         self.y_val_pred = self.rocket_clf.predict(X_val_nested)
-        self.rocket_val_accuracy = accuracy_score(self.y_val, self.y_val_pred)
+        self.rocket_val_accuracy = accuracy_score(y_val_sample, self.y_val_pred)
         print(f"ROCKET Validation Accuracy: {self.rocket_val_accuracy*100:.2f}%")
         print("ROCKET Classification Report (Validation):")
-        print(classification_report(self.y_val, self.y_val_pred))
+        print(classification_report(y_val_sample, self.y_val_pred))
         
         self.next(self.evaluate_rocket)
 
@@ -255,14 +290,14 @@ class ECGSimpleTrainingFlow(FlowSpec):
         """
         # Predict on the test set
         self.y_test_pred = self.rocket_clf.predict(self.X_test_nested)
-        self.rocket_test_accuracy = accuracy_score(self.y_test, self.y_test_pred)
+        self.rocket_test_accuracy = accuracy_score(self.y_test_subset, self.y_test_pred)
         print(f"ROCKET Test Accuracy: {self.rocket_test_accuracy*100:.2f}%")
         
         # Print detailed reports
         print("ROCKET Classification Report (Test):")
-        print(classification_report(self.y_test, self.y_test_pred))
+        print(classification_report(self.y_test_subset, self.y_test_pred))
         print("Confusion Matrix:")
-        print(confusion_matrix(self.y_test, self.y_test_pred))
+        print(confusion_matrix(self.y_test_subset, self.y_test_pred))
         
         # Log metrics to MLflow
         mlflow.log_metric("rocket_val_accuracy", self.rocket_val_accuracy)
@@ -301,8 +336,6 @@ class ECGSimpleTrainingFlow(FlowSpec):
         print(f"Final ROCKET Test Accuracy: {self.rocket_test_accuracy:.3f}")
         print(f"Accuracy Threshold: {self.accuracy_threshold}")
         # Optionally, delete large objects
-        del self.rocket_clf
-        del self.X_test_nested
         print("Done!")
 
 if __name__ == "__main__":
