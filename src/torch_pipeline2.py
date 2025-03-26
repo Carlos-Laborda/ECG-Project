@@ -201,11 +201,11 @@ class ECGSimpleTrainingFlow(FlowSpec):
         from sklearn.model_selection import train_test_split
         
         # Define subset sizes
-        train_subset_size = 1000  # Using only 1000 training samples
-        val_subset_size = 500     # Using only 500 validation samples
-        test_subset_size = 500    # Using only 500 test samples
+        train_subset_size = 1000  # 1000 training samples
+        val_subset_size = 500     # 500 validation samples
+        test_subset_size = 500    # 500 test samples
         
-        # Create stratified samples
+        #stratify
         X_train_sample, _, y_train_sample, _ = train_test_split(
             self.X_train, self.y_train, 
             train_size=min(train_subset_size, len(self.X_train)), 
@@ -250,19 +250,19 @@ class ECGSimpleTrainingFlow(FlowSpec):
         X_test_squeezed = X_test_sample.squeeze(-1)
         print(f"Test data shape after squeeze: {X_test_squeezed.shape}")
         self.X_test_nested = from_2d_array_to_nested(X_test_squeezed)
-        self.y_test_subset = y_test_sample  # Save for evaluation
+        self.y_test_subset = y_test_sample  
         print("Test data transformation complete.")
         
         logging.info("Nested data transformation complete.")
     
-        # Initialize the ROCKET classifier - keeping original parameters
+        # Initialize the ROCKET classifier 
         self.rocket_clf = RocketClassifier(
-            num_kernels=10,  # Reduced number of kernels
+            num_kernels=10,  # Reduced
             rocket_transform='rocket',
             max_dilations_per_kernel=32,
             n_features_per_kernel=4,
             use_multivariate='auto',
-            n_jobs=-1,            # Use all available cores
+            n_jobs=-1,            # Use all cores
             random_state=self.seed
         )
         
