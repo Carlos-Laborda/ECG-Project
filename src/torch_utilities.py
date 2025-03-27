@@ -315,6 +315,57 @@ class Improved1DCNN_v2(nn.Module):
         x = torch.sigmoid(self.fc3(x))
         return x
 
+# CNN from SSL-ECG paper
+class EmotionRecognitionCNN(nn.Module):
+    def __init__(self):
+        super(EmotionRecognitionCNN, self).__init__()
+
+        # Conv block 1
+        self.conv1_1 = nn.Conv1d(1, 32, kernel_size=32, padding='same')
+        self.conv1_2 = nn.Conv1d(32, 32, kernel_size=32, padding='same')
+        self.pool1 = nn.MaxPool1d(kernel_size=8, stride=2)
+
+        # Conv block 2
+        self.conv2_1 = nn.Conv1d(32, 64, kernel_size=16, padding='same')
+        self.conv2_2 = nn.Conv1d(64, 64, kernel_size=16, padding='same')
+        self.pool2 = nn.MaxPool1d(kernel_size=8, stride=2)
+
+        # Conv block 3
+        self.conv3_1 = nn.Conv1d(64, 128, kernel_size=8, padding='same')
+        self.conv3_2 = nn.Conv1d(128, 128, kernel_size=8, padding='same')
+        self.global_pool = nn.AdaptiveMaxPool1d(1)
+
+        # Dense layers
+        self.fc1 = nn.Linear(128, 512)
+        self.dropout = nn.Dropout(0.6)
+        self.fc2 = nn.Linear(512, 1)
+
+    def forward(self, x):
+        # Conv block 1
+        x = F.relu(self.conv1_1(x))
+        x = F.relu(self.conv1_2(x))
+        x = self.pool1(x)
+
+        # Conv block 2
+        x = F.relu(self.conv2_1(x))
+        x = F.relu(self.conv2_2(x))
+        x = self.pool2(x)
+
+        # Conv block 3
+        x = F.relu(self.conv3_1(x))
+        x = F.relu(self.conv3_2(x))
+        x = self.global_pool(x)
+
+        # Flatten
+        x = x.view(x.size(0), -1)
+
+        # Fully connected layers
+        x = F.relu(self.fc1(x))
+        x = self.dropout(x)
+        x = torch.sigmoid(self.fc2(x))
+
+        return x
+
 # ----------------------
 # Training and Evaluation Functions
 # ----------------------
