@@ -319,7 +319,7 @@ class Improved1DCNN_v2(nn.Module):
 class EmotionRecognitionCNN(nn.Module):
     def __init__(self):
         super(EmotionRecognitionCNN, self).__init__()
-
+        self.bn_input = nn.BatchNorm1d(1)
         # Conv block 1
         self.conv1_1 = nn.Conv1d(1, 32, kernel_size=32, padding='same')
         self.conv1_2 = nn.Conv1d(32, 32, kernel_size=32, padding='same')
@@ -342,6 +342,7 @@ class EmotionRecognitionCNN(nn.Module):
 
     def forward(self, x):
         # Conv block 1
+        x = self.bn_input(x)
         x = F.relu(self.conv1_1(x))
         x = F.relu(self.conv1_2(x))
         x = self.pool1(x)
