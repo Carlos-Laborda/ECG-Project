@@ -349,15 +349,7 @@ class ECGSimpleTrainingFlow(FlowSpec):
         print("\n=== Training Pipeline Complete ===")
         print(f"Final Test Accuracy: {self.test_accuracy:.3f}")
         print(f"Threshold: {self.accuracy_threshold}")
-        # Clean up large objects
-        del self.X_train
-        del self.y_train
-        del self.X_val
-        del self.y_val
-        del self.X_test
-        del self.y_test
-        del self.model
-        del self.test_loader
+
         print("Done!")
 
 if __name__ == "__main__":
