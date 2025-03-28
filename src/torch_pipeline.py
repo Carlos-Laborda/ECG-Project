@@ -163,7 +163,7 @@ class ECGSimpleTrainingFlow(FlowSpec):
         print(f"Using windowed data: {self.window_data_path}")
         self.next(self.prepare_data_for_cnn)
 
-    @resources(memory=8000)
+    @resources(memory=16000)
     @card
     @step
     def prepare_data_for_cnn(self):
