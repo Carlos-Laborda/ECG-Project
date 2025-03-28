@@ -21,7 +21,7 @@ from torch_utilities import (
     load_processed_data, split_data_by_participant, ECGDataset,
     train, test, EarlyStopping, log_model_summary, prepare_model_signature,
     set_seed, Simple1DCNN, Simple1DCNN_v2, Improved1DCNN, Improved1DCNN_v2,
-    EmotionRecognitionCNN
+    EmotionRecognitionCNN, xresnet1d101
 )
 
 from utils import load_ecg_data
@@ -208,7 +208,8 @@ class ECGSimpleTrainingFlow(FlowSpec):
         print(f"Training on device: {device}")
         
         # Model setup
-        self.model = EmotionRecognitionCNN().to(device)
+        #self.model = EmotionRecognitionCNN().to(device)
+        self.model = xresnet1d101(num_classes=1, in_channels=1).to(device)
         loss_fn = torch.nn.BCELoss()
         optimizer = optim.Adam(self.model.parameters(), lr=self.lr)
         
