@@ -584,3 +584,117 @@ def set_seed(seed=42, deterministic=True):
             # Ensure deterministic behavior
             torch.backends.cudnn.deterministic = True
             torch.backends.cudnn.benchmark = False
+
+class Bottleneck1D(nn.Module):
+    """
+    A 1D version of the ResNet bottleneck block.
+    This block uses a 1x1 conv to reduce channels, a 3x3 conv for processing,
+    and a final 1x1 conv to expand channels. If needed, a downsample layer is used.
+    """
+    expansion = 4
+
+    def __init__(self, in_channels, planes, stride=1, downsample=None):
+        super(Bottleneck1D, self).__init__()
+        self.conv1 = nn.Conv1d(in_channels, planes, kernel_size=1, bias=False)
+        self.bn1 = nn.BatchNorm1d(planes)
+        self.conv2 = nn.Conv1d(planes, planes, kernel_size=3, stride=stride,
+                               padding=1, bias=False)
+        self.bn2 = nn.BatchNorm1d(planes)
+        self.conv3 = nn.Conv1d(planes, planes * self.expansion, kernel_size=1, bias=False)
+        self.bn3 = nn.BatchNorm1d(planes * self.expansion)
+        self.relu = nn.ReLU(inplace=True)
+        self.downsample = downsample
+        self.stride = stride
+
+    def forward(self, x):
+        identity = x
+
+        out = self.conv1(x)
+        out = self.bn1(out)
+        out = self.relu(out)
+
+        out = self.conv2(out)
+        out = self.bn2(out)
+        out = self.relu(out)
+
+        out = self.conv3(out)
+        out = self.bn3(out)
+
+        if self.downsample is not None:
+            identity = self.downsample(x)
+        out += identity
+        out = self.relu(out)
+
+        return out
+
+class XResNet1D(nn.Module):
+    """
+    An XResNet1D architecture for 1D signals.
+    It uses a modified stem (three 1D convolutional layers with batch norm and ReLU)
+    followed by 4 stages of bottleneck blocks. For ResNet101, the layer configuration is [3, 4, 23, 3].
+    """
+    def __init__(self, block, layers, num_classes=1, in_channels=1):
+        super(XResNet1D, self).__init__()
+        self.inplanes = 64
+
+        # Stem: Adapted from fastai's xresnet stem but for 1D input.
+        self.stem = nn.Sequential(
+            nn.Conv1d(in_channels, 32, kernel_size=3, stride=2, padding=1, bias=False),
+            nn.BatchNorm1d(32),
+            nn.ReLU(inplace=True),
+            nn.Conv1d(32, 32, kernel_size=3, padding=1, bias=False),
+            nn.BatchNorm1d(32),
+            nn.ReLU(inplace=True),
+            nn.Conv1d(32, 64, kernel_size=3, padding=1, bias=False),
+            nn.BatchNorm1d(64),
+            nn.ReLU(inplace=True),
+            nn.MaxPool1d(kernel_size=3, stride=2, padding=1)
+        )
+
+        # Residual layers (each layer downsamples and increases feature channels)
+        self.layer1 = self._make_layer(block, 64, layers[0])
+        self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
+        self.layer3 = self._make_layer(block, 256, layers[2], stride=2)
+        self.layer4 = self._make_layer(block, 512, layers[3], stride=2)
+
+        # Global average pooling and final classifier
+        self.avgpool = nn.AdaptiveAvgPool1d(1)
+        self.fc = nn.Linear(512 * block.expansion, num_classes)
+        self.sigmoid = nn.Sigmoid()
+
+    def _make_layer(self, block, planes, blocks, stride=1):
+        downsample = None
+        if stride != 1 or self.inplanes != planes * block.expansion:
+            downsample = nn.Sequential(
+                nn.Conv1d(self.inplanes, planes * block.expansion,
+                          kernel_size=1, stride=stride, bias=False),
+                nn.BatchNorm1d(planes * block.expansion),
+            )
+
+        layers = []
+        layers.append(block(self.inplanes, planes, stride=stride, downsample=downsample))
+        self.inplanes = planes * block.expansion
+        for _ in range(1, blocks):
+            layers.append(block(self.inplanes, planes))
+        return nn.Sequential(*layers)
+
+    def forward(self, x):
+        # x is expected to be of shape (batch_size, channels, sequence_length)
+        x = self.stem(x)
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        x = self.layer4(x)
+        x = self.avgpool(x)  # shape: (batch_size, features, 1)
+        x = torch.flatten(x, 1)
+        x = self.fc(x)
+        x = self.sigmoid(x)  # For binary classification
+        return x
+
+def xresnet1d101(num_classes=1, in_channels=1):
+    """
+    Constructs an xresnet1d101 model.
+    
+    For ResNet101, the block configuration is [3, 4, 23, 3] using Bottleneck1D blocks.
+    """
+    return XResNet1D(Bottleneck1D, [3, 4, 23, 3], num_classes=num_classes, in_channels=in_channels)
