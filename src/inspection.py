@@ -88,7 +88,7 @@ if __name__ == "__main__":
     # Inspect the known stitching point
     inspect_known_stitching_point(
         segments_data_path, 
-        participant_id='participant_30104',
+        participant_id='participant_30100',
         category="baseline", 
-        stitch_point=182000,
+        stitch_point=180000,
     )
