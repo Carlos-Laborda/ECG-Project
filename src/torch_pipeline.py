@@ -12,7 +12,7 @@ from sklearn.metrics import confusion_matrix, classification_report
 from metaflow import (FlowSpec, step, card, Parameter, current, 
                       project, resources, conda_base, environment)
 
-from common import (
+from common2 import (
     process_ecg_data,
     process_save_cleaned_data,
 )
@@ -148,13 +148,13 @@ class ECGSimpleTrainingFlow(FlowSpec):
     @step
     def segment_data_windows(self):
         """Segment data into windows"""
-        from common import segment_data_into_windows
+        from common2 import segment_data_into_windows
 
         if not os.path.exists(self.window_data_path):
             print("Segmenting ECG data into windows...")
-            self.data = load_ecg_data(self.cleaned_data_path)
+            #self.data = load_ecg_data(self.cleaned_data_path)
             segment_data_into_windows(
-                self.data, 
+                self.cleaned_data_path, 
                 self.window_data_path, 
                 fs=1000, 
                 window_size=10, 
