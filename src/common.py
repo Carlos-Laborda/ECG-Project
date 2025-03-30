@@ -212,35 +212,6 @@ def process_save_cleaned_data(segmented_data_path, output_hdf5_path, fs=1000):
     print(f"Cleaned ECG data saved to {output_hdf5_path}")
 
 # ------------------------------------------------------
-# Function for Feature Extraction (not relevant for the project)
-# ------------------------------------------------------
-def extract_ecg_features(ecg_signal, fs):
-    """
-    Extracts features from ECG signal.
-    """
-    features = {}
-    # Time-domain
-    features["mean"] = np.mean(ecg_signal)
-    features["std"] = np.std(ecg_signal)
-    features["min"] = np.min(ecg_signal)
-    features["max"] = np.max(ecg_signal)
-    features["rms"] = np.sqrt(np.mean(ecg_signal**2))
-    features["iqr"] = np.subtract(*np.percentile(ecg_signal, [75, 25]))
-
-    # Frequency-domain
-    freq, psd = scipy.signal.welch(ecg_signal, fs=fs)
-    features["psd_mean"] = np.mean(psd)
-    features["psd_max"] = np.max(psd)
-    features["dominant_freq"] = freq[np.argmax(psd)]
-
-    # Nonlinear
-    hist_vals, _ = np.histogram(ecg_signal, bins=10)
-    features["shannon_entropy"] = -np.sum(np.log2(hist_vals + 1e-10))
-    features["sample_entropy"] = scipy.stats.entropy(hist_vals)
-
-    return features
-
-# ------------------------------------------------------
 # Sliding Window Function
 # ------------------------------------------------------
 def sliding_window(signal: np.ndarray, window_size: int, step_size: int):
@@ -267,42 +238,6 @@ def sliding_window(signal: np.ndarray, window_size: int, step_size: int):
         window = signal[start:end]
         windows.append(window)
     return windows
-
-
-# ------------------------------------------------------
-# Preprocess_features function (not relevant for the project)
-# ------------------------------------------------------
-def preprocess_features(data, fs=1000, window_size=10, step_size=1):
-    """
-    Preprocess ECG data to extract features.
-
-    Args:
-        data (dict): Dictionary of ECG data. (participant, category) -> np.array
-        fs (int): Sampling frequency (default=1000).
-        window_size (int): Window size in seconds (default=10).
-        step_size (int): Step size in seconds (default=1).
-
-    Returns:
-        pd.DataFrame: DataFrame containing the extracted features.
-    """
-    window_size_samples = window_size * fs
-    step_size_samples = step_size * fs
-
-    all_features = []
-
-    for (participant_id, category), signal in data.items():
-        # Generate sliding windows
-        windows = sliding_window(signal, window_size_samples, step_size_samples)
-        for i, window in enumerate(windows):
-            feats = extract_ecg_features(window, fs)
-            feats["participant_id"] = participant_id
-            feats["category"] = category
-            feats["window_index"] = i
-            all_features.append(feats)
-
-    features_df = pd.DataFrame(all_features)
-    return features_df
-
 
 # ------------------------------------------------------
 # Segmenting data into windows
