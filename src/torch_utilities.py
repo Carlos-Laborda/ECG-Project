@@ -19,6 +19,46 @@ import mlflow.pytorch
 from mlflow.types import Schema, TensorSpec
 from mlflow.models import ModelSignature
 
+# def load_processed_data(hdf5_path, label_map=None):
+#     """
+#     Load windowed ECG data from an HDF5 file.
+    
+#     Returns:
+#         X (np.ndarray): shape (N, window_length, 1)
+#         y (np.ndarray): shape (N,)
+#         groups (np.ndarray): shape (N,) - each window's participant ID
+#     """
+#     if label_map is None:
+#         label_map = {"baseline": 0, "mental_stress": 1}
+
+#     X_list, y_list, groups_list = [], [], []
+#     with h5py.File(hdf5_path, "r") as f:
+#         participants = list(f.keys())
+#         for participant_key in participants:
+#             participant_id = participant_key.replace("participant_", "")
+#             for cat in f[participant_key].keys():
+#                 if cat not in label_map:
+#                     continue
+#                 windows = f[participant_key][cat][:]
+#                 n_windows = windows.shape[0]
+#                 groups_arr = np.array([participant_id] * n_windows, dtype=object)
+
+#                 X_list.append(windows)
+#                 y_list.append(np.full((n_windows,), label_map[cat], dtype=int))
+#                 groups_list.append(groups_arr)
+
+#     if len(X_list) == 0:
+#         raise ValueError(f"No valid data found in {hdf5_path} with label_map {label_map}.")
+
+#     # Concatenate all data
+#     X = np.concatenate(X_list, axis=0)
+#     y = np.concatenate(y_list, axis=0)
+#     groups = np.concatenate(groups_list, axis=0)
+
+#     # Expand dims for CNN: (N, window_length, 1)
+#     X = np.expand_dims(X, axis=-1)
+#     return X, y, groups
+
 def load_processed_data(hdf5_path, label_map=None):
     """
     Load windowed ECG data from an HDF5 file.
@@ -39,18 +79,25 @@ def load_processed_data(hdf5_path, label_map=None):
             for cat in f[participant_key].keys():
                 if cat not in label_map:
                     continue
-                windows = f[participant_key][cat][:]
-                n_windows = windows.shape[0]
+                cat_group = f[participant_key][cat]
+                segment_windows_list = []
+                for segment_name in cat_group.keys():
+                    windows = cat_group[segment_name][...]
+                    segment_windows_list.append(windows)
+                if len(segment_windows_list) == 0:
+                    continue
+                # Concatenate windows from all segments in this category
+                windows_all = np.concatenate(segment_windows_list, axis=0)
+                n_windows = windows_all.shape[0]
                 groups_arr = np.array([participant_id] * n_windows, dtype=object)
 
-                X_list.append(windows)
+                X_list.append(windows_all)
                 y_list.append(np.full((n_windows,), label_map[cat], dtype=int))
                 groups_list.append(groups_arr)
 
     if len(X_list) == 0:
         raise ValueError(f"No valid data found in {hdf5_path} with label_map {label_map}.")
 
-    # Concatenate all data
     X = np.concatenate(X_list, axis=0)
     y = np.concatenate(y_list, axis=0)
     groups = np.concatenate(groups_list, axis=0)
@@ -58,6 +105,7 @@ def load_processed_data(hdf5_path, label_map=None):
     # Expand dims for CNN: (N, window_length, 1)
     X = np.expand_dims(X, axis=-1)
     return X, y, groups
+
 
 def split_data_by_participant(X, y, groups, train_ratio=0.6, val_ratio=0.2, seed=42):
     """
