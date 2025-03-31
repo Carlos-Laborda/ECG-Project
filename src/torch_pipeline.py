@@ -208,8 +208,8 @@ class ECGSimpleTrainingFlow(FlowSpec):
         print(f"Training on device: {device}")
         
         # Model setup
-        #self.model = EmotionRecognitionCNN().to(device)
-        self.model = xresnet1d101(num_classes=1, in_channels=1).to(device)
+        self.model = Improved1DCNN_v2().to(device)
+        #self.model = xresnet1d101(num_classes=1, in_channels=1).to(device)
         loss_fn = torch.nn.BCELoss()
         optimizer = optim.Adam(self.model.parameters(), lr=self.lr)
         
