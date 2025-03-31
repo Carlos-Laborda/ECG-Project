@@ -42,7 +42,7 @@ def process_ecg_data(hdf5_path):
 
     # Create or overwrite HDF5 file
     with h5py.File(hdf5_path, "w") as f:
-        for p, participant_id in enumerate(participants[:2]):  # 2 participants for now
+        for p, participant_id in enumerate(participants):  # all participants
             print(f"Processing Participant {participant_id} ({p + 1}/{len(participants)})")
 
             ecg_edf = mne.io.read_raw_edf(filepaths[p], preload=True, verbose=False)
