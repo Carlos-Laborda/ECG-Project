@@ -226,7 +226,7 @@ class ECGSimpleTrainingFlow(FlowSpec):
             factor=0.5,           # multiply LR by this factor when reducing
             patience=2,           # number of epochs with no improvement after which LR is reduced
             verbose=False,         # print message when LR is reduced
-            min_lr=1e-9           # lower bound on the learning rate
+            min_lr=1e-11           # lower bound on the learning rate
         )
         
         early_stopping = EarlyStopping(patience=self.patience)
