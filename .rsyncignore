@@ -50,3 +50,5 @@ src/keras_models.py
 src/inspection.py
 
 data/interim/*.h5
+
+plots/
