@@ -130,12 +130,12 @@ def plot_metrics(metrics_dir, output_dir='./reports'):
     
     # Save the figure
     base_filename = f'training_metrics_{run_name}'
-    output_path = os.path.join(run_output_dir, f'{base_filename}.png')
+    output_path = os.path.join(run_output_dir, 'training_metrics.png')
     fig.savefig(output_path, dpi=300, bbox_inches='tight')
     print(f"Saved plot to {output_path}")
     
     # Also save a PDF version in run-specific directory
-    pdf_path = os.path.join(run_output_dir, f'{base_filename}.pdf')
+    pdf_path = os.path.join(run_output_dir, 'training_metrics.pdf')
     fig.savefig(pdf_path, format='pdf', bbox_inches='tight')
     print(f"Saved plot to {pdf_path}")
     
@@ -189,7 +189,7 @@ def plot_roc_curve(json_path, output_dir='./reports'):
     
     # Save the plot
     base_filename = f'roc_curve_{run_name}'
-    output_path = os.path.join(run_output_dir, f'{base_filename}.png')
+    output_path = os.path.join(run_output_dir, 'roc_curve.png')
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
     plt.savefig(output_path.replace('.png', '.pdf'), format='pdf', bbox_inches='tight')
     print(f"Saved ROC curve to {output_path}")
