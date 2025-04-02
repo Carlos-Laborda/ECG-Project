@@ -24,8 +24,6 @@ from torch_utilities import (
     EmotionRecognitionCNN, xresnet1d101
 )
 
-from utils import load_ecg_data
-
 @project(name="ecg_training_simple")
 class ECGSimpleTrainingFlow(FlowSpec):
     """
