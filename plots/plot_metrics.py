@@ -8,6 +8,9 @@ import json
 
 def load_metrics_files(metrics_dir):
     """Load and combine all metric CSV files from directory"""
+    # Get the run name from the metrics directory
+    run_name = os.path.basename(metrics_dir)
+    
     all_files = glob.glob(os.path.join(metrics_dir, "*.csv"))
     
     # Dictionary to store metric dataframes
@@ -48,7 +51,7 @@ def load_metrics_files(metrics_dir):
     else:
         history_df = pd.DataFrame()
     
-    return history_df, test_metrics
+    return history_df, test_metrics, run_name
 
 def plot_metrics(metrics_dir, output_dir='./reports'):
     """Plot metrics from CSV files in the metrics directory"""
@@ -56,12 +59,13 @@ def plot_metrics(metrics_dir, output_dir='./reports'):
     plt.style.use('seaborn-v0_8')
     sns.set_palette(['#1f77b4', '#ff7f0e', '#d62728'])  # Blue, Orange, Red
     
-    # Create output directory if it doesn't exist
-    os.makedirs(output_dir, exist_ok=True)
-    
     # Load all metrics
     print(f"Loading metrics from {metrics_dir}...")
-    history_df, test_metrics = load_metrics_files(metrics_dir)
+    history_df, test_metrics, run_name = load_metrics_files(metrics_dir)
+    
+    # Create run-specific output directory
+    run_output_dir = os.path.join(output_dir, run_name)
+    os.makedirs(run_output_dir, exist_ok=True)
     
     if history_df.empty:
         print("No training history data found. Please check your CSV files.")
@@ -72,7 +76,7 @@ def plot_metrics(metrics_dir, output_dir='./reports'):
     
     # Create plots
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(20, 8))
-    fig.suptitle('Model Training Metrics', fontsize=16, y=1.05)
+    fig.suptitle(f'Model Training Metrics - Run: {run_name}', fontsize=16, y=1.05)
     
     # Identify the loss and accuracy columns
     loss_cols = [col for col in history_df.columns if 'loss' in col.lower()]
@@ -125,18 +129,24 @@ def plot_metrics(metrics_dir, output_dir='./reports'):
     plt.tight_layout()
     
     # Save the figure
-    output_path = os.path.join(output_dir, 'training_metrics.png')
+    base_filename = f'training_metrics_{run_name}'
+    output_path = os.path.join(run_output_dir, f'{base_filename}.png')
     fig.savefig(output_path, dpi=300, bbox_inches='tight')
     print(f"Saved plot to {output_path}")
     
-    # Also save a PDF version for higher quality
-    pdf_path = os.path.join(output_dir, 'training_metrics.pdf')
+    # Also save a PDF version in run-specific directory
+    pdf_path = os.path.join(run_output_dir, f'{base_filename}.pdf')
     fig.savefig(pdf_path, format='pdf', bbox_inches='tight')
     print(f"Saved plot to {pdf_path}")
     
 
 def plot_roc_curve(json_path, output_dir='./reports'):
     """Plot ROC curve from JSON data containing FPR, TPR and thresholds"""
+    run_name = os.path.basename(os.path.dirname(json_path))
+
+    run_output_dir = os.path.join(output_dir, run_name)
+    os.makedirs(run_output_dir, exist_ok=True)
+    
     plt.figure(figsize=(10, 10))
     
     # Load ROC data from JSON
@@ -159,7 +169,7 @@ def plot_roc_curve(json_path, output_dir='./reports'):
     # Academic-style formatting
     plt.xlabel('False Positive Rate', fontsize=12)
     plt.ylabel('True Positive Rate', fontsize=12)
-    plt.title('Receiver Operating Characteristic (ROC) Curve', 
+    plt.title(f'Receiver Operating Characteristic (ROC) Curve\nRun: {run_name}', 
              fontsize=14, pad=20)
     
     # Set axis limits and grid
@@ -178,7 +188,8 @@ def plot_roc_curve(json_path, output_dir='./reports'):
     plt.tight_layout()
     
     # Save the plot
-    output_path = os.path.join(output_dir, 'roc_curve.png')
+    base_filename = f'roc_curve_{run_name}'
+    output_path = os.path.join(run_output_dir, f'{base_filename}.png')
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
     plt.savefig(output_path.replace('.png', '.pdf'), format='pdf', bbox_inches='tight')
     print(f"Saved ROC curve to {output_path}")
@@ -186,7 +197,7 @@ def plot_roc_curve(json_path, output_dir='./reports'):
         
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Plot metrics from MLflow CSV files')
-    parser.add_argument('--metrics-dir', default='./metrics',
+    parser.add_argument('--metrics-dir', default='./metrics/ 1743491698798740',
                         help='Directory containing metrics CSV files')
     parser.add_argument('--output-dir', default='./reports',
                         help='Directory to save output plots')
