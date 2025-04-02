@@ -414,6 +414,14 @@ class EmotionRecognitionCNN(nn.Module):
         x = torch.sigmoid(self.fc2(x))
 
         return x
+    
+# ----------------------
+# Transformer Model Class
+# ----------------------
+
+# ----------------------
+# TCN Model Class
+# ----------------------
 
 # ----------------------
 # Training and Evaluation Functions
