@@ -27,4 +27,3 @@ python torch_pipeline.py run \
   --window_data_path "../../../../var/scratch/cla224/ECG-Project/data/windowed_data.h5" \
   --patience 5 \
   --lr 0.00001 \
-  --batch_size 64
