@@ -21,7 +21,7 @@ from torch_utilities import (
     load_processed_data, split_data_by_participant, ECGDataset,
     train, test, EarlyStopping, log_model_summary, prepare_model_signature,
     set_seed, Simple1DCNN, Simple1DCNN_v2, Improved1DCNN, Improved1DCNN_v2,
-    EmotionRecognitionCNN, xresnet1d101
+    EmotionRecognitionCNN, xresnet1d101, TCNClassifier
 )
 
 @project(name="ecg_training_simple")
@@ -206,7 +206,7 @@ class ECGSimpleTrainingFlow(FlowSpec):
         print(f"Training on device: {device}")
         
         # Model setup
-        self.model = Improved1DCNN_v2().to(device)
+        self.model = TCNClassifier().to(device)
         #self.model = xresnet1d101(num_classes=1, in_channels=1).to(device)
         loss_fn = torch.nn.BCELoss()
         optimizer = optim.Adam(self.model.parameters(), lr=self.lr)
@@ -221,7 +221,7 @@ class ECGSimpleTrainingFlow(FlowSpec):
         scheduler = optim.lr_scheduler.ReduceLROnPlateau(
             optimizer,
             mode='min',           # reduce LR when the validation loss stops decreasing
-            factor=0.5,           # multiply LR by this factor when reducing
+            factor=0.1,           # multiply LR by this factor when reducing
             patience=2,           # number of epochs with no improvement after which LR is reduced
             verbose=False,         # print message when LR is reduced
             min_lr=1e-11           # lower bound on the learning rate
@@ -251,9 +251,9 @@ class ECGSimpleTrainingFlow(FlowSpec):
                 "scheduler": scheduler.__class__.__name__,
                 #"scheduler_gamma": scheduler.gamma,
                 "scheduler_mode": "min",
-                "scheduler_factor": 0.5,
+                "scheduler_factor": 0.1,
                 "scheduler_patience": 2,
-                "scheduler_min_lr": 1e-9,
+                "scheduler_min_lr": 1e-11,
                 
                 # Early stopping
                 "patience": self.patience,
