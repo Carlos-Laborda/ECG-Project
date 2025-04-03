@@ -423,6 +423,122 @@ class EmotionRecognitionCNN(nn.Module):
 # TCN Model Class
 # ----------------------
 
+class TCNClassifier(nn.Module):
+    def __init__(self, input_length=10000, n_inputs=1, Kt=11, pt=0.3, Ft=11):
+        super(TCNClassifier, self).__init__()
+        # Initial 1x1 convolution to expand channels
+        self.pad0 = nn.ConstantPad1d(padding=(Kt-1, 0), value=0)
+        self.conv0 = nn.Conv1d(in_channels=n_inputs, out_channels=n_inputs + 1, kernel_size=Kt, bias=False)
+        self.batchnorm0 = nn.BatchNorm1d(num_features=n_inputs + 1)
+        self.act0 = nn.ReLU()
+        
+        # First residual block (dilation = 1)
+        dilation = 1
+        self.upsample = nn.Conv1d(in_channels=n_inputs + 1, out_channels=Ft, kernel_size=1, bias=False)
+        self.upsamplebn = nn.BatchNorm1d(num_features=Ft)
+        self.upsamplerelu = nn.ReLU()
+        self.pad1 = nn.ConstantPad1d(padding=((Kt-1) * dilation, 0), value=0)
+        self.conv1 = nn.Conv1d(in_channels=n_inputs + 1, out_channels=Ft, kernel_size=Kt, dilation=dilation, bias=False)
+        self.batchnorm1 = nn.BatchNorm1d(num_features=Ft)
+        self.act1 = nn.ReLU()
+        self.dropout1 = nn.Dropout(p=pt)
+        self.pad2 = nn.ConstantPad1d(padding=((Kt-1) * dilation, 0), value=0)
+        self.conv2 = nn.Conv1d(in_channels=Ft, out_channels=Ft, kernel_size=Kt, dilation=dilation, bias=False)
+        self.batchnorm2 = nn.BatchNorm1d(num_features=Ft)
+        self.act2 = nn.ReLU()
+        self.dropout2 = nn.Dropout(p=pt)
+        self.reluadd1 = nn.ReLU()
+        
+        # Second residual block (dilation = 2)
+        dilation = 2
+        self.pad3 = nn.ConstantPad1d(padding=((Kt-1) * dilation, 0), value=0)
+        self.conv3 = nn.Conv1d(in_channels=Ft, out_channels=Ft, kernel_size=Kt, dilation=dilation, bias=False)
+        self.batchnorm3 = nn.BatchNorm1d(num_features=Ft)
+        self.act3 = nn.ReLU()
+        self.dropout3 = nn.Dropout(p=pt)
+        self.pad4 = nn.ConstantPad1d(padding=((Kt-1) * dilation, 0), value=0)
+        self.conv4 = nn.Conv1d(in_channels=Ft, out_channels=Ft, kernel_size=Kt, dilation=dilation, bias=False)
+        self.batchnorm4 = nn.BatchNorm1d(num_features=Ft)
+        self.act4 = nn.ReLU()
+        self.dropout4 = nn.Dropout(p=pt)
+        self.reluadd2 = nn.ReLU()
+        
+        # Third residual block (dilation = 4)
+        dilation = 4
+        self.pad5 = nn.ConstantPad1d(padding=((Kt-1) * dilation, 0), value=0)
+        self.conv5 = nn.Conv1d(in_channels=Ft, out_channels=Ft, kernel_size=Kt, dilation=dilation, bias=False)
+        self.batchnorm5 = nn.BatchNorm1d(num_features=Ft)
+        self.act5 = nn.ReLU()
+        self.dropout5 = nn.Dropout(p=pt)
+        self.pad6 = nn.ConstantPad1d(padding=((Kt-1) * dilation, 0), value=0)
+        self.conv6 = nn.Conv1d(in_channels=Ft, out_channels=Ft, kernel_size=Kt, dilation=dilation, bias=False)
+        self.batchnorm6 = nn.BatchNorm1d(num_features=Ft)
+        self.act6 = nn.ReLU()
+        self.dropout6 = nn.Dropout(p=pt)
+        self.reluadd3 = nn.ReLU()
+        
+        # Final linear layer: flattened feature map has shape Ft * input_length
+        flattened_size = Ft * input_length  
+        self.linear = nn.Linear(in_features=flattened_size, out_features=1, bias=False)
+        
+    def forward(self, x):
+        # Input shape: (batch, channels, sequence_length)
+        x = self.pad0(x)
+        x = self.conv0(x)
+        x = self.batchnorm0(x)
+        x = self.act0(x)
+        
+        # First residual block
+        res = self.pad1(x)
+        res = self.conv1(res)
+        res = self.batchnorm1(res)
+        res = self.act1(res)
+        res = self.dropout1(res)
+        res = self.pad2(res)
+        res = self.conv2(res)
+        res = self.batchnorm2(res)
+        res = self.act2(res)
+        res = self.dropout2(res)
+        
+        x = self.upsample(x)
+        x = self.upsamplebn(x)
+        x = self.upsamplerelu(x)
+        x = x + res
+        x = self.reluadd1(x)
+        
+        # Second residual block
+        res = self.pad3(x)
+        res = self.conv3(res)
+        res = self.batchnorm3(res)
+        res = self.act3(res)
+        res = self.dropout3(res)
+        res = self.pad4(res)
+        res = self.conv4(res)
+        res = self.batchnorm4(res)
+        res = self.act4(res)
+        res = self.dropout4(res)
+        x = x + res
+        x = self.reluadd2(x)
+        
+        # Third residual block
+        res = self.pad5(x)
+        res = self.conv5(res)
+        res = self.batchnorm5(res)
+        res = self.act5(res)
+        res = self.dropout5(res)
+        res = self.pad6(res)
+        res = self.conv6(res)
+        res = self.batchnorm6(res)
+        res = self.act6(res)
+        res = self.dropout6(res)
+        x = x + res
+        x = self.reluadd3(x)
+        
+        # Flatten and classify
+        x = x.flatten(1)
+        x = self.linear(x)
+        return torch.sigmoid(x)
+
 # ----------------------
 # Training and Evaluation Functions
 # ----------------------
