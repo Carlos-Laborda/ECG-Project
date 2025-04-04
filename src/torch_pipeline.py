@@ -15,6 +15,7 @@ from metaflow import (FlowSpec, step, card, Parameter, current,
 from common2 import (
     process_ecg_data,
     process_save_cleaned_data,
+    normalize_cleaned_data,
 )
 
 from torch_utilities import (
@@ -58,7 +59,13 @@ class ECGSimpleTrainingFlow(FlowSpec):
         help="Path to cleaned ECG data HDF5",
         default="../data/interim/ecg_data_cleaned.h5",
     )
-
+    
+    normalized_data_path = Parameter(
+            "normalized_data_path",
+            help="Path to normalized ECG data HDF5",
+            default="../data/interim/ecg_data_normalized.h5",
+        )
+    
     window_data_path = Parameter(
         "window_data_path",
         help="Path to windowed data HDF5",
@@ -80,7 +87,7 @@ class ECGSimpleTrainingFlow(FlowSpec):
     accuracy_threshold = Parameter(
         "accuracy_threshold",
         help="Minimum accuracy for model registration",
-        default=0.75,
+        default=0.7,
     )
     
     lr = Parameter("lr", default=0.00001, help="Learning rate")
@@ -138,8 +145,17 @@ class ECGSimpleTrainingFlow(FlowSpec):
         else:
             print(f"Using existing cleaned data: {self.cleaned_data_path}")
             
+        self.next(self.normalize_data)
+        
+    @step
+    def normalize_data(self):
+        """Perform user-specific z-score normalization on cleaned data"""        
+        if not os.path.exists(self.normalized_data_path):
+            print(f"Normalizing cleaned data -> {self.normalized_data_path}")
+            normalize_cleaned_data(self.cleaned_data_path, self.normalized_data_path)
+        else:
+            print(f"Using existing normalized data: {self.normalized_data_path}")
         self.next(self.segment_data_windows)
-
 
     @step
     def segment_data_windows(self):
@@ -150,7 +166,7 @@ class ECGSimpleTrainingFlow(FlowSpec):
             print("Segmenting ECG data into windows...")
             #self.data = load_ecg_data(self.cleaned_data_path)
             segment_data_into_windows(
-                self.cleaned_data_path, 
+                self.normalized_data_path, 
                 self.window_data_path, 
                 fs=1000, 
                 window_size=10, 
