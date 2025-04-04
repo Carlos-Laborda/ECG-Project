@@ -103,7 +103,6 @@ class ECGSimpleTrainingFlow(FlowSpec):
         default=16,
     )
 
-    @card
     @step
     def start(self):
         """Initialize MLflow tracking"""
@@ -119,7 +118,6 @@ class ECGSimpleTrainingFlow(FlowSpec):
         print("Starting simple training pipeline...")
         self.next(self.load_data)
 
-    @card
     @step
     def load_data(self):
         """Load or process raw ECG data"""
@@ -142,7 +140,7 @@ class ECGSimpleTrainingFlow(FlowSpec):
             
         self.next(self.segment_data_windows)
 
-    @card
+
     @step
     def segment_data_windows(self):
         """Segment data into windows"""
@@ -162,7 +160,6 @@ class ECGSimpleTrainingFlow(FlowSpec):
         self.next(self.prepare_data_for_cnn)
 
     @resources(memory=16000)
-    @card
     @step
     def prepare_data_for_cnn(self):
         """Prepare data for CNN training"""        
@@ -182,8 +179,7 @@ class ECGSimpleTrainingFlow(FlowSpec):
         print(f"Test samples: {len(self.X_test)}")
         
         self.next(self.train_model)
-
-    @card
+        
     @step
     def train_model(self):
         """Train the CNN model using PyTorch"""
@@ -244,7 +240,7 @@ class ECGSimpleTrainingFlow(FlowSpec):
                 "scheduler": scheduler.__class__.__name__,
                 #"scheduler_gamma": scheduler.gamma,
                 "scheduler_mode": "min",
-                "scheduler_factor": 0.1,
+                "scheduler_factor": 0.5,
                 "scheduler_patience": 2,
                 "scheduler_min_lr": 1e-11,
                 
@@ -291,7 +287,6 @@ class ECGSimpleTrainingFlow(FlowSpec):
         
         self.next(self.evaluate)
 
-    @card
     @step
     def evaluate(self):
         """Evaluate model performance on test data"""
@@ -334,7 +329,6 @@ class ECGSimpleTrainingFlow(FlowSpec):
         
         self.next(self.end)
 
-    @card
     @step
     def end(self):
         """Finish the pipeline"""
