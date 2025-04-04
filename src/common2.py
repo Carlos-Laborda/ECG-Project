@@ -162,7 +162,55 @@ def process_save_cleaned_data(segmented_data_path, output_hdf5_path, fs=1000):
     print(f"Cleaned ECG data saved to {output_hdf5_path}")
 
 # ------------------------------------------------------
-# 4. Sliding window function
+# Normalizing cleaned data
+# ------------------------------------------------------
+def normalize_cleaned_data(cleaned_data_path, normalized_data_path):
+    """
+    Loads cleaned ECG data from cleaned_data_path, computes user-specific z-score statistics 
+    for each participant (across all segments and categories), normalizes each segment, and saves 
+    the normalized data to normalized_data_path with the same structure.
+    """
+    with h5py.File(cleaned_data_path, "r") as f_in, h5py.File(normalized_data_path, "w") as f_out:
+        for participant in f_in.keys():
+            print(f"Normalizing data for {participant}...")
+            participant_in = f_in[participant]
+            participant_out = f_out.create_group(participant)
+            
+            # Collect all segments from all categories for this participant
+            all_data = []
+            for category in participant_in.keys():
+                cat_group = participant_in[category]
+                for segment_name in cat_group.keys():
+                    data = cat_group[segment_name][...]
+                    all_data.append(data)
+            if len(all_data) == 0:
+                continue
+            # Concatenate all segments to compute global stats for this user
+            all_data_concat = np.concatenate(all_data)
+            user_mean = np.mean(all_data_concat)
+            user_std = np.std(all_data_concat)
+            if user_std == 0:
+                user_std = 1.0  # Avoid division by zero
+            
+            # Normalize each segment using these user-specific statistics
+            for category in participant_in.keys():
+                cat_group = participant_in[category]
+                category_out = participant_out.create_group(category)
+                for segment_name in cat_group.keys():
+                    data = cat_group[segment_name][...]
+                    normalized_data = (data - user_mean) / user_std
+                    category_out.create_dataset(
+                        segment_name,
+                        data=normalized_data.astype(np.float32),
+                        compression="gzip",
+                        compression_opts=4,
+                        dtype=np.float32
+                    )
+    print(f"Normalized ECG data saved to {normalized_data_path}")
+
+
+# ------------------------------------------------------
+# Sliding window function
 # ------------------------------------------------------
 def sliding_window(signal: np.ndarray, window_size: int, step_size: int):
     n_samples = len(signal)
@@ -177,7 +225,7 @@ def sliding_window(signal: np.ndarray, window_size: int, step_size: int):
     return windows
 
 # ------------------------------------------------------
-# 5. Segment cleaned data into windows for each individual segment
+# Segment cleaned data into windows for each individual segment
 # ------------------------------------------------------
 def segment_data_into_windows(cleaned_data_path, hdf5_path, fs=1000, window_size=10, step_size=5):
     """
