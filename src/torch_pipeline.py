@@ -207,15 +207,8 @@ class ECGSimpleTrainingFlow(FlowSpec):
         
         # Model setup
         self.model = TCNClassifier().to(device)
-        #self.model = xresnet1d101(num_classes=1, in_channels=1).to(device)
         loss_fn = torch.nn.BCELoss()
         optimizer = optim.Adam(self.model.parameters(), lr=self.lr)
-        
-        # ExponentialLR scheduler
-        # scheduler = optim.lr_scheduler.ExponentialLR(
-        #     optimizer,
-        #     gamma=0.9  # decay rate per epoch
-        # )
         
         # ReduceLROnPlateau scheduler
         scheduler = optim.lr_scheduler.ReduceLROnPlateau(
