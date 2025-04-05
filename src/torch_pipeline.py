@@ -87,7 +87,7 @@ class ECGSimpleTrainingFlow(FlowSpec):
     accuracy_threshold = Parameter(
         "accuracy_threshold",
         help="Minimum accuracy for model registration",
-        default=0.7,
+        default=0.74,
     )
     
     lr = Parameter("lr", default=0.00001, help="Learning rate")
