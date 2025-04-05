@@ -226,7 +226,7 @@ class ECGSimpleTrainingFlow(FlowSpec):
         scheduler = optim.lr_scheduler.ReduceLROnPlateau(
             optimizer,
             mode='min',           # reduce LR when the validation loss stops decreasing
-            factor=0.1,           # multiply LR by this factor when reducing
+            factor=0.5,           # multiply LR by this factor when reducing
             patience=2,           # number of epochs with no improvement after which LR is reduced
             verbose=False,         # print message when LR is reduced
             min_lr=1e-11           # lower bound on the learning rate
