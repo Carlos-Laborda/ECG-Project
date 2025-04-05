@@ -24,6 +24,8 @@ python torch_pipeline.py run \
   --mlflow_tracking_uri "http://fs0.das6.cs.vu.nl:5005" \
   --segmented_data_path "../../../../var/scratch/cla224/ECG-Project/data/ecg_data_segmented.h5" \
   --cleaned_data_path "../../../../var/scratch/cla224/ECG-Project/data/ecg_data_cleaned.h5" \
+  --normalized_data_path "../../../../var/scratch/cla224/ECG-Project/data/ecg_data_normalized.h5" \
   --window_data_path "../../../../var/scratch/cla224/ECG-Project/data/windowed_data.h5" \
-  --patience 5 \
-  --lr 0.00001 \
+  --patience 20 \
+  --lr 0.0005 \
+  --batch_size 32
