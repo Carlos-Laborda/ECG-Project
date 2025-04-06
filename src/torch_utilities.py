@@ -418,11 +418,130 @@ class EmotionRecognitionCNN(nn.Module):
 # ----------------------
 # Transformer Model Class
 # ----------------------
+# Positional Encoding module (Vaswani et al., 2017)
+class PositionalEncoding(nn.Module):
+    def __init__(self, d_model, dropout=0.1, max_len=5000):
+        """
+        Args:
+            d_model: embedding dimension.
+            dropout: dropout rate.
+            max_len: maximum length of the input sequences.
+        """
+        super(PositionalEncoding, self).__init__()
+        self.dropout = nn.Dropout(p=dropout)
+        
+        # Create constant 'pe' matrix with values dependent on position and dimension
+        pe = torch.zeros(max_len, d_model)  # (max_len, d_model)
+        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)  # (max_len, 1)
+        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
+        pe[:, 0::2] = torch.sin(position * div_term)   # even indices
+        pe[:, 1::2] = torch.cos(position * div_term)   # odd indices
+        pe = pe.unsqueeze(0)  # (1, max_len, d_model)
+        self.register_buffer('pe', pe)
+        
+    def forward(self, x):
+        """
+        Args:
+            x: Tensor of shape (batch, seq_len, d_model)
+        Returns:
+            x after adding positional encodings and applying dropout.
+        """
+        x = x + self.pe[:, :x.size(1), :]
+        return self.dropout(x)
+
+# Transformer-based classifier for ECG stress detection
+class TransformerECGClassifier(nn.Module):
+    def __init__(self, input_length=10000):
+        """
+        Args:
+            input_length: Length of the input ECG signal.
+                         For example, a 10 second window at 1000Hz gives 10000 samples.
+        """
+        super(TransformerECGClassifier, self).__init__()
+        # Convolutional front-end subnetwork
+        # Using "same" padding to preserve sequence length
+        self.conv1 = nn.Conv1d(in_channels=1, out_channels=64, kernel_size=64, stride=8, padding='same')
+        self.relu1 = nn.ReLU()
+        self.pool1 = nn.MaxPool1d(kernel_size=2, stride=2)
+        
+        self.conv2 = nn.Conv1d(in_channels=64, out_channels=128, kernel_size=32, stride=4, padding='same')
+        self.relu2 = nn.ReLU()
+        self.pool2 = nn.MaxPool1d(kernel_size=2, stride=2)
+        
+        # For input_length=10000:
+        # After conv1: output length = ceil(10000/8) = 1250
+        # After pool1: output length = floor(1250/2) = 625
+        # After conv2: output length = ceil(625/4) = 157
+        # After pool2: output length = floor(157/2) = 78
+        self.T = 78  # Final sequence length
+        
+        # Linear projection from conv output (128 channels) to transformer model dimension (1024)
+        self.fc_embed = nn.Linear(128, 1024)
+        
+        # Positional encoder to inject order information into the embeddings
+        self.pos_encoder = PositionalEncoding(d_model=1024, dropout=0.1, max_len=self.T)
+        
+        # Transformer encoder: 4 layers, with model dimension 1024, 4 attention heads, feed-forward dim 512, dropout 0.5
+        encoder_layer = nn.TransformerEncoderLayer(d_model=1024, nhead=4, dim_feedforward=512, dropout=0.5)
+        self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=4)
+        
+        # Fully connected (FC) subnetwork for classification
+        # Flattened transformer output has dimension T * 1024 (78 * 1024)
+        self.fc1 = nn.Linear(self.T * 1024, 512)
+        self.dropout_fc1 = nn.Dropout(0.5)
+        self.fc2 = nn.Linear(512, 256)
+        self.dropout_fc2 = nn.Dropout(0.5)
+        self.fc3 = nn.Linear(256, 1)
+        
+    def forward(self, x):
+        """
+        Args:
+            x: Input ECG signal tensor of shape (batch, 1, input_length)
+        Returns:
+            Output probabilities of shape (batch, 1) via sigmoid activation.
+        """
+        # Convolutional front-end
+        x = self.conv1(x)      # -> (batch, 64, L1)
+        x = self.relu1(x)
+        x = self.pool1(x)      # -> (batch, 64, L1/2)
+        
+        x = self.conv2(x)      # -> (batch, 128, L2)
+        x = self.relu2(x)
+        x = self.pool2(x)      # -> (batch, 128, T) where T ≈ self.T
+        
+        # Permute to (batch, T, channels)
+        x = x.permute(0, 2, 1)  # -> (batch, T, 128)
+        
+        # Project to transformer model dimension (1024)
+        x = self.fc_embed(x)    # -> (batch, T, 1024)
+        
+        # Add positional encoding
+        x = self.pos_encoder(x)  # -> (batch, T, 1024)
+        
+        # Transformer expects input shape (seq_len, batch, d_model)
+        x = x.permute(1, 0, 2)   # -> (T, batch, 1024)
+        x = self.transformer_encoder(x)  # -> (T, batch, 1024)
+        x = x.permute(1, 0, 2)   # -> (batch, T, 1024)
+        
+        # Flatten transformer output
+        x = x.flatten(1)       # -> (batch, T * 1024)
+        
+        # Fully connected layers
+        x = self.fc1(x)
+        x = F.relu(x)
+        x = self.dropout_fc1(x)
+        x = self.fc2(x)
+        x = F.relu(x)
+        x = self.dropout_fc2(x)
+        x = self.fc3(x)
+        
+        # Sigmoid activation for binary classification
+        return torch.sigmoid(x)
+
 
 # ----------------------
 # TCN Model Class
 # ----------------------
-
 class TCNClassifier(nn.Module):
     def __init__(self, input_length=10000, n_inputs=1, Kt=11, pt=0.3, Ft=11):
         super(TCNClassifier, self).__init__()
