@@ -426,7 +426,6 @@ class EmotionRecognitionCNN(nn.Module):
 class TCNClassifier(nn.Module):
     def __init__(self, input_length=10000, n_inputs=1, Kt=11, pt=0.3, Ft=11):
         super(TCNClassifier, self).__init__()
-        #self.bn_input = nn.BatchNorm1d(n_inputs)
         # Initial 1x1 convolution to expand channels
         self.pad0 = nn.ConstantPad1d(padding=(Kt-1, 0), value=0)
         self.conv0 = nn.Conv1d(in_channels=n_inputs, out_channels=n_inputs + 1, kernel_size=Kt, bias=False)
@@ -483,7 +482,6 @@ class TCNClassifier(nn.Module):
         self.linear = nn.Linear(in_features=flattened_size, out_features=1, bias=False)
         
     def forward(self, x):
-        #x = self.bn_input(x)
         # Input shape: (batch, channels, sequence_length)
         x = self.pad0(x)
         x = self.conv0(x)
