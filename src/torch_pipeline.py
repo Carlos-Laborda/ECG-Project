@@ -164,7 +164,6 @@ class ECGSimpleTrainingFlow(FlowSpec):
 
         if not os.path.exists(self.window_data_path):
             print("Segmenting ECG data into windows...")
-            #self.data = load_ecg_data(self.cleaned_data_path)
             segment_data_into_windows(
                 self.normalized_data_path, 
                 self.window_data_path, 
