@@ -4,6 +4,7 @@ from pathlib import Path
 import numpy as np
 import h5py
 import json
+import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -459,12 +460,17 @@ class TransformerECGClassifier(nn.Module):
         """
         super(TransformerECGClassifier, self).__init__()
         # Convolutional front-end subnetwork
-        # Using "same" padding to preserve sequence length
-        self.conv1 = nn.Conv1d(in_channels=1, out_channels=64, kernel_size=64, stride=8, padding='same')
+        # For conv1: kernel_size=64, stride=8.
+        # Use asymmetric padding: left=31, right=32.
+        self.pad_conv1 = nn.ConstantPad1d((31, 32), 0)
+        self.conv1 = nn.Conv1d(in_channels=1, out_channels=64, kernel_size=64, stride=8, padding=0)
         self.relu1 = nn.ReLU()
         self.pool1 = nn.MaxPool1d(kernel_size=2, stride=2)
         
-        self.conv2 = nn.Conv1d(in_channels=64, out_channels=128, kernel_size=32, stride=4, padding='same')
+        # For conv2: kernel_size=32, stride=4.
+        # Use asymmetric padding: left=15, right=16.
+        self.pad_conv2 = nn.ConstantPad1d((15, 16), 0)
+        self.conv2 = nn.Conv1d(in_channels=64, out_channels=128, kernel_size=32, stride=4, padding=0)
         self.relu2 = nn.ReLU()
         self.pool2 = nn.MaxPool1d(kernel_size=2, stride=2)
         
