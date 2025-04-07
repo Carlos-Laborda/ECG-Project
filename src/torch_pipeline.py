@@ -22,7 +22,7 @@ from torch_utilities import (
     load_processed_data, split_data_by_participant, ECGDataset,
     train, test, EarlyStopping, log_model_summary, prepare_model_signature,
     set_seed, Simple1DCNN, Simple1DCNN_v2, Improved1DCNN, Improved1DCNN_v2,
-    EmotionRecognitionCNN, xresnet1d101, TCNClassifier
+    EmotionRecognitionCNN, xresnet1d101, TCNClassifier, TransformerECGClassifier
 )
 
 @project(name="ecg_training_simple")
@@ -195,6 +195,7 @@ class ECGSimpleTrainingFlow(FlowSpec):
         
         self.next(self.train_model)
         
+    @resources(memory=16000)    
     @step
     def train_model(self):
         """Train the CNN model using PyTorch"""
@@ -217,7 +218,7 @@ class ECGSimpleTrainingFlow(FlowSpec):
         print(f"Training on device: {device}")
         
         # Model setup
-        self.model = TCNClassifier().to(device)
+        self.model = TransformerECGClassifier().to(device)
         loss_fn = torch.nn.BCELoss()
         optimizer = optim.Adam(self.model.parameters(), lr=self.lr)
         
