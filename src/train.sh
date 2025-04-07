@@ -27,5 +27,5 @@ python torch_pipeline.py run \
   --normalized_data_path "../../../../var/scratch/cla224/ECG-Project/data/ecg_data_normalized.h5" \
   --window_data_path "../../../../var/scratch/cla224/ECG-Project/data/windowed_data.h5" \
   --patience 20 \
-  --lr 0.0005 \
+  --lr 0.0001 \
   --batch_size 32
