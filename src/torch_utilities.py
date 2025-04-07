@@ -479,7 +479,7 @@ class TransformerECGClassifier(nn.Module):
         # After pool1: output length = floor(1250/2) = 625
         # After conv2: output length = ceil(625/4) = 157
         # After pool2: output length = floor(157/2) = 78
-        self.T = 78  # Final sequence length
+        self.T = 74  # Final sequence length
         
         # Linear projection from conv output (128 channels) to transformer model dimension (1024)
         self.fc_embed = nn.Linear(128, 1024)
@@ -492,7 +492,7 @@ class TransformerECGClassifier(nn.Module):
         self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=4)
         
         # Fully connected (FC) subnetwork for classification
-        # Flattened transformer output has dimension T * 1024 (78 * 1024)
+        # Flattened transformer output has dimension T * 1024 (74 * 1024)
         self.fc1 = nn.Linear(self.T * 1024, 512)
         self.dropout_fc1 = nn.Dropout(0.5)
         self.fc2 = nn.Linear(512, 256)
