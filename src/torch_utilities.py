@@ -488,15 +488,15 @@ class TransformerECGClassifier(nn.Module):
         self.pos_encoder = PositionalEncoding(d_model=1024, dropout=0.1, max_len=self.T)
         
         # Transformer encoder: 4 layers, with model dimension 1024, 4 attention heads, feed-forward dim 512, dropout 0.5
-        encoder_layer = nn.TransformerEncoderLayer(d_model=1024, nhead=4, dim_feedforward=512, dropout=0.5)
+        encoder_layer = nn.TransformerEncoderLayer(d_model=1024, nhead=4, dim_feedforward=512, dropout=0.4)
         self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=4)
         
         # Fully connected (FC) subnetwork for classification
         # Flattened transformer output has dimension T * 1024 (74 * 1024)
         self.fc1 = nn.Linear(self.T * 1024, 512)
-        self.dropout_fc1 = nn.Dropout(0.5)
+        self.dropout_fc1 = nn.Dropout(0.4)
         self.fc2 = nn.Linear(512, 256)
-        self.dropout_fc2 = nn.Dropout(0.5)
+        self.dropout_fc2 = nn.Dropout(0.4)
         self.fc3 = nn.Linear(256, 1)
         
     def forward(self, x):
