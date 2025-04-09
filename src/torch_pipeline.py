@@ -72,6 +72,12 @@ class ECGSimpleTrainingFlow(FlowSpec):
         default="../data/interim/windowed_data.h5",
     )
 
+    skip_preprocessing = Parameter(
+        "skip_preprocessing",
+        help="If True, skip running the preprocessing steps and use the existing windowed data file",
+        default=True
+    )
+
     model_type = Parameter(
         "model_type",
         help="Type of model being trained (e.g., cnn, lstm, transformer)",
@@ -123,7 +129,11 @@ class ECGSimpleTrainingFlow(FlowSpec):
             raise RuntimeError(f"MLflow connection failed: {str(e)}")
 
         print("Starting simple training pipeline...")
-        self.next(self.load_data)
+        if self.skip_preprocessing:
+            print("Skipping preprocessing steps. Using existing windowed data if available.")
+            self.next(self.prepare_data_for_cnn)
+        else:
+            self.next(self.load_data)
 
     @step
     def load_data(self):
