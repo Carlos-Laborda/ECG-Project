@@ -198,7 +198,7 @@ class ECGSimpleTrainingFlow(FlowSpec):
     @resources(memory=16000)    
     @step
     def train_model(self):
-        """Train the CNN model using PyTorch"""
+        """Train the model on the training data"""
         set_seed(self.seed)
         
         # Create PyTorch datasets
