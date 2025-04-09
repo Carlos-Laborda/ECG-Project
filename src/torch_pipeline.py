@@ -206,13 +206,16 @@ class ECGSimpleTrainingFlow(FlowSpec):
         val_dataset = ECGDataset(self.X_val, self.y_val)
         test_dataset = ECGDataset(self.X_test, self.y_test)
         
+        # determine number of available cpu cores
+        NUM_WORKERS = os.cpu_count()
+        
         # Create DataLoaders
         train_loader = DataLoader(train_dataset, batch_size=self.batch_size, 
-                                       shuffle=True, num_workers=0, pin_memory=True)
+                                       shuffle=True, num_workers=NUM_WORKERS, pin_memory=True)
         val_loader = DataLoader(val_dataset, batch_size=self.batch_size, shuffle=False, 
-                                     num_workers=0, pin_memory=True)
+                                     num_workers=NUM_WORKERS, pin_memory=True)
         self.test_loader = DataLoader(test_dataset, batch_size=self.batch_size, shuffle=False, 
-                                      num_workers=0, pin_memory=True)
+                                      num_workers=NUM_WORKERS, pin_memory=True)
         
         device = "cuda" if torch.cuda.is_available() else "cpu"
         print(f"Training on device: {device}")
