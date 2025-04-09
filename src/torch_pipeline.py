@@ -134,6 +134,7 @@ class ECGSimpleTrainingFlow(FlowSpec):
             self.next(self.prepare_data_for_cnn)
         else:
             self.next(self.load_data)
+        self.next(self.load_data)
 
     @step
     def load_data(self):
