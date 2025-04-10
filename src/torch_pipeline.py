@@ -16,6 +16,7 @@ from common2 import (
     process_ecg_data,
     process_save_cleaned_data,
     normalize_cleaned_data,
+    segment_data_into_windows,
 )
 
 from torch_utilities import (
@@ -129,60 +130,47 @@ class ECGSimpleTrainingFlow(FlowSpec):
             raise RuntimeError(f"MLflow connection failed: {str(e)}")
 
         print("Starting simple training pipeline...")
-        if self.skip_preprocessing:
-            print("Skipping preprocessing steps. Using existing windowed data if available.")
-            self.next(self.prepare_data_for_cnn)
-        else:
-            self.next(self.load_data)
-        self.next(self.load_data)
+        self.next(self.preprocess_data)
 
     @step
-    def load_data(self):
-        """Load or process raw ECG data"""
-        if not os.path.exists(self.segmented_data_path):
-            print(f"Processing raw ECG data -> {self.segmented_data_path}")
-            process_ecg_data(self.segmented_data_path)
+    def preprocess_data(self):
+        """Check for windowed data; if missing, run full preprocessing."""
+        if os.path.exists(self.window_data_path):
+            print(f"Found existing windowed data: {self.window_data_path}")
         else:
-            print(f"Using existing segmented data: {self.segmented_data_path}")
-        
-        self.next(self.clean_data)
-
-    @step
-    def clean_data(self):
-        """Clean the ECG data"""
-        if not os.path.exists(self.cleaned_data_path):
-            print(f"Cleaning ECG data -> {self.cleaned_data_path}")
-            process_save_cleaned_data(self.segmented_data_path, self.cleaned_data_path)
-        else:
-            print(f"Using existing cleaned data: {self.cleaned_data_path}")
+            print("Windowed data not found, starting full preprocessing:")
+            # 1. Match raw ECG data with metadata
+            if not os.path.exists(self.segmented_data_path):
+                print(f"Processing raw ECG data -> {self.segmented_data_path}")
+                process_ecg_data(self.segmented_data_path)
+            else:
+                print(f"Using existing segmented data: {self.segmented_data_path}")
             
-        self.next(self.normalize_data)
-        
-    @step
-    def normalize_data(self):
-        """Perform user-specific z-score normalization on cleaned data"""        
-        if not os.path.exists(self.normalized_data_path):
-            print(f"Normalizing cleaned data -> {self.normalized_data_path}")
-            normalize_cleaned_data(self.cleaned_data_path, self.normalized_data_path)
-        else:
-            print(f"Using existing normalized data: {self.normalized_data_path}")
-        self.next(self.segment_data_windows)
-
-    @step
-    def segment_data_windows(self):
-        """Segment data into windows"""
-        from common2 import segment_data_into_windows
-
-        if not os.path.exists(self.window_data_path):
+            # 2. Clean data
+            if not os.path.exists(self.cleaned_data_path):
+                print(f"Cleaning ECG data -> {self.cleaned_data_path}")
+                process_save_cleaned_data(self.segmented_data_path, self.cleaned_data_path)
+            else:
+                print(f"Using existing cleaned data: {self.cleaned_data_path}")
+            
+            # 3. Normalize data
+            if not os.path.exists(self.normalized_data_path):
+                print(f"Normalizing data -> {self.normalized_data_path}")
+                normalize_cleaned_data(self.cleaned_data_path, self.normalized_data_path)
+            else:
+                print(f"Using existing normalized data: {self.normalized_data_path}")
+            
+            # 4. Segment data into windows
             print("Segmenting ECG data into windows...")
             segment_data_into_windows(
-                self.normalized_data_path, 
-                self.window_data_path, 
+                self.normalized_data_path,
+                self.window_data_path,
                 fs=1000, 
                 window_size=10, 
                 step_size=5
             )
-        print(f"Using windowed data: {self.window_data_path}")
+            print(f"Windowed data created: {self.window_data_path}")
+
         self.next(self.prepare_data_for_cnn)
 
     @resources(memory=16000)
@@ -219,6 +207,7 @@ class ECGSimpleTrainingFlow(FlowSpec):
         
         # determine number of available cpu cores
         NUM_WORKERS = os.cpu_count()
+        print(f"Number of CPU cores: {NUM_WORKERS}")
         
         # Create DataLoaders
         train_loader = DataLoader(train_dataset, batch_size=self.batch_size, 
