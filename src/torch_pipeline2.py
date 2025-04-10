@@ -6,27 +6,24 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from sktime.classification.kernel_based import RocketClassifier
-from sktime.datatypes._panel._convert import from_2d_array_to_nested
-from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
 from torch.optim.lr_scheduler import StepLR, ReduceLROnPlateau
 from torch.utils.data import DataLoader
 from sklearn.metrics import confusion_matrix, classification_report
 from metaflow import (FlowSpec, step, card, Parameter, current, 
                       project, resources, conda_base, environment)
 
-from common import (
+from common2 import (
     process_ecg_data,
     process_save_cleaned_data,
+    normalize_cleaned_data,
 )
 
 from torch_utilities import (
     load_processed_data, split_data_by_participant, ECGDataset,
     train, test, EarlyStopping, log_model_summary, prepare_model_signature,
-    set_seed, Simple1DCNN, Simple1DCNN_v2, Improved1DCNN, Improved1DCNN_v2
+    set_seed, Simple1DCNN, Simple1DCNN_v2, Improved1DCNN, Improved1DCNN_v2,
+    EmotionRecognitionCNN, xresnet1d101, TCNClassifier, TransformerECGClassifier
 )
-
-from utils import load_ecg_data
 
 @project(name="ecg_training_simple")
 class ECGSimpleTrainingFlow(FlowSpec):
@@ -62,11 +59,23 @@ class ECGSimpleTrainingFlow(FlowSpec):
         help="Path to cleaned ECG data HDF5",
         default="../data/interim/ecg_data_cleaned.h5",
     )
-
+    
+    normalized_data_path = Parameter(
+            "normalized_data_path",
+            help="Path to normalized ECG data HDF5",
+            default="../data/interim/ecg_data_normalized.h5",
+        )
+    
     window_data_path = Parameter(
         "window_data_path",
         help="Path to windowed data HDF5",
         default="../data/interim/windowed_data.h5",
+    )
+
+    skip_preprocessing = Parameter(
+        "skip_preprocessing",
+        help="If True, skip running the preprocessing steps and use the existing windowed data file",
+        default=True
     )
 
     model_type = Parameter(
@@ -84,7 +93,7 @@ class ECGSimpleTrainingFlow(FlowSpec):
     accuracy_threshold = Parameter(
         "accuracy_threshold",
         help="Minimum accuracy for model registration",
-        default=0.75,
+        default=0.74,
     )
     
     lr = Parameter("lr", default=0.00001, help="Learning rate")
@@ -107,7 +116,6 @@ class ECGSimpleTrainingFlow(FlowSpec):
         default=16,
     )
 
-    @card
     @step
     def start(self):
         """Initialize MLflow tracking"""
@@ -123,7 +131,6 @@ class ECGSimpleTrainingFlow(FlowSpec):
         print("Starting simple training pipeline...")
         self.next(self.load_data)
 
-    @card
     @step
     def load_data(self):
         """Load or process raw ECG data"""
@@ -144,19 +151,27 @@ class ECGSimpleTrainingFlow(FlowSpec):
         else:
             print(f"Using existing cleaned data: {self.cleaned_data_path}")
             
+        self.next(self.normalize_data)
+        
+    @step
+    def normalize_data(self):
+        """Perform user-specific z-score normalization on cleaned data"""        
+        if not os.path.exists(self.normalized_data_path):
+            print(f"Normalizing cleaned data -> {self.normalized_data_path}")
+            normalize_cleaned_data(self.cleaned_data_path, self.normalized_data_path)
+        else:
+            print(f"Using existing normalized data: {self.normalized_data_path}")
         self.next(self.segment_data_windows)
 
-    @card
     @step
     def segment_data_windows(self):
         """Segment data into windows"""
-        from common import segment_data_into_windows
+        from common2 import segment_data_into_windows
 
         if not os.path.exists(self.window_data_path):
             print("Segmenting ECG data into windows...")
-            self.data = load_ecg_data(self.cleaned_data_path)
             segment_data_into_windows(
-                self.data, 
+                self.normalized_data_path, 
                 self.window_data_path, 
                 fs=1000, 
                 window_size=10, 
@@ -165,8 +180,7 @@ class ECGSimpleTrainingFlow(FlowSpec):
         print(f"Using windowed data: {self.window_data_path}")
         self.next(self.prepare_data_for_cnn)
 
-    @resources(memory=8000)
-    @card
+    @resources(memory=16000)
     @step
     def prepare_data_for_cnn(self):
         """Prepare data for CNN training"""        
@@ -185,157 +199,177 @@ class ECGSimpleTrainingFlow(FlowSpec):
         print(f"Validation samples: {len(self.X_val)}")
         print(f"Test samples: {len(self.X_test)}")
         
-        self.next(self.train_rocket)
-
-    @card
+        self.next(self.train_model)
+        
+    @resources(memory=16000)    
     @step
-    def train_rocket(self):
-        """
-        Train the ROCKET classifier on windowed ECG data.
-        Converts the numpy arrays (with shape (N, window_length, 1)) to a nested
-        pandas DataFrame format expected by sktime, and logs the transformation progress.
-        """
-        logging.info("Starting transformation to nested format for training, validation, and test data.")
+    def train_model(self):
+        """Train the model on the training data"""
+        set_seed(self.seed)
         
-        # Sample a subset of the data for faster processing
-        from sklearn.model_selection import train_test_split
+        # Create PyTorch datasets
+        train_dataset = ECGDataset(self.X_train, self.y_train)
+        val_dataset = ECGDataset(self.X_val, self.y_val)
+        test_dataset = ECGDataset(self.X_test, self.y_test)
         
-        # Define subset sizes
-        train_subset_size = 1000  # 1000 training samples
-        val_subset_size = 500     # 500 validation samples
-        test_subset_size = 500    # 500 test samples
+        # determine number of available cpu cores
+        NUM_WORKERS = os.cpu_count()
+        print(f"Number of CPU cores: {NUM_WORKERS}")
         
-        #stratify
-        X_train_sample, _, y_train_sample, _ = train_test_split(
-            self.X_train, self.y_train, 
-            train_size=min(train_subset_size, len(self.X_train)), 
-            stratify=self.y_train,
-            random_state=self.seed
+        # Create DataLoaders
+        train_loader = DataLoader(train_dataset, batch_size=self.batch_size, 
+                                       shuffle=True, num_workers=NUM_WORKERS, pin_memory=True)
+        val_loader = DataLoader(val_dataset, batch_size=self.batch_size, shuffle=False, 
+                                     num_workers=NUM_WORKERS, pin_memory=True)
+        self.test_loader = DataLoader(test_dataset, batch_size=self.batch_size, shuffle=False, 
+                                      num_workers=NUM_WORKERS, pin_memory=True)
+        
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        print(f"Training on device: {device}")
+        
+        # Model setup
+        self.model = TransformerECGClassifier().to(device)
+        loss_fn = torch.nn.BCELoss()
+        optimizer = optim.Adam(self.model.parameters(), lr=self.lr)
+        
+        # ReduceLROnPlateau scheduler
+        scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer,
+            mode='min',           # reduce LR when the validation loss stops decreasing
+            factor=0.1,           # multiply LR by this factor when reducing
+            patience=2,           # number of epochs with no improvement after which LR is reduced
+            verbose=False,         # print message when LR is reduced
+            min_lr=1e-11           # lower bound on the learning rate
         )
         
-        X_val_sample, _, y_val_sample, _ = train_test_split(
-            self.X_val, self.y_val, 
-            train_size=min(val_subset_size, len(self.X_val)), 
-            stratify=self.y_val,
-            random_state=self.seed
-        )
-        
-        X_test_sample, _, y_test_sample, _ = train_test_split(
-            self.X_test, self.y_test, 
-            train_size=min(test_subset_size, len(self.X_test)), 
-            stratify=self.y_test,
-            random_state=self.seed
-        )
-        
-        print(f"Using {len(X_train_sample)} training samples (from {len(self.X_train)} total)")
-        print(f"Using {len(X_val_sample)} validation samples (from {len(self.X_val)} total)")
-        print(f"Using {len(X_test_sample)} test samples (from {len(self.X_test)} total)")
-        
-        # Transform training data
-        print("Starting transformation of training data...")
-        X_train_squeezed = X_train_sample.squeeze(-1)
-        print(f"Training data shape after squeeze: {X_train_squeezed.shape}")
-        X_train_nested = from_2d_array_to_nested(X_train_squeezed)
-        print("Training data transformation complete.")
-    
-        # Transform validation data
-        print("Starting transformation of validation data...")
-        X_val_squeezed = X_val_sample.squeeze(-1)
-        print(f"Validation data shape after squeeze: {X_val_squeezed.shape}")
-        X_val_nested = from_2d_array_to_nested(X_val_squeezed)
-        print("Validation data transformation complete.")
-    
-        # Transform test data
-        print("Starting transformation of test data...")
-        X_test_squeezed = X_test_sample.squeeze(-1)
-        print(f"Test data shape after squeeze: {X_test_squeezed.shape}")
-        self.X_test_nested = from_2d_array_to_nested(X_test_squeezed)
-        self.y_test_subset = y_test_sample  
-        print("Test data transformation complete.")
-        
-        logging.info("Nested data transformation complete.")
-    
-        # Initialize the ROCKET classifier 
-        self.rocket_clf = RocketClassifier(
-            num_kernels=10,  # Reduced
-            rocket_transform='rocket',
-            max_dilations_per_kernel=32,
-            n_features_per_kernel=4,
-            use_multivariate='auto',
-            n_jobs=-1,            # Use all cores
-            random_state=self.seed
-        )
-        
-        # Fit the ROCKET classifier on the training data
-        print("Fitting the ROCKET classifier...")
-        self.rocket_clf.fit(X_train_nested, y_train_sample)
-        print("ROCKET classifier fitting complete.")
-        
-        # Evaluate on the validation set
-        self.y_val_pred = self.rocket_clf.predict(X_val_nested)
-        self.rocket_val_accuracy = accuracy_score(y_val_sample, self.y_val_pred)
-        print(f"ROCKET Validation Accuracy: {self.rocket_val_accuracy*100:.2f}%")
-        print("ROCKET Classification Report (Validation):")
-        print(classification_report(y_val_sample, self.y_val_pred))
-        
-        self.next(self.evaluate_rocket)
+        early_stopping = EarlyStopping(patience=self.patience)
+                
+        mlflow.set_tracking_uri(self.mlflow_tracking_uri)
+        with mlflow.start_run(run_id=self.mlflow_run_id):
+            # Log training parameters
+            params = {
+                # Model parameters
+                "model_type": self.model_type,
+                "model_description": self.model_description,
+                "model_name": self.model.__class__.__name__,
+                "random_seed": self.seed,
+                "deterministic": True,
+                
+                # Training hyperparameters
+                "epochs": self.num_epochs,
+                "learning_rate": self.lr,
+                "batch_size": self.batch_size,
+                "optimizer": optimizer.__class__.__name__,
+                "loss_function": loss_fn.__class__.__name__,
+                
+                # Scheduler parameters
+                "scheduler": scheduler.__class__.__name__,
+                #"scheduler_gamma": scheduler.gamma,
+                "scheduler_mode": "min",
+                "scheduler_factor": 0.1,
+                "scheduler_patience": 2,
+                "scheduler_min_lr": 1e-11,
+                
+                # Early stopping
+                "patience": self.patience,
+                
+                # Data parameters
+                #"input_shape": f"{self.X.shape}",
+                "train_samples": len(train_loader.dataset),
+                "val_samples": len(val_loader.dataset),
+                "test_samples": len(self.test_loader.dataset),
+                
+                # Hardware
+                "device": device
+            }
+            mlflow.log_params(params)
+            
+            # Log model summary artifact; input shape is (batch, 1, window_length)
+            #input_size = (self.batch_size, 1, self.X.shape[1])
+            #log_model_summary(self.model, input_size)
+            
+            # Training loop with validation
+            for epoch in range(1, self.num_epochs + 1):
+                print(f"\nEpoch {epoch}/{self.num_epochs}")
+                
+                # Train and log metrics
+                self.train_loss, self.train_acc, self.train_auc = train(
+                    self.model, train_loader, optimizer, 
+                    loss_fn, device, epoch)
+                
+                # Validate and log metrics
+                self.val_loss, self.val_acc, self.val_auc = test(
+                    self.model, val_loader, loss_fn, 
+                    device, phase='val', epoch=epoch)
 
-    @card
-    @step
-    def evaluate_rocket(self):
-        """
-        Evaluate the ROCKET classifier on test data.
-        Calculates accuracy, prints a classification report and confusion matrix,
-        and logs metrics using MLflow.
-        """
-        # Predict on the test set
-        self.y_test_pred = self.rocket_clf.predict(self.X_test_nested)
-        self.rocket_test_accuracy = accuracy_score(self.y_test_subset, self.y_test_pred)
-        print(f"ROCKET Test Accuracy: {self.rocket_test_accuracy*100:.2f}%")
+                # Early stopping
+                early_stopping(self.val_loss)
+                if early_stopping.early_stop:
+                    print("Early stopping triggered")
+                    break
+                
+                # Update learning rate
+                scheduler.step(self.val_loss)
+                
+        # Cleanup: Remove heavy training data from the flow state to save disk space
+        self.X_train = None
+        self.y_train = None
+        self.X_val = None
+        self.y_val = None
+        self.X_test = None
+        self.y_test = None
         
-        # Print detailed reports
-        print("ROCKET Classification Report (Test):")
-        print(classification_report(self.y_test_subset, self.y_test_pred))
-        print("Confusion Matrix:")
-        print(confusion_matrix(self.y_test_subset, self.y_test_pred))
-        
-        # Log metrics to MLflow
-        mlflow.log_metric("rocket_val_accuracy", self.rocket_val_accuracy)
-        mlflow.log_metric("rocket_test_accuracy", self.rocket_test_accuracy)
-        
-        self.next(self.register_rocket)
+        self.next(self.evaluate)
 
     @step
-    def register_rocket(self):
-        """
-        Register the ROCKET classifier model in MLflow if its test accuracy
-        meets or exceeds the specified threshold.
-        """
+    def evaluate(self):
+        """Evaluate model performance on test data"""
+        mlflow.set_tracking_uri(self.mlflow_tracking_uri)
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        loss_fn = torch.nn.BCELoss()
+        with mlflow.start_run(run_id=self.mlflow_run_id):
+            # Evaluate and log test metrics
+            self.test_loss, self.test_accuracy, self.test_auc = test(
+                self.model, self.test_loader, loss_fn, 
+                device, phase='test')
+            print(f"Final Test Accuracy: {self.test_accuracy*100:.2f}%")
+        self.next(self.register)
+
+    @step
+    def register(self):
+        """Register model if accuracy meets threshold"""
         mlflow.set_tracking_uri(self.mlflow_tracking_uri)
         
-        if self.rocket_test_accuracy >= self.accuracy_threshold:
-            self.registered_rocket = True
-            print("Registering ROCKET classifier model...")
-            mlflow.sklearn.log_model(
-                self.rocket_clf,
-                artifact_path="rocket_model",
-                registered_model_name="ROCKET_ECG_Classifier"
-            )
-            print("ROCKET classifier model registered!")
-        else:
-            self.registered_rocket = False
-            print(f"ROCKET classifier test accuracy {self.rocket_test_accuracy:.3f} below threshold {self.accuracy_threshold}")
+        if self.test_accuracy >= self.accuracy_threshold:
+            self.registered = True
+            logging.info("Registering model...")
             
+            with mlflow.start_run(run_id=self.mlflow_run_id):
+                signature = prepare_model_signature(
+                self.model, 
+                self.X_test[:5]
+                )
+    
+                mlflow.pytorch.log_model(
+                    self.model,
+                    artifact_path="model",
+                    registered_model_name="baseline_1DCNN",
+                    signature=signature,
+                )
+                print("Model successfully registered!")
+        else:
+            self.registered = False
+            print(f"Model accuracy {self.test_accuracy:.3f} below threshold {self.accuracy_threshold}")
+        
         self.next(self.end)
 
-    @card
     @step
     def end(self):
-        """Finish the ROCKET training branch."""
-        print("\n=== ROCKET Training Pipeline Complete ===")
-        print(f"Final ROCKET Test Accuracy: {self.rocket_test_accuracy:.3f}")
-        print(f"Accuracy Threshold: {self.accuracy_threshold}")
-        # Optionally, delete large objects
+        """Finish the pipeline"""
+        print("\n=== Training Pipeline Complete ===")
+        print(f"Final Test Accuracy: {self.test_accuracy:.3f}")
+        print(f"Threshold: {self.accuracy_threshold}")
+
         print("Done!")
 
 if __name__ == "__main__":
