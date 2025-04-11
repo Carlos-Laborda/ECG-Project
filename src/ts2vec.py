@@ -308,7 +308,24 @@ class TSEncoder(nn.Module):
         x = x.transpose(1, 2)  # B x T x Co
         
         return x
-        
+
+# -------------------------
+# Simple classifier
+# -------------------------
+class SimpleClassifier(nn.Module):
+    def __init__(self, input_dim, hidden_dim=64, num_classes=1):
+        super(SimpleClassifier, self).__init__()
+        self.fc1 = nn.Linear(input_dim, hidden_dim)
+        self.relu = nn.ReLU()
+        self.fc2 = nn.Linear(hidden_dim, num_classes)
+
+    def forward(self, x):
+        # x is expected to be of shape (batch, feature_dim)
+        x = self.fc1(x)
+        x = self.relu(x)
+        x = self.fc2(x)
+        return x
+
 # --------------------------------------------------------
 # ts2vec.py
 # --------------------------------------------------------
