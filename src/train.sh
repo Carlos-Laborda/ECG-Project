@@ -19,11 +19,16 @@ source activate /var/scratch/cla224/ECG_env
 # --- Set MLflow tracking server ---
 export MLFLOW_TRACKING_URI=http://fs0.das6.cs.vu.nl:5005
 
-# --- Run training script ---
-python torch_pipeline.py run \
+# --- Run Fully Supervised Model script ---
+# python torch_pipeline.py run \
+#   --mlflow_tracking_uri "http://fs0.das6.cs.vu.nl:5005" \
+#   --window_data_path "../../../../var/scratch/cla224/ECG-Project/data/windowed_data.h5" \
+#   --patience 20 \
+#   --lr 0.00001 \
+#   --batch_size 32 \
+#   --num_epochs 20
+
+# --- Run Self Supervised Model script ---
+python ts2vec_train.py run \
   --mlflow_tracking_uri "http://fs0.das6.cs.vu.nl:5005" \
-  --window_data_path "../../../../var/scratch/cla224/ECG-Project/data/windowed_data.h5" \
-  --patience 20 \
-  --lr 0.00001 \
-  --batch_size 32 \
-  --num_epochs 20
+  --window_data_path "../../../../var/scratch/cla224/ECG-Project/data/windowed_data.h5" 
