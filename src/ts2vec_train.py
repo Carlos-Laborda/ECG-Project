@@ -1,0 +1,226 @@
+import os
+import logging
+import numpy as np
+import torch
+import torch.nn as nn
+import torch.optim as optim
+import mlflow
+import mlflow.pytorch
+from torch.utils.data import DataLoader, TensorDataset
+from metaflow import FlowSpec, step, Parameter, current, project, resources
+
+from ts2vec import TS2Vec, SimpleClassifier
+
+from torch_utilities import load_processed_data, split_data_by_participant, set_seed
+
+# -------------------------
+# Metaflow Pipeline for TS2Vec pretraining and classifier fine-tuning
+# -------------------------
+@project(name="ecg_training_ts2vec")
+class ECGTS2VecFlow(FlowSpec):
+    mlflow_tracking_uri = Parameter(
+        "mlflow_tracking_uri",
+        help="MLflow tracking server location",
+        default=os.getenv("MLFLOW_TRACKING_URI", "https://127.0.0.1:5000")
+    )
+    
+    window_data_path = Parameter(
+        "window_data_path",
+        help="Path to windowed ECG data HDF5",
+        default="../data/interim/windowed_data.h5"
+    )
+
+    seed = Parameter("seed", help="Random seed", default=42)
+    ts2vec_epochs = Parameter("ts2vec_epochs", help="Epochs for TS2Vec pretraining", default=50)
+    ts2vec_lr = Parameter("ts2vec_lr", help="Learning rate for TS2Vec", default=0.001)
+    ts2vec_batch_size = Parameter("ts2vec_batch_size", help="Batch size for TS2Vec", default=16)
+    classifier_epochs = Parameter("classifier_epochs", help="Epochs for classifier training", default=25)
+    classifier_lr = Parameter("classifier_lr", help="Learning rate for classifier", default=0.0001)
+    accuracy_threshold = Parameter("accuracy_threshold", help="Minimum accuracy for model registration", default=0.74)
+
+    @step
+    def start(self):
+        """Initialize MLflow and set seed."""
+        mlflow.set_tracking_uri(self.mlflow_tracking_uri)
+        logging.info("MLflow tracking server: %s", self.mlflow_tracking_uri)
+        set_seed(self.seed)
+        self.next(self.preprocess_data)
+
+    @step
+    def preprocess_data(self):
+        """Load or generate the windowed data for training.
+        The expected shape is (n_instances, sequence_length, n_features)."""
+        X, y, groups = load_processed_data(
+            hdf5_path=self.window_data_path,
+            label_map={"baseline": 0, "mental_stress": 1}
+        )
+        print(f"Windowed data loaded: X.shape={X.shape}, y.shape={y.shape}")
+
+        # Split the data into train/validation/test by participant if needed
+        (self.X_train, self.y_train), (self.X_val, self.y_val), (self.X_test, self.y_test) = split_data_by_participant(
+            X, y, groups
+        )
+        print(f"Train samples: {len(self.X_train)}")
+        self.next(self.train_ts2vec)
+
+    @resources(memory=16000)
+    @step
+    def train_ts2vec(self):
+        """Train the TS2Vec model in a self-supervised way."""
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        print(f"Training TS2Vec on device: {device}")
+
+        # Assume each window has shape (window_length, 1)
+        # TS2Vec requires a numpy array of shape (n_instances, sequence_length, n_features)
+        input_dims = self.X_train.shape[2]  # e.g., 1 for univariate ECG
+        
+        # Create TS2Vec model instance with the chosen hyperparameters
+        self.ts2vec = TS2Vec(
+            input_dims=input_dims,
+            output_dims=320,
+            hidden_dims=64,
+            depth=10,
+            device=device,
+            lr=self.ts2vec_lr,
+            batch_size=self.ts2vec_batch_size,
+            max_train_length=None,  # can be adjusted
+            temporal_unit=0
+        )
+        
+        # Log TS2Vec training parameters in MLflow
+        mlflow.log_param("ts2vec_epochs", self.ts2vec_epochs)
+        mlflow.log_param("ts2vec_lr", self.ts2vec_lr)
+        mlflow.log_param("ts2vec_batch_size", self.ts2vec_batch_size)
+        
+        # Train TS2Vec using self-supervised learning
+        # Note: TS2Vec.fit() accepts a 3D numpy array
+        loss_log = self.ts2vec.fit(self.X_train, n_epochs=self.ts2vec_epochs, verbose=True)
+        print("TS2Vec training complete.")
+
+        # Save the trained TS2Vec model checkpoint
+        self.ts2vec_model_path = f"ts2vec_{current.run_id}.pth"
+        self.ts2vec.save(self.ts2vec_model_path)
+        mlflow.log_artifact(self.ts2vec_model_path, artifact_path="ts2vec_model")
+        self.next(self.extract_representations)
+
+    @step
+    def extract_representations(self):
+        """Extract feature representations using the trained TS2Vec encoder."""
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        # Use TS2Vec.encode() to compute representations for train, val and test sets.
+        self.train_repr = self.ts2vec.encode(self.X_train)
+        self.val_repr = self.ts2vec.encode(self.X_val)
+        self.test_repr = self.ts2vec.encode(self.X_test)
+        print(f"Extracted TS2Vec representations: train_repr shape={self.train_repr.shape}")
+        self.next(self.train_classifier)
+
+    @resources(memory=16000)
+    @step
+    def train_classifier(self):
+        """Train a classifier using the TS2Vec representations."""
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        print(f"Training classifier on device: {device}")
+
+        # For the classifier, we use the size of the TS2Vec output features.
+        feature_dim = self.train_repr.shape[-1]
+        self.classifier = SimpleClassifier(input_dim=feature_dim).to(device)
+        loss_fn = nn.BCEWithLogitsLoss()
+        optimizer = optim.Adam(self.classifier.parameters(), lr=self.classifier_lr)
+        
+        # Create TensorDatasets for train and validation sets
+        train_dataset = TensorDataset(torch.from_numpy(self.train_repr).float(), 
+                                      torch.from_numpy(self.y_train).float())
+        val_dataset = TensorDataset(torch.from_numpy(self.val_repr).float(), 
+                                    torch.from_numpy(self.y_val).float())
+        
+        train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
+        val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False)
+        
+        mlflow.log_param("classifier_lr", self.classifier_lr)
+        mlflow.log_param("classifier_epochs", self.classifier_epochs)
+
+        # Training loop for the classifier
+        for epoch in range(1, self.classifier_epochs + 1):
+            self.classifier.train()
+            running_loss = 0.0
+            for features, labels in train_loader:
+                features, labels = features.to(device), labels.to(device)
+                optimizer.zero_grad()
+                outputs = self.classifier(features).squeeze()
+                loss = loss_fn(outputs, labels)
+                loss.backward()
+                optimizer.step()
+                running_loss += loss.item() * features.size(0)
+            epoch_loss = running_loss / len(train_loader.dataset)
+            print(f"Classifier Epoch {epoch}/{self.classifier_epochs}, Loss: {epoch_loss:.4f}")
+            mlflow.log_metric("classifier_train_loss", epoch_loss, step=epoch)
+            
+            # Evaluate on validation set
+            self.classifier.eval()
+            correct = 0
+            total = 0
+            with torch.no_grad():
+                for features, labels in val_loader:
+                    features, labels = features.to(device), labels.to(device)
+                    outputs = self.classifier(features).squeeze()
+                    # using sigmoid to get probabilities
+                    preds = (torch.sigmoid(outputs) > 0.5).float()
+                    correct += (preds == labels).sum().item()
+                    total += labels.size(0)
+            val_acc = correct / total
+            print(f"Validation Accuracy: {val_acc:.4f}")
+            mlflow.log_metric("classifier_val_accuracy", val_acc, step=epoch)
+            
+        self.next(self.evaluate)
+
+    @step
+    def evaluate(self):
+        """Evaluate the classifier performance on the test data."""
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        test_dataset = TensorDataset(torch.from_numpy(self.test_repr).float(), 
+                                     torch.from_numpy(self.y_test).float())
+        test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
+        
+        self.classifier.eval()
+        correct = 0
+        total = 0
+        with torch.no_grad():
+            for features, labels in test_loader:
+                features, labels = features.to(device), labels.to(device)
+                outputs = self.classifier(features).squeeze()
+                preds = (torch.sigmoid(outputs) > 0.5).float()
+                correct += (preds == labels).sum().item()
+                total += labels.size(0)
+        self.test_accuracy = correct / total
+        print(f"Final Test Accuracy: {self.test_accuracy:.4f}")
+        mlflow.log_metric("classifier_test_accuracy", self.test_accuracy)
+        self.next(self.register)
+
+    @step
+    def register(self):
+        """Register the classifier model if the test accuracy is above the threshold."""
+        mlflow.set_tracking_uri(self.mlflow_tracking_uri)
+        if self.test_accuracy >= self.accuracy_threshold:
+            logging.info("Registering classifier model...")
+            with mlflow.start_run(run_id=current.run_id):
+                # Create a sample signature from a batch of test representations
+                sample_input = torch.from_numpy(self.test_repr[:5]).float()
+                mlflow.pytorch.log_model(
+                    self.classifier,
+                    artifact_path="classifier_model",
+                    registered_model_name="ts2vec_classifier",
+                )
+                print("Classifier model successfully registered!")
+        else:
+            print(f"Test accuracy ({self.test_accuracy:.4f}) below threshold ({self.accuracy_threshold})—model not registered.")
+        self.next(self.end)
+
+    @step
+    def end(self):
+        """Finalize the pipeline."""
+        print("=== TS2Vec Training and Classifier Pipeline Complete ===")
+        print(f"Final Test Accuracy: {self.test_accuracy:.4f}")
+        print("Done!")
+
+if __name__ == "__main__":
+    ECGTS2VecFlow()
