@@ -89,7 +89,7 @@ class ECGTS2VecFlow(FlowSpec):
             device=device,
             lr=self.ts2vec_lr,
             batch_size=self.ts2vec_batch_size,
-            max_train_length=None,  # can be adjusted
+            max_train_length=5000,  # can be adjusted
             temporal_unit=0
         )
         
