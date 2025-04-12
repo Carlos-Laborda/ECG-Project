@@ -33,7 +33,7 @@ class ECGTS2VecFlow(FlowSpec):
     seed = Parameter("seed", help="Random seed", default=42)
     ts2vec_epochs = Parameter("ts2vec_epochs", help="Epochs for TS2Vec pretraining", default=50)
     ts2vec_lr = Parameter("ts2vec_lr", help="Learning rate for TS2Vec", default=0.001)
-    ts2vec_batch_size = Parameter("ts2vec_batch_size", help="Batch size for TS2Vec", default=16)
+    ts2vec_batch_size = Parameter("ts2vec_batch_size", help="Batch size for TS2Vec", default=8)
     classifier_epochs = Parameter("classifier_epochs", help="Epochs for classifier training", default=25)
     classifier_lr = Parameter("classifier_lr", help="Learning rate for classifier", default=0.0001)
     accuracy_threshold = Parameter("accuracy_threshold", help="Minimum accuracy for model registration", default=0.74)
