@@ -8,6 +8,7 @@ import math
 import random
 from datetime import datetime
 import pickle
+import mlflow
 
 # --------------------------------------------------------
 # utils.py
@@ -474,6 +475,7 @@ class TS2Vec:
             loss_log.append(cum_loss)
             if verbose:
                 print(f"Epoch #{self.n_epochs}: loss={cum_loss}")
+                mlflow.log_metric("train_loss", cum_loss, step=self.n_epochs)
             self.n_epochs += 1
             
             if self.after_epoch_callback is not None:
