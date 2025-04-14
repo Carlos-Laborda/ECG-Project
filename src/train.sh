@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=ECG             # Job name
-#SBATCH --time=12:00:00            # Max run time (HH:MM:SS)
+#SBATCH --time=24:00:00            # Max run time (HH:MM:SS)
 #SBATCH -N 1                       # Number of nodes
 #SBATCH --gres=gpu:1               # Request 1 GPU
 #SBATCH --cpus-per-task=24         # CPU cores per task
