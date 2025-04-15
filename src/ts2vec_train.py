@@ -103,8 +103,6 @@ class ECGTS2VecFlow(FlowSpec):
             mlflow.log_params(params)
         
             # Train TS2Vec using self-supervised learning
-            # Note: TS2Vec.fit() accepts a 3D numpy array 
-            # n_iter is missing
             loss_log = self.ts2vec.fit(self.X_train, n_epochs=self.ts2vec_epochs, verbose=True)
             print("TS2Vec training complete.")
 
