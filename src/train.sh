@@ -32,4 +32,5 @@ export MLFLOW_TRACKING_URI=http://fs0.das6.cs.vu.nl:5005
 python ts2vec_train.py run \
   --mlflow_tracking_uri "http://fs0.das6.cs.vu.nl:5005" \
   --window_data_path "../../../../var/scratch/cla224/ECG-Project/data/windowed_data.h5" \
-  --ts2vec_epochs 10
+  --ts2vec_epochs 10 \
+  --label_fraction 1.0
