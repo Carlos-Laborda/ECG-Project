@@ -137,16 +137,35 @@ class ECGTS2VecFlow(FlowSpec):
         set_seed(self.seed)
         device = "cuda" if torch.cuda.is_available() else "cpu"
         print(f"Training classifier on device: {device}")
+        print(f"Using {self.label_fraction * 100:.1f}% of labeled training data.")
+
+        # --- Subset the training data ---
+        num_train_samples = len(self.train_repr)
+        indices = np.arange(num_train_samples)
+        np.random.shuffle(indices) # Shuffle indices randomly (but deterministically due to set_seed)
+        
+        subset_size = int(num_train_samples * self.label_fraction)
+        if subset_size == 0 and self.label_fraction > 0:
+             subset_size = 1 # Ensure at least one sample if fraction > 0
+        elif subset_size > num_train_samples:
+             subset_size = num_train_samples # Cap at the total number of samples
+             
+        subset_indices = indices[:subset_size]
+        
+        train_repr_subset = self.train_repr[subset_indices]
+        y_train_subset = self.y_train[subset_indices]
+        print(f"Classifier training subset size: {len(train_repr_subset)}")
+        # --- End subsetting ---
 
         # For the classifier, we use the size of the TS2Vec output features.
-        feature_dim = self.train_repr.shape[-1]
+        feature_dim = train_repr_subset.shape[-1]
         self.classifier = SimpleClassifier(input_dim=feature_dim).to(device)
         loss_fn = nn.BCEWithLogitsLoss()
         optimizer = optim.Adam(self.classifier.parameters(), lr=self.classifier_lr)
         
         # Create TensorDatasets for train and validation sets
-        train_dataset = TensorDataset(torch.from_numpy(self.train_repr).float(), 
-                                      torch.from_numpy(self.y_train).float())
+        train_dataset = TensorDataset(torch.from_numpy(train_repr_subset).float(), 
+                                      torch.from_numpy(y_train_subset).float())
         val_dataset = TensorDataset(torch.from_numpy(self.val_repr).float(), 
                                     torch.from_numpy(self.y_val).float())
         
@@ -159,7 +178,8 @@ class ECGTS2VecFlow(FlowSpec):
             params = {
                 "classifier_lr": self.classifier_lr,
                 "classifier_epochs": self.classifier_epochs,
-                "classifier_batch_size": 32
+                "classifier_batch_size": 32,
+                "label_fraction": self.label_fraction
             }
             mlflow.log_params(params)
             
