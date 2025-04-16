@@ -37,6 +37,12 @@ class ECGTS2VecFlow(FlowSpec):
     classifier_epochs = Parameter("classifier_epochs", help="Epochs for classifier training", default=25)
     classifier_lr = Parameter("classifier_lr", help="Learning rate for classifier", default=0.0001)
     accuracy_threshold = Parameter("accuracy_threshold", help="Minimum accuracy for model registration", default=0.74)
+    
+    label_fraction = Parameter(
+        "label_fraction", 
+        help="Fraction of labeled training data for classifier (e.g., 0.01, 0.05, 0.1, 1.0)", 
+        default=1.0 
+    )
 
     @step
     def start(self):
