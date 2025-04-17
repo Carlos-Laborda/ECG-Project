@@ -56,6 +56,8 @@ class ECGTS2VecFlow(FlowSpec):
             raise RuntimeError(f"MLflow connection failed: {str(e)}")
         
         set_seed(self.seed)
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        print(f"Using device: {self.device}")
         self.next(self.preprocess_data)
 
     @step
@@ -79,8 +81,7 @@ class ECGTS2VecFlow(FlowSpec):
     @step
     def train_ts2vec(self):
         """Train the TS2Vec model in a self-supervised way."""
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-        print(f"Training TS2Vec on device: {device}")
+        print(f"Training TS2Vec on device: {self.device}")
 
         # Assume each window has shape (window_length, 1)
         # TS2Vec requires a numpy array of shape (n_instances, sequence_length, n_features)
@@ -92,7 +93,7 @@ class ECGTS2VecFlow(FlowSpec):
             output_dims=320,
             hidden_dims=64,
             depth=10,
-            device=device,
+            device=self.device,
             lr=self.ts2vec_lr,
             batch_size=self.ts2vec_batch_size,
             max_train_length=5000,  # can be adjusted
@@ -122,7 +123,6 @@ class ECGTS2VecFlow(FlowSpec):
     def extract_representations(self):
         """Extract feature representations using the trained TS2Vec encoder."""
         mlflow.set_tracking_uri(self.mlflow_tracking_uri)
-        device = "cuda" if torch.cuda.is_available() else "cpu"
         # Use TS2Vec.encode() to compute representations for train, val and test sets.
         self.train_repr = self.ts2vec.encode(self.X_train, encoding_window="full_series")
         self.val_repr = self.ts2vec.encode(self.X_val, encoding_window="full_series")
@@ -135,8 +135,7 @@ class ECGTS2VecFlow(FlowSpec):
     def train_classifier(self):
         """Train a classifier using the TS2Vec representations."""
         set_seed(self.seed)
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-        print(f"Training classifier on device: {device}")
+        print(f"Training classifier on device: {self.device}")
         print(f"Using {self.label_fraction * 100:.1f}% of labeled training data.")
 
         # --- Subset the training data ---
@@ -158,7 +157,7 @@ class ECGTS2VecFlow(FlowSpec):
 
         # For the classifier, we use the size of the TS2Vec output features.
         feature_dim = train_repr_subset.shape[-1]
-        self.classifier = SimpleClassifier(input_dim=feature_dim).to(device)
+        self.classifier = SimpleClassifier(input_dim=feature_dim).to(self.device)
         loss_fn = nn.BCEWithLogitsLoss()
         optimizer = optim.Adam(self.classifier.parameters(), lr=self.classifier_lr)
         
@@ -187,7 +186,7 @@ class ECGTS2VecFlow(FlowSpec):
                 self.classifier.train()
                 running_loss = 0.0
                 for features, labels in train_loader:
-                    features, labels = features.to(device), labels.to(device)
+                    features, labels = features.to(self.device), labels.to(self.device)
                     optimizer.zero_grad()
                     outputs = self.classifier(features).squeeze()
                     loss = loss_fn(outputs, labels)
@@ -204,7 +203,7 @@ class ECGTS2VecFlow(FlowSpec):
                 total = 0
                 with torch.no_grad():
                     for features, labels in val_loader:
-                        features, labels = features.to(device), labels.to(device)
+                        features, labels = features.to(self.device), labels.to(self.device)
                         outputs = self.classifier(features).squeeze()
                         # using sigmoid to get probabilities
                         preds = (torch.sigmoid(outputs) > 0.5).float()
@@ -220,7 +219,7 @@ class ECGTS2VecFlow(FlowSpec):
     def evaluate(self):
         """Evaluate the classifier performance on the test data."""
         mlflow.set_tracking_uri(self.mlflow_tracking_uri)
-        device = "cuda" if torch.cuda.is_available() else "cpu"
+        print(f"Evaluating classifier on device: {self.device}")
         test_dataset = TensorDataset(torch.from_numpy(self.test_repr).float(), 
                                      torch.from_numpy(self.y_test).float())
         test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
@@ -231,7 +230,7 @@ class ECGTS2VecFlow(FlowSpec):
             total = 0
             with torch.no_grad():
                 for features, labels in test_loader:
-                    features, labels = features.to(device), labels.to(device)
+                    features, labels = features.to(self.device), labels.to(self.device)
                     outputs = self.classifier(features).squeeze()
                     preds = (torch.sigmoid(outputs) > 0.5).float()
                     correct += (preds == labels).sum().item()
