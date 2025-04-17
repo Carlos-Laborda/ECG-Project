@@ -155,7 +155,6 @@ class ECGTS2VecFlow(FlowSpec):
         train_repr_subset = self.train_repr[subset_indices]
         y_train_subset = self.y_train[subset_indices]
         print(f"Classifier training subset size: {len(train_repr_subset)}")
-        # --- End subsetting ---
 
         # For the classifier, we use the size of the TS2Vec output features.
         feature_dim = train_repr_subset.shape[-1]
