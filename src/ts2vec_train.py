@@ -223,7 +223,7 @@ class ECGTS2VecFlow(FlowSpec):
         print(f"Evaluating classifier on device: {self.device}")
         test_dataset = TensorDataset(torch.from_numpy(self.test_repr).float(), 
                                      torch.from_numpy(self.y_test).float())
-        test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
+        test_loader = DataLoader(test_dataset, batch_size=self.classifier_batch_size, shuffle=False)
         
         with mlflow.start_run(run_id=self.mlflow_run_id):
             self.classifier.eval()
