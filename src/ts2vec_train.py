@@ -36,6 +36,7 @@ class ECGTS2VecFlow(FlowSpec):
     ts2vec_batch_size = Parameter("ts2vec_batch_size", help="Batch size for TS2Vec", default=8)
     classifier_epochs = Parameter("classifier_epochs", help="Epochs for classifier training", default=25)
     classifier_lr = Parameter("classifier_lr", help="Learning rate for classifier", default=0.0001)
+    classifier_batch_size = Parameter("classifier_batch_size", help="Batch size for classifier", default=32)
     accuracy_threshold = Parameter("accuracy_threshold", help="Minimum accuracy for model registration", default=0.74)
     
     label_fraction = Parameter(
@@ -167,8 +168,8 @@ class ECGTS2VecFlow(FlowSpec):
         val_dataset = TensorDataset(torch.from_numpy(self.val_repr).float(), 
                                     torch.from_numpy(self.y_val).float())
         
-        train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
-        val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False)
+        train_loader = DataLoader(train_dataset, batch_size=self.classifier_batch_size, shuffle=True)
+        val_loader = DataLoader(val_dataset, batch_size=self.classifier_batch_size, shuffle=False)
         
         mlflow.set_tracking_uri(self.mlflow_tracking_uri)
         with mlflow.start_run(run_id=self.mlflow_run_id):
@@ -176,7 +177,7 @@ class ECGTS2VecFlow(FlowSpec):
             params = {
                 "classifier_lr": self.classifier_lr,
                 "classifier_epochs": self.classifier_epochs,
-                "classifier_batch_size": 32,
+                "classifier_batch_size": self.classifier_batch_size,
                 "label_fraction": self.label_fraction
             }
             mlflow.log_params(params)
