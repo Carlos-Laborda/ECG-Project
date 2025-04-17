@@ -88,17 +88,24 @@ class ECGTS2VecFlow(FlowSpec):
         # TS2Vec requires a numpy array of shape (n_instances, sequence_length, n_features)
         input_dims = self.X_train.shape[2]  # e.g., 1 for univariate ECG
         
+        # Set hyperparameters for TS2Vec
+        output_dims=320
+        hidden_dims=64
+        depth=10
+        max_train_length=5000  # can be adjusted
+        temporal_unit=0
+        
         # Create TS2Vec model instance with the chosen hyperparameters
         self.ts2vec = TS2Vec(
             input_dims=input_dims,
-            output_dims=320,
-            hidden_dims=64,
-            depth=10,
+            output_dims=output_dims,
+            hidden_dims=hidden_dims,
+            depth=depth,
             device=self.device,
             lr=self.ts2vec_lr,
             batch_size=self.ts2vec_batch_size,
-            max_train_length=5000,  # can be adjusted
-            temporal_unit=0
+            max_train_length=max_train_length,
+            temporal_unit=temporal_unit
         )
         
         mlflow.set_tracking_uri(self.mlflow_tracking_uri)
@@ -106,7 +113,12 @@ class ECGTS2VecFlow(FlowSpec):
             params = {
                 "ts2vec_epochs": self.ts2vec_epochs,
                 "ts2vec_lr": self.ts2vec_lr,
-                "ts2vec_batch_size": self.ts2vec_batch_size
+                "ts2vec_batch_size": self.ts2vec_batch_size,
+                "ts2vec_output_dims": output_dims, 
+                "ts2vec_hidden_dims": hidden_dims,
+                "ts2vec_depth": depth,
+                "ts2vec_max_train_length": max_train_length,
+                "ts2vec_temporal_unit": temporal_unit,
             }
             mlflow.log_params(params)
         
