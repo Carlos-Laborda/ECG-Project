@@ -327,6 +327,16 @@ class SimpleClassifier(nn.Module):
         x = self.fc2(x)
         return x
 
+# liniar classifier
+class LinearClassifier(nn.Module):
+    def __init__(self, input_dim, num_classes=1):
+        super(LinearClassifier, self).__init__()
+        self.fc = nn.Linear(input_dim, num_classes)
+
+    def forward(self, x):
+        # x is expected to be of shape (batch, feature_dim)
+        return self.fc(x)
+
 # --------------------------------------------------------
 # ts2vec.py
 # --------------------------------------------------------
