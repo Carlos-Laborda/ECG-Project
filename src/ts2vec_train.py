@@ -9,7 +9,7 @@ import mlflow.pytorch
 from torch.utils.data import DataLoader, TensorDataset
 from metaflow import FlowSpec, step, Parameter, current, project, resources
 
-from ts2vec import TS2Vec, SimpleClassifier
+from ts2vec import TS2Vec, SimpleClassifier, LinearClassifier
 
 from torch_utilities import load_processed_data, split_data_by_participant, set_seed
 
@@ -170,7 +170,7 @@ class ECGTS2VecFlow(FlowSpec):
 
         # For the classifier, we use the size of the TS2Vec output features.
         feature_dim = train_repr_subset.shape[-1]
-        self.classifier = SimpleClassifier(input_dim=feature_dim).to(self.device)
+        self.classifier = LinearClassifier(input_dim=feature_dim).to(self.device)
         loss_fn = nn.BCEWithLogitsLoss()
         optimizer = optim.Adam(self.classifier.parameters(), lr=self.classifier_lr)
         
