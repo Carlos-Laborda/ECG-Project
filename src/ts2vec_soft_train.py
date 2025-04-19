@@ -101,6 +101,8 @@ class ECGTS2VecFlow(FlowSpec):
             hdf5_path=self.window_data_path,
             label_map={"baseline": 0, "mental_stress": 1}
         )
+        print(f"Windowed data loaded: X.shape={X.shape}, y.shape={y.shape}")   
+    
         (self.X_train, self.y_train), (self.X_val, self.y_val), (self.X_test, self.y_test) = split_data_by_participant(
             X, y, groups
         )
@@ -195,9 +197,6 @@ class ECGTS2VecFlow(FlowSpec):
             # Train
             loss_log = self.ts2vec.fit(
                 self.X_train,
-                None,
-                None,
-                None,
                 soft_labels,
                 run_dir,
                 n_epochs=self.ts2vec_epochs,
@@ -242,7 +241,7 @@ class ECGTS2VecFlow(FlowSpec):
         feature_dim = train_repr_subset.shape[-1]
         self.classifier = LinearClassifier(input_dim=feature_dim).to(self.device)
         loss_fn = nn.BCEWithLogitsLoss()
-        optimizer = optim.Adam(self.classifier.parameters(), lr=self.classifier_lr)
+        optimizer = optim.AdamW(self.classifier.parameters(), lr=self.classifier_lr)
 
         train_dataset = TensorDataset(
             torch.from_numpy(train_repr_subset).float(),
@@ -295,6 +294,7 @@ class ECGTS2VecFlow(FlowSpec):
 
     @step
     def evaluate(self):
+        """Evaluate the classifier performance on the test data."""
         mlflow.set_tracking_uri(self.mlflow_tracking_uri)
         test_dataset = TensorDataset(
             torch.from_numpy(self.test_repr).float(),
