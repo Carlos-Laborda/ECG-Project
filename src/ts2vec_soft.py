@@ -771,7 +771,7 @@ class TS2Vec:
         self.n_epochs = 0
         self.n_iters = 0
     
-    def fit(self, train_data, train_labels, test_data, test_labels, soft_labels, run_dir, n_epochs=None, n_iters=None, verbose=False):
+    def fit(self, train_data, soft_labels, run_dir, n_epochs=None, n_iters=None, verbose=False):
         ''' Training the TS2Vec model.
         
         Args:
@@ -785,8 +785,8 @@ class TS2Vec:
         '''
         assert train_data.ndim == 3
         
-        # LOG_PATH = run_dir.replace('result','log')
-        # os.makedirs(LOG_PATH, exist_ok=True)
+        LOG_PATH = run_dir.replace('result','log')
+        os.makedirs(LOG_PATH, exist_ok=True)
             
         if n_iters is None and n_epochs is None:
             n_iters = 200 if train_data.size <= 100000 else 600  # default param for n_iters
