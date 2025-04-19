@@ -712,7 +712,7 @@ class SimpleClassifier(nn.Module):
         x = self.fc2(x)
         return x
 
-# liniar classifier
+# linear classifier
 class LinearClassifier(nn.Module):
     def __init__(self, input_dim, num_classes=1):
         super(LinearClassifier, self).__init__()
@@ -727,41 +727,26 @@ class LinearClassifier(nn.Module):
 # --------------------------------------------------------
 class TS2Vec:
     '''The TS2Vec model'''
-    
     def __init__(
         self,
-        input_dims,
-        output_dims=320,
-        hidden_dims=64,
-        depth=10,
-        device='cuda',
-        lr=0.001,
+        input_dims, output_dims=320, hidden_dims=64,
+        depth=10, device='cuda', lr=0.001,
         batch_size=16,
-        max_train_length=None,
+        lambda_ = 0.5, tau_temp = 2,max_train_length=None,
         temporal_unit=0,
         after_iter_callback=None,
-        after_epoch_callback=None
+        after_epoch_callback=None,
+        soft_instance = False,
+        soft_temporal = False,
     ):
-        ''' Initialize a TS2Vec model.
-        
-        Args:
-            input_dims (int): The input dimension. For a univariate time series, this should be set to 1.
-            output_dims (int): The representation dimension.
-            hidden_dims (int): The hidden dimension of the encoder.
-            depth (int): The number of hidden residual blocks in the encoder.
-            device (int): The gpu used for training and inference.
-            lr (int): The learning rate.
-            batch_size (int): The batch size.
-            max_train_length (Union[int, NoneType]): The maximum allowed sequence length for training. For sequence with a length greater than <max_train_length>, it would be cropped into some sequences, each of which has a length less than <max_train_length>.
-            temporal_unit (int): The minimum unit to perform temporal contrast. When training on a very long sequence, this param helps to reduce the cost of time and memory.
-            after_iter_callback (Union[Callable, NoneType]): A callback function that would be called after each iteration.
-            after_epoch_callback (Union[Callable, NoneType]): A callback function that would be called after each epoch.
-        '''
         
         super().__init__()
         self.device = device
         self.lr = lr
         self.batch_size = batch_size
+        self.tau_temp = tau_temp
+        self.lambda_ = lambda_
+        
         self.max_train_length = max_train_length
         self.temporal_unit = temporal_unit
         
@@ -772,10 +757,13 @@ class TS2Vec:
         self.after_iter_callback = after_iter_callback
         self.after_epoch_callback = after_epoch_callback
         
+        self.soft_instance = soft_instance
+        self.soft_temporal = soft_temporal
+        
         self.n_epochs = 0
         self.n_iters = 0
     
-    def fit(self, train_data, n_epochs=None, n_iters=None, verbose=False):
+    def fit(self, train_data, train_labels, test_data, test_labels, soft_labels, run_dir, n_epochs=None, n_iters=None, verbose=False):
         ''' Training the TS2Vec model.
         
         Args:
@@ -789,6 +777,9 @@ class TS2Vec:
         '''
         assert train_data.ndim == 3
         
+        # LOG_PATH = run_dir.replace('result','log')
+        # os.makedirs(LOG_PATH, exist_ok=True)
+            
         if n_iters is None and n_epochs is None:
             n_iters = 200 if train_data.size <= 100000 else 600  # default param for n_iters
         
@@ -796,14 +787,14 @@ class TS2Vec:
             sections = train_data.shape[1] // self.max_train_length
             if sections >= 2:
                 train_data = np.concatenate(split_with_nan(train_data, sections, axis=1), axis=0)
+                
 
         temporal_missing = np.isnan(train_data).all(axis=-1).any(axis=0)
         if temporal_missing[0] or temporal_missing[-1]:
             train_data = centerize_vary_length_series(train_data)
                 
         train_data = train_data[~np.isnan(train_data).all(axis=2).all(axis=1)]
-        
-        train_dataset = TensorDataset(torch.from_numpy(train_data).to(torch.float))
+        train_dataset = custom_dataset(train_data)
         train_loader = DataLoader(train_dataset, batch_size=min(self.batch_size, len(train_dataset)), shuffle=True, drop_last=True)
         
         optimizer = torch.optim.AdamW(self._net.parameters(), lr=self.lr)
@@ -818,12 +809,16 @@ class TS2Vec:
             n_epoch_iters = 0
             
             interrupted = False
-            for batch in train_loader:
+            for x, idx in train_loader:
+                
                 if n_iters is not None and self.n_iters >= n_iters:
                     interrupted = True
                     break
-                
-                x = batch[0]
+                if soft_labels is None:
+                    soft_labels_batch = None
+                else:
+                    soft_labels_batch = soft_labels[idx][:,idx]
+       
                 if self.max_train_length is not None and x.size(1) > self.max_train_length:
                     window_offset = np.random.randint(x.size(1) - self.max_train_length + 1)
                     x = x[:, window_offset : window_offset + self.max_train_length]
@@ -839,16 +834,20 @@ class TS2Vec:
                 
                 optimizer.zero_grad()
                 
-                out1 = self._net(take_per_row(x, crop_offset + crop_eleft, crop_right - crop_eleft))
-                out1 = out1[:, -crop_l:]
-                
-                out2 = self._net(take_per_row(x, crop_offset + crop_left, crop_eright - crop_left))
-                out2 = out2[:, :crop_l]
-                
-                loss = hierarchical_contrastive_loss(
+                out1_all = self._net(take_per_row(x, crop_offset + crop_eleft, crop_right - crop_eleft))
+                out2_all = self._net(take_per_row(x, crop_offset + crop_left, crop_eright - crop_left))
+                out1 = out1_all[:, -crop_l:]
+                out2 = out2_all[:, :crop_l]
+                # porblem
+                loss = hier_CL_soft(
                     out1,
                     out2,
-                    temporal_unit=self.temporal_unit
+                    soft_labels_batch,
+                    lambda_= self.lambda_,
+                    tau_temp = self.tau_temp,
+                    temporal_unit = self.temporal_unit,
+                    soft_temporal = self.soft_temporal, 
+                    soft_instance = self.soft_instance
                 )
                 
                 loss.backward()
@@ -857,7 +856,6 @@ class TS2Vec:
                     
                 cum_loss += loss.item()
                 n_epoch_iters += 1
-                
                 self.n_iters += 1
                 
                 if self.after_iter_callback is not None:
@@ -922,14 +920,14 @@ class TS2Vec:
             
         return out.cpu()
     
-    def encode(self, data, mask=None, encoding_window=None, causal=False, sliding_length=None, sliding_padding=0, batch_size=None):
+    def encode(self, data, mask=None, encoding_window=None, casual=False, sliding_length=None, sliding_padding=0, batch_size=None):
         ''' Compute representations using the model.
         
         Args:
             data (numpy.ndarray): This should have a shape of (n_instance, n_timestamps, n_features). All missing data should be set to NaN.
             mask (str): The mask used by encoder can be specified with this parameter. This can be set to 'binomial', 'continuous', 'all_true', 'all_false' or 'mask_last'.
             encoding_window (Union[str, int]): When this param is specified, the computed representation would the max pooling over this window. This can be set to 'full_series', 'multiscale' or an integer specifying the pooling kernel size.
-            causal (bool): When this param is set to True, the future informations would not be encoded into representation of each timestamp.
+            casual (bool): When this param is set to True, the future informations would not be encoded into representation of each timestamp.
             sliding_length (Union[int, NoneType]): The length of sliding window. When this param is specified, a sliding inference would be applied on the time series.
             sliding_padding (int): This param specifies the contextual data length used for inference every sliding windows.
             batch_size (Union[int, NoneType]): The batch size used for inference. If not specified, this would be the same batch size as training.
@@ -960,7 +958,7 @@ class TS2Vec:
                         calc_buffer_l = 0
                     for i in range(0, ts_l, sliding_length):
                         l = i - sliding_padding
-                        r = i + sliding_length + (sliding_padding if not causal else 0)
+                        r = i + sliding_length + (sliding_padding if not casual else 0)
                         x_sliding = torch_pad_nan(
                             x[:, max(l, 0) : min(r, ts_l)],
                             left=-l if l<0 else 0,
