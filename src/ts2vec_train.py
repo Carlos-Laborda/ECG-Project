@@ -111,6 +111,7 @@ class ECGTS2VecFlow(FlowSpec):
         mlflow.set_tracking_uri(self.mlflow_tracking_uri)
         with mlflow.start_run(run_id=self.mlflow_run_id):
             params = {
+                "model_name": self.ts2vec.__class__.__name__,
                 "ts2vec_epochs": self.ts2vec_epochs,
                 "ts2vec_lr": self.ts2vec_lr,
                 "ts2vec_batch_size": self.ts2vec_batch_size,
