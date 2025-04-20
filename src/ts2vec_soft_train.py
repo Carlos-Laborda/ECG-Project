@@ -10,7 +10,7 @@ from torch.utils.data import DataLoader, TensorDataset
 from metaflow import FlowSpec, step, Parameter, current, project, resources
 
 # Swap in Soft TS2Vec and utilities
-from ts2vec_soft import TS2Vec, LinearClassifier, save_sim_mat, densify
+from ts2vec_soft import TS2Vec_soft, LinearClassifier, save_sim_mat, densify
 
 from torch_utilities import load_processed_data, split_data_by_participant, set_seed
 
@@ -153,7 +153,7 @@ class ECGTS2VecFlow(FlowSpec):
             soft_labels = None
 
         # Instantiate Soft TS2Vec model
-        self.ts2vec = TS2Vec(
+        self.ts2vec_soft = TS2Vec_soft(
             input_dims=input_dims,
             output_dims=self.ts2vec_output_dims,
             hidden_dims=self.ts2vec_hidden_dims,
@@ -173,6 +173,7 @@ class ECGTS2VecFlow(FlowSpec):
         mlflow.set_tracking_uri(self.mlflow_tracking_uri)
         with mlflow.start_run(run_id=self.mlflow_run_id):
             params = {
+                "model_name": self.ts2vec_soft.__class__.__name__, 
                 "ts2vec_epochs": self.ts2vec_epochs,
                 "ts2vec_lr": self.ts2vec_lr,
                 "ts2vec_batch_size": self.ts2vec_batch_size,
@@ -195,7 +196,7 @@ class ECGTS2VecFlow(FlowSpec):
             os.makedirs(run_dir, exist_ok=True)
 
             # Train
-            loss_log = self.ts2vec.fit(
+            loss_log = self.ts2vec_soft.fit(
                 self.X_train,
                 soft_labels,
                 run_dir,
@@ -206,7 +207,7 @@ class ECGTS2VecFlow(FlowSpec):
 
             # Save and log the model artifact
             self.ts2vec_model_path = f"{run_dir}/ts2vec_soft_{self.mlflow_run_id}.pth"
-            self.ts2vec.save(self.ts2vec_model_path)
+            self.ts2vec_soft.save(self.ts2vec_model_path)
             mlflow.log_artifact(self.ts2vec_model_path, artifact_path="ts2vec_model")
 
         self.next(self.extract_representations)
@@ -215,9 +216,9 @@ class ECGTS2VecFlow(FlowSpec):
     def extract_representations(self):
         """Extract feature representations using the trained TS2Vec encoder."""
         mlflow.set_tracking_uri(self.mlflow_tracking_uri)
-        self.train_repr = self.ts2vec.encode(self.X_train, encoding_window="full_series")
-        self.val_repr = self.ts2vec.encode(self.X_val, encoding_window="full_series")
-        self.test_repr = self.ts2vec.encode(self.X_test, encoding_window="full_series")
+        self.train_repr = self.ts2vec_soft.encode(self.X_train, encoding_window="full_series")
+        self.val_repr = self.ts2vec_soft.encode(self.X_val, encoding_window="full_series")
+        self.test_repr = self.ts2vec_soft.encode(self.X_test, encoding_window="full_series")
         print(f"Extracted TS2Vec representations: train_repr shape={self.train_repr.shape}")
         self.next(self.train_classifier)
 
