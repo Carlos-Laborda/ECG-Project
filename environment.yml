@@ -55,3 +55,4 @@ dependencies:
       - metaflow
       - metaflow-card-html
       - torcheval
+      - tslearn
