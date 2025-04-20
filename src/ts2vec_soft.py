@@ -733,8 +733,8 @@ class LinearClassifier(nn.Module):
 # --------------------------------------------------------
 # ts2vec.py
 # --------------------------------------------------------
-class TS2Vec:
-    '''The TS2Vec model'''
+class TS2Vec_soft:
+    '''The TS2Vec_soft model'''
     def __init__(
         self,
         input_dims, output_dims=320, hidden_dims=64,
@@ -748,7 +748,7 @@ class TS2Vec:
         soft_temporal = False,
     ):
         
-        super().__init__()
+        super(TS2Vec_soft, self).__init__()
         self.device = device
         self.lr = lr
         self.batch_size = batch_size
