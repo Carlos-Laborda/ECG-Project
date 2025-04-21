@@ -52,11 +52,11 @@ class ECGTS2VecFlow(FlowSpec):
     )
     ts2vec_tau_inst = Parameter(
         "ts2vec_tau_inst",
-        help="Temperature parameter tau_inst for soft instance CL", default=0.0
+        help="Temperature parameter tau_inst for soft instance CL", default=5.0
     )
     ts2vec_tau_temp = Parameter(
         "ts2vec_tau_temp",
-        help="Temperature parameter tau_temp for soft temporal CL", default=0.0
+        help="Temperature parameter tau_temp for soft temporal CL", default=2.5
     )
     ts2vec_alpha = Parameter(
         "ts2vec_alpha",
