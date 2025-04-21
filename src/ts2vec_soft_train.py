@@ -48,7 +48,7 @@ class ECGTS2VecFlow(FlowSpec):
     ts2vec_dist_type = Parameter(
         "ts2vec_dist_type",
         help="Distance metric for soft labels (DTW, EUC, COS, TAM, GAK)",
-        default="DTW"
+        default="EUC"
     )
     ts2vec_tau_inst = Parameter(
         "ts2vec_tau_inst",
@@ -151,6 +151,16 @@ class ECGTS2VecFlow(FlowSpec):
             soft_labels = densify(-dist_mat, tau_inst, alpha)
         else:
             soft_labels = None
+        
+        # Expand the soft‑label matrix to match the splits
+        if tau_inst > 0 and self.ts2vec_max_train_length is not None:
+            S = self.X_train.shape[1] // self.ts2vec_max_train_length
+            if S > 1:
+                # tile both axes
+                soft_labels = np.repeat(
+                    np.repeat(soft_labels, repeats=S, axis=0),
+                    repeats=S, axis=1
+                )
 
         # Instantiate Soft TS2Vec model
         self.ts2vec_soft = TS2Vec_soft(
