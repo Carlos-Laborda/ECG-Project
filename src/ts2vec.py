@@ -373,7 +373,7 @@ class TS2Vec:
             after_epoch_callback (Union[Callable, NoneType]): A callback function that would be called after each epoch.
         '''
         
-        super().__init__()
+        super(TS2Vec, self).__init__()
         self.device = device
         self.lr = lr
         self.batch_size = batch_size
