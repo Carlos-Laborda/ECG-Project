@@ -33,4 +33,6 @@ python ts2vec_soft_train.py run \
   --mlflow_tracking_uri "http://fs0.das6.cs.vu.nl:5005" \
   --window_data_path "../../../../var/scratch/cla224/ECG-Project/data/windowed_data.h5" \
   --ts2vec_epochs 3 \
-  --label_fraction 1.0
+  --label_fraction 1.0 \
+  --ts2vec_tau_inst 20.0 \
+  --ts2vec_tau_temp 2.5
