@@ -299,7 +299,7 @@ class ECGTS2VecFlow(FlowSpec):
                         correct += (preds == labels).sum().item()
                         total += labels.size(0)
                 val_acc = correct / total
-                mlflow.log_metric("classifier_val_accuracy", val_acc, step=epoch)
+                mlflow.log_metric("val_accuracy", val_acc, step=epoch)
 
         self.next(self.evaluate)
 
@@ -323,7 +323,7 @@ class ECGTS2VecFlow(FlowSpec):
                     correct += (preds == labels).sum().item()
                     total += labels.size(0)
             self.test_accuracy = correct / total
-            mlflow.log_metric("classifier_test_accuracy", self.test_accuracy)
+            mlflow.log_metric("test_accuracy", self.test_accuracy)
         self.next(self.register)
 
     @step
