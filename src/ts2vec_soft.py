@@ -1,6 +1,7 @@
 import os
 import torch
 from torch import nn
+import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import TensorDataset, DataLoader, Dataset
 from scipy.spatial.distance import euclidean
@@ -703,33 +704,6 @@ class TSEncoder_all_repr(nn.Module):
         
         return x, outs
 
-# -------------------------
-# Simple classifier
-# -------------------------
-class SimpleClassifier(nn.Module):
-    def __init__(self, input_dim, hidden_dim=64, num_classes=1):
-        super(SimpleClassifier, self).__init__()
-        self.fc1 = nn.Linear(input_dim, hidden_dim)
-        self.relu = nn.ReLU()
-        self.fc2 = nn.Linear(hidden_dim, num_classes)
-
-    def forward(self, x):
-        # x is expected to be of shape (batch, feature_dim)
-        x = self.fc1(x)
-        x = self.relu(x)
-        x = self.fc2(x)
-        return x
-
-# linear classifier
-class LinearClassifier(nn.Module):
-    def __init__(self, input_dim, num_classes=1):
-        super(LinearClassifier, self).__init__()
-        self.fc = nn.Linear(input_dim, num_classes)
-
-    def forward(self, x):
-        # x is expected to be of shape (batch, feature_dim)
-        return self.fc(x)
-
 # --------------------------------------------------------
 # ts2vec.py
 # --------------------------------------------------------
@@ -1205,3 +1179,130 @@ def convert_hard_matrix(soft_matrix, pos_ratio):
     num_pos = int((N-1) * pos_ratio)
     hard_matrix = topK_one_else_zero(soft_matrix, num_pos)
     return hard_matrix
+
+# -------------------------
+# Classifier models
+# -------------------------
+class SimpleClassifier(nn.Module):
+    def __init__(self, input_dim, hidden_dim=64, num_classes=1):
+        super(SimpleClassifier, self).__init__()
+        self.fc1 = nn.Linear(input_dim, hidden_dim)
+        self.relu = nn.ReLU()
+        self.fc2 = nn.Linear(hidden_dim, num_classes)
+
+    def forward(self, x):
+        # x is expected to be of shape (batch, feature_dim)
+        x = self.fc1(x)
+        x = self.relu(x)
+        x = self.fc2(x)
+        return x
+
+# linear classifier
+class LinearClassifier(nn.Module):
+    def __init__(self, input_dim, num_classes=1):
+        super(LinearClassifier, self).__init__()
+        self.fc = nn.Linear(input_dim, num_classes)
+
+    def forward(self, x):
+        # x is expected to be of shape (batch, feature_dim)
+        return self.fc(x)
+    
+
+# --------------------------------------------------------
+# Classifier Training Loop
+# --------------------------------------------------------
+def train_linear_classifier(
+    model,
+    train_loader,
+    val_loader,
+    optimizer,
+    loss_fn,
+    epochs,
+    device,
+):
+    """
+    Trains a linear classifier with validation loop and MLflow logging.
+    Assumes it's called within an active MLflow run context.
+
+    Args:
+        model: The classifier model (subclass of nn.Module).
+        train_loader: DataLoader for the training set.
+        val_loader: DataLoader for the validation set.
+        optimizer: The optimizer for training.
+        loss_fn: The loss function.
+        epochs: Number of training epochs.
+        device: The device to train on ('cpu' or 'cuda').
+
+    Returns:
+        Tuple: (Trained model, list of validation accuracies per epoch)
+    """
+    val_accuracies = []
+
+    for epoch in range(1, epochs + 1):
+        # Training phase
+        model.train()
+        running_loss = 0.0
+        for features, labels in train_loader:
+            features, labels = features.to(device), labels.to(device)
+            optimizer.zero_grad()
+            outputs = model(features).squeeze() # Squeeze potential extra dim
+            loss = loss_fn(outputs, labels)
+            loss.backward()
+            optimizer.step()
+            running_loss += loss.item() * features.size(0)
+        epoch_loss = running_loss / len(train_loader.dataset)
+        mlflow.log_metric("classifier_train_loss", epoch_loss, step=epoch)
+        print(f"Epoch {epoch}/{epochs} - Train Loss: {epoch_loss:.4f}")
+
+        # Validation phase
+        model.eval()
+        correct = total = 0
+        with torch.no_grad():
+            for features, labels in val_loader:
+                features, labels = features.to(device), labels.to(device)
+                # Apply sigmoid and threshold for binary classification accuracy
+                preds = (torch.sigmoid(model(features).squeeze()) > 0.5).float()
+                correct += (preds == labels).sum().item()
+                total += labels.size(0)
+        val_acc = correct / total if total > 0 else 0.0 # Avoid division by zero
+        val_accuracies.append(val_acc)
+        mlflow.log_metric("val_accuracy", val_acc, step=epoch)
+        print(f"Epoch {epoch}/{epochs} - Val Accuracy: {val_acc:.4f}")
+
+    return model, val_accuracies
+
+# --------------------------------------------------------
+# Classifier Evaluation Loop
+# --------------------------------------------------------
+def evaluate_classifier(
+    model,
+    test_loader,
+    device
+):
+    """
+    Evaluates the classifier on the test set and logs the accuracy to MLflow.
+
+    Args:
+        model: The trained classifier model.
+        test_loader: DataLoader for the test set.
+        device: The device to evaluate on ('cpu' or 'cuda').
+        mlflow_run_id: Optional MLflow run ID to log metrics under an existing run.
+        mlflow_tracking_uri: Optional MLflow tracking URI.
+
+    Returns:
+        float: The test accuracy.
+    """
+    model.eval()
+    correct = total = 0
+    with torch.no_grad():
+        for features, labels in test_loader:
+            features, labels = features.to(device), labels.to(device)
+            # Apply sigmoid and threshold for binary classification accuracy
+            preds = (torch.sigmoid(model(features).squeeze()) > 0.5).float()
+            correct += (preds == labels).sum().item()
+            total += labels.size(0)
+
+    test_accuracy = correct / total if total > 0 else 0.0 # Avoid division by zero
+
+    mlflow.log_metric("test_accuracy", test_accuracy)
+    return test_accuracy
