@@ -10,7 +10,7 @@ from torch.utils.data import DataLoader, TensorDataset
 from metaflow import FlowSpec, step, Parameter, current, project, resources
 
 # Swap in Soft TS2Vec and utilities
-from ts2vec_soft import TS2Vec_soft, LinearClassifier, save_sim_mat, densify
+from ts2vec_soft import TS2Vec_soft, LinearClassifier, save_sim_mat, densify, train_linear_classifier, evaluate_classifier
 
 from torch_utilities import load_processed_data, split_data_by_participant, set_seed
 
