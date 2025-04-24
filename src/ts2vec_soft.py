@@ -4,6 +4,7 @@ from torch import nn
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import TensorDataset, DataLoader, Dataset
+from torchmetrics.classification import BinaryAUROC
 from scipy.spatial.distance import euclidean
 from tslearn.metrics import dtw, dtw_path,gak
 # from fastdtw import fastdtw
@@ -1233,14 +1234,21 @@ def train_linear_classifier(
         device: The device to train on ('cpu' or 'cuda').
 
     Returns:
-        Tuple: (Trained model, list of validation accuracies per epoch)
+        Tuple: (Trained model, list of validation accuracies, list of validation AUROCs)
     """
     val_accuracies = []
+    val_aurocs = []
+    
+    train_auroc_metric = BinaryAUROC()
+    val_auroc_metric = BinaryAUROC()
 
     for epoch in range(1, epochs + 1):
         # Training phase
         model.train()
         running_loss = 0.0
+        correct_train = total_train = 0
+        train_auroc_metric.reset()
+        
         for features, labels in train_loader:
             features, labels = features.to(device), labels.to(device)
             optimizer.zero_grad()
@@ -1248,27 +1256,56 @@ def train_linear_classifier(
             loss = loss_fn(outputs, labels)
             loss.backward()
             optimizer.step()
+            
             running_loss += loss.item() * features.size(0)
-        epoch_loss = running_loss / len(train_loader.dataset)
-        mlflow.log_metric("classifier_train_loss", epoch_loss, step=epoch)
-        print(f"Epoch {epoch}/{epochs} - Train Loss: {epoch_loss:.4f}")
+            # Accuracy calculation
+            preds_train = (torch.sigmoid(outputs) > 0.5).float()
+            correct_train += (preds_train == labels).sum().item()
+            total_train += labels.size(0)
+            # Update AUROC metric 
+            train_auroc_metric.update(outputs.detach().cpu(), labels.cpu().int())
+                
+        epoch_loss = running_loss / total_train if total_train > 0 else 0.0
+        epoch_train_acc = correct_train / total_train if total_train > 0 else 0.0
+        epoch_train_auroc = train_auroc_metric.compute().item()
+        
+        mlflow.log_metrics({
+            "classifier_train_loss": epoch_loss,
+            "classifier_train_accuracy": epoch_train_acc,
+            "classifier_train_auroc": epoch_train_auroc,
+        }, step=epoch)
+
+        print(f"Epoch {epoch}/{epochs} - Train Loss: {epoch_loss:.4f}, Train Acc: {epoch_train_acc:.4f}, Train AUROC: {epoch_train_auroc:.4f}")
 
         # Validation phase
         model.eval()
-        correct = total = 0
+        correct_val = total_val = 0
+        val_auroc_metric.reset()
+        
         with torch.no_grad():
             for features, labels in val_loader:
                 features, labels = features.to(device), labels.to(device)
-                # Apply sigmoid and threshold for binary classification accuracy
-                preds = (torch.sigmoid(model(features).squeeze()) > 0.5).float()
-                correct += (preds == labels).sum().item()
-                total += labels.size(0)
-        val_acc = correct / total if total > 0 else 0.0
+                outputs = model(features).squeeze()
+                # Accuracy calculation
+                preds_val = (torch.sigmoid(outputs) > 0.5).float()
+                correct_val += (preds_val == labels).sum().item()
+                total_val += labels.size(0)
+                # Update AUROC metric
+                val_auroc_metric.update(outputs.cpu(), labels.cpu().int())
+        
+        val_acc = correct_val / total_val if total_val > 0 else 0.0
+        val_auroc = val_auroc_metric.compute().item()
         val_accuracies.append(val_acc)
-        mlflow.log_metric("val_accuracy", val_acc, step=epoch)
-        print(f"Epoch {epoch}/{epochs} - Val Accuracy: {val_acc:.4f}")
+        val_aurocs.append(val_auroc)
+        
+        mlflow.log_metrics({
+            "val_accuracy": val_acc,
+            "val_auroc": val_auroc,
+        }, step=epoch)
+        
+        print(f"Epoch {epoch}/{epochs} - Val Acc: {val_acc:.4f}, Val AUROC: {val_auroc:.4f}")
 
-    return model, val_accuracies
+    return model, val_accuracies, val_aurocs
 
 # --------------------------------------------------------
 # Classifier Evaluation Loop
@@ -1287,18 +1324,31 @@ def evaluate_classifier(
         device: The device to evaluate on ('cpu' or 'cuda').
 
     Returns:
-        float: The test accuracy.
+        float: The test accuracy and test AUROC.
     """
     model.eval()
     correct = total = 0
+    test_auroc_metric = BinaryAUROC()
+    test_auroc_metric.reset()
+    
     with torch.no_grad():
         for features, labels in test_loader:
             features, labels = features.to(device), labels.to(device)
-            preds = (torch.sigmoid(model(features).squeeze()) > 0.5).float()
+            outputs = model(features).squeeze() 
+            # Accuracy calculation
+            preds = (torch.sigmoid(outputs) > 0.5).float()
             correct += (preds == labels).sum().item()
             total += labels.size(0)
+            # Update AUROC metric
+            test_auroc_metric.update(outputs.cpu(), labels.cpu().int())
 
-    test_accuracy = correct / total if total > 0 else 0.0 
-    mlflow.log_metric("test_accuracy", test_accuracy)
-    print(f"Test Accuracy: {test_accuracy:.4f}")
-    return test_accuracy
+    test_accuracy = correct / total if total > 0 else 0.0
+    test_auroc = test_auroc_metric.compute().item()
+    
+    mlflow.log_metrics({
+        "test_accuracy": test_accuracy,
+        "test_auroc": test_auroc,
+    })
+    
+    print(f"Test Accuracy: {test_accuracy:.4f}, Test AUROC: {test_auroc:.4f}")
+    return test_accuracy, test_auroc
