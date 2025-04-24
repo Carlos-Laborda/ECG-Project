@@ -275,32 +275,43 @@ class ECGTS2VecFlow(FlowSpec):
             }
             mlflow.log_params(params)
 
-            for epoch in range(1, self.classifier_epochs + 1):
-                self.classifier.train()
-                running_loss = 0.0
-                for features, labels in train_loader:
-                    features, labels = features.to(self.device), labels.to(self.device)
-                    optimizer.zero_grad()
-                    outputs = self.classifier(features).squeeze()
-                    loss = loss_fn(outputs, labels)
-                    loss.backward()
-                    optimizer.step()
-                    running_loss += loss.item() * features.size(0)
-                epoch_loss = running_loss / len(train_loader.dataset)
-                mlflow.log_metric("classifier_train_loss", epoch_loss, step=epoch)
+            # for epoch in range(1, self.classifier_epochs + 1):
+            #     self.classifier.train()
+            #     running_loss = 0.0
+            #     for features, labels in train_loader:
+            #         features, labels = features.to(self.device), labels.to(self.device)
+            #         optimizer.zero_grad()
+            #         outputs = self.classifier(features).squeeze()
+            #         loss = loss_fn(outputs, labels)
+            #         loss.backward()
+            #         optimizer.step()
+            #         running_loss += loss.item() * features.size(0)
+            #     epoch_loss = running_loss / len(train_loader.dataset)
+            #     mlflow.log_metric("classifier_train_loss", epoch_loss, step=epoch)
 
-                # Validation
-                self.classifier.eval()
-                correct = total = 0
-                with torch.no_grad():
-                    for features, labels in val_loader:
-                        features, labels = features.to(self.device), labels.to(self.device)
-                        preds = (torch.sigmoid(self.classifier(features).squeeze()) > 0.5).float()
-                        correct += (preds == labels).sum().item()
-                        total += labels.size(0)
-                val_acc = correct / total
-                mlflow.log_metric("val_accuracy", val_acc, step=epoch)
+            #     # Validation
+            #     self.classifier.eval()
+            #     correct = total = 0
+            #     with torch.no_grad():
+            #         for features, labels in val_loader:
+            #             features, labels = features.to(self.device), labels.to(self.device)
+            #             preds = (torch.sigmoid(self.classifier(features).squeeze()) > 0.5).float()
+            #             correct += (preds == labels).sum().item()
+            #             total += labels.size(0)
+            #     val_acc = correct / total
+            #     mlflow.log_metric("val_accuracy", val_acc, step=epoch)
+            
+            self.classifier, self.val_accuracies = train_linear_classifier(
+                model=self.classifier,
+                train_loader=train_loader,
+                val_loader=val_loader,
+                loss_fn=loss_fn,
+                optimizer=optimizer,
+                n_epochs=self.classifier_epochs,
+                device=self.device
+            )
 
+        print("Classifier training complete.")
         self.next(self.evaluate)
 
     @step
@@ -314,16 +325,22 @@ class ECGTS2VecFlow(FlowSpec):
         test_loader = DataLoader(test_dataset, batch_size=self.classifier_batch_size, shuffle=False)
 
         with mlflow.start_run(run_id=self.mlflow_run_id):
-            self.classifier.eval()
-            correct = total = 0
-            with torch.no_grad():
-                for features, labels in test_loader:
-                    features, labels = features.to(self.device), labels.to(self.device)
-                    preds = (torch.sigmoid(self.classifier(features).squeeze()) > 0.5).float()
-                    correct += (preds == labels).sum().item()
-                    total += labels.size(0)
-            self.test_accuracy = correct / total
-            mlflow.log_metric("test_accuracy", self.test_accuracy)
+            # self.classifier.eval()
+            # correct = total = 0
+            # with torch.no_grad():
+            #     for features, labels in test_loader:
+            #         features, labels = features.to(self.device), labels.to(self.device)
+            #         preds = (torch.sigmoid(self.classifier(features).squeeze()) > 0.5).float()
+            #         correct += (preds == labels).sum().item()
+            #         total += labels.size(0)
+            # self.test_accuracy = correct / total
+            # mlflow.log_metric("test_accuracy", self.test_accuracy)
+            self.test_accuracy = evaluate_classifier(
+                model=self.classifier,
+                test_loader=test_loader,
+                device=self.device
+            )
+            
         self.next(self.register)
 
     @step
