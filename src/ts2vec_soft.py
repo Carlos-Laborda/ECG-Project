@@ -1180,9 +1180,9 @@ def convert_hard_matrix(soft_matrix, pos_ratio):
     hard_matrix = topK_one_else_zero(soft_matrix, num_pos)
     return hard_matrix
 
-# -------------------------
+# ---------------------------------------------------------
 # Classifier models
-# -------------------------
+# --------------------------------------------------------
 class SimpleClassifier(nn.Module):
     def __init__(self, input_dim, hidden_dim=64, num_classes=1):
         super(SimpleClassifier, self).__init__()
@@ -1222,7 +1222,6 @@ def train_linear_classifier(
 ):
     """
     Trains a linear classifier with validation loop and MLflow logging.
-    Assumes it's called within an active MLflow run context.
 
     Args:
         model: The classifier model (subclass of nn.Module).
@@ -1245,7 +1244,7 @@ def train_linear_classifier(
         for features, labels in train_loader:
             features, labels = features.to(device), labels.to(device)
             optimizer.zero_grad()
-            outputs = model(features).squeeze() # Squeeze potential extra dim
+            outputs = model(features).squeeze() 
             loss = loss_fn(outputs, labels)
             loss.backward()
             optimizer.step()
@@ -1264,7 +1263,7 @@ def train_linear_classifier(
                 preds = (torch.sigmoid(model(features).squeeze()) > 0.5).float()
                 correct += (preds == labels).sum().item()
                 total += labels.size(0)
-        val_acc = correct / total if total > 0 else 0.0 # Avoid division by zero
+        val_acc = correct / total if total > 0 else 0.0
         val_accuracies.append(val_acc)
         mlflow.log_metric("val_accuracy", val_acc, step=epoch)
         print(f"Epoch {epoch}/{epochs} - Val Accuracy: {val_acc:.4f}")
@@ -1286,8 +1285,6 @@ def evaluate_classifier(
         model: The trained classifier model.
         test_loader: DataLoader for the test set.
         device: The device to evaluate on ('cpu' or 'cuda').
-        mlflow_run_id: Optional MLflow run ID to log metrics under an existing run.
-        mlflow_tracking_uri: Optional MLflow tracking URI.
 
     Returns:
         float: The test accuracy.
@@ -1297,12 +1294,11 @@ def evaluate_classifier(
     with torch.no_grad():
         for features, labels in test_loader:
             features, labels = features.to(device), labels.to(device)
-            # Apply sigmoid and threshold for binary classification accuracy
             preds = (torch.sigmoid(model(features).squeeze()) > 0.5).float()
             correct += (preds == labels).sum().item()
             total += labels.size(0)
 
-    test_accuracy = correct / total if total > 0 else 0.0 # Avoid division by zero
-
+    test_accuracy = correct / total if total > 0 else 0.0 
     mlflow.log_metric("test_accuracy", test_accuracy)
+    print(f"Test Accuracy: {test_accuracy:.4f}")
     return test_accuracy
