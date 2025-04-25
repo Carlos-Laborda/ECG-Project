@@ -301,13 +301,13 @@ class ECGTS2VecFlow(FlowSpec):
             #     val_acc = correct / total
             #     mlflow.log_metric("val_accuracy", val_acc, step=epoch)
             
-            self.classifier, self.val_accuracies = train_linear_classifier(
+            classifier, val_accuracies, val_aurocs, val_pr_aucs, val_f1_scores = train_linear_classifier(
                 model=self.classifier,
                 train_loader=train_loader,
                 val_loader=val_loader,
                 loss_fn=loss_fn,
                 optimizer=optimizer,
-                n_epochs=self.classifier_epochs,
+                epochs=self.classifier_epochs,
                 device=self.device
             )
 
@@ -335,7 +335,7 @@ class ECGTS2VecFlow(FlowSpec):
             #         total += labels.size(0)
             # self.test_accuracy = correct / total
             # mlflow.log_metric("test_accuracy", self.test_accuracy)
-            self.test_accuracy = evaluate_classifier(
+            self.test_accuracy, test_auroc, test_pr_auc, test_f1 = evaluate_classifier(
                 model=self.classifier,
                 test_loader=test_loader,
                 device=self.device
