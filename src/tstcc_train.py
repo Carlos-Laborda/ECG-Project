@@ -13,12 +13,7 @@ from metaflow import FlowSpec, step, Parameter, current, project, resources
 
 from torch_utilities import load_processed_data, split_data_by_participant, set_seed
 
-from tstcc.py import data
-from dataloader.dataloader import data_generator
-from models.model import base_Model
-from models.TC import TC
-from models.loss import NTXentLoss
-from utils import _logger
+from tstcc import data_generator, Trainer, base_Model, TC, NTXentLoss, _logger
 
 @project(name="ecg_training_tstcc")
 class ECGTSTCCFlow(FlowSpec):
@@ -131,7 +126,6 @@ class ECGTSTCCFlow(FlowSpec):
         })
 
         # run training
-        from trainer import Trainer  # your Trainer function from TS-TCC repo
         run_dir = f"tstcc_{self.mlflow_run_id}"
         os.makedirs(run_dir, exist_ok=True)
         Trainer(
