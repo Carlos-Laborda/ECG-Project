@@ -13,7 +13,7 @@ from metaflow import FlowSpec, step, Parameter, current, project, resources
 
 from torch_utilities import load_processed_data, split_data_by_participant, set_seed
 
-from tstcc import data_generator, Trainer, base_Model, TC, NTXentLoss, _logger
+from tstcc import data_generator, Trainer, base_Model, TC, NTXentLoss, _logger, Config as ECGConfig
 
 @project(name="ecg_training_tstcc")
 class ECGTSTCCFlow(FlowSpec):
@@ -30,15 +30,15 @@ class ECGTSTCCFlow(FlowSpec):
     # TS-TCC pretraining
     tcc_epochs = Parameter("tcc_epochs", default=40)
     tcc_lr = Parameter("tcc_lr", default=3e-4)
-    tcc_batch_size = Parameter("tcc_batch_size", default=128)
+    tcc_batch_size = Parameter("tcc_batch_size", default=64)
 
     # temporal contrasting
-    tc_timesteps = Parameter("tc_timesteps", default=10)
+    tc_timesteps = Parameter("tc_timesteps", default=50)
     tc_hidden_dim = Parameter("tc_hidden_dim", default=100)
-    tc_depth = Parameter("tc_depth", default=4)
-    tc_heads = Parameter("tc_heads", default=4)
-    tc_mlp_dim = Parameter("tc_mlp_dim", default=64)
-    tc_dropout = Parameter("tc_dropout", default=0.1)
+    # tc_depth = Parameter("tc_depth", default=4)
+    # tc_heads = Parameter("tc_heads", default=4)
+    # tc_mlp_dim = Parameter("tc_mlp_dim", default=64)
+    # tc_dropout = Parameter("tc_dropout", default=0.1)
 
     # contextual contrasting
     cc_temperature = Parameter("cc_temperature", default=0.2)
@@ -80,24 +80,21 @@ class ECGTSTCCFlow(FlowSpec):
     @step
     def train_tstcc(self):
         print(f"Training TS-TCC on {self.device}")
+        
+        self.configs = ECGConfig()
+        self.configs.num_epoch   = self.tcc_epochs    
+        self.configs.batch_size  = self.tcc_batch_size
+        self.configs.Context_Cont.temperature           = self.cc_temperature
+        self.configs.Context_Cont.use_cosine_similarity = self.cc_use_cosine
+        self.configs.TC.timesteps = self.tc_timesteps   
+        self.configs.TC.hidden_dim = self.tc_hidden_dim
 
         # get data loaders
         train_dl, val_dl, test_dl = data_generator(
             data_path=os.path.dirname(self.window_data_path),
-            configs=type("C", (), {"batch_size": self.tcc_batch_size, "drop_last": True}),
+            configs=self.configs,
             training_mode="self_supervised"
         )
-
-        # assemble a minimal config for Trainer
-        class ContextCont: pass
-        ctx = ContextCont()
-        ctx.temperature = self.cc_temperature
-        ctx.use_cosine_similarity = self.cc_use_cosine
-        class Config: pass
-        self.configs = Config()
-        self.configs.batch_size = self.tcc_batch_size
-        self.configs.num_epoch = self.tcc_epochs
-        self.configs.Context_Cont = ctx
 
         # models
         self.model = base_Model(self.configs).to(self.device)
@@ -117,10 +114,10 @@ class ECGTSTCCFlow(FlowSpec):
             "tcc_batch_size": self.tcc_batch_size,
             "tc_timesteps": self.tc_timesteps,
             "tc_hidden_dim": self.tc_hidden_dim,
-            "tc_depth": self.tc_depth,
-            "tc_heads": self.tc_heads,
-            "tc_mlp_dim": self.tc_mlp_dim,
-            "tc_dropout": self.tc_dropout,
+            # "tc_depth": self.tc_depth,
+            # "tc_heads": self.tc_heads,
+            # "tc_mlp_dim": self.tc_mlp_dim,
+            # "tc_dropout": self.tc_dropout,
             "cc_temperature": self.cc_temperature,
             "cc_use_cosine": self.cc_use_cosine
         })
