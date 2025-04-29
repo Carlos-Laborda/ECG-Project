@@ -5,6 +5,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import torch.nn.functional as F
 import mlflow
 import mlflow.pytorch
 
@@ -13,7 +14,7 @@ from metaflow import FlowSpec, step, Parameter, current, project, resources
 
 from torch_utilities import load_processed_data, split_data_by_participant, set_seed
 
-from tstcc import data_generator, Trainer, base_Model, TC, NTXentLoss, _logger, Config as ECGConfig
+from tstcc import data_generator_from_arrays, Trainer, base_Model, TC, NTXentLoss, _logger, Config as ECGConfig, LinearClassifier, train_linear_classifier, evaluate_classifier
 
 @project(name="ecg_training_tstcc")
 class ECGTSTCCFlow(FlowSpec):
@@ -90,9 +91,11 @@ class ECGTSTCCFlow(FlowSpec):
         self.configs.TC.hidden_dim = self.tc_hidden_dim
 
         # get data loaders
-        train_dl, val_dl, test_dl = data_generator(
-            data_path=os.path.dirname(self.window_data_path),
-            configs=self.configs,
+        train_dl, val_dl, test_dl = data_generator_from_arrays(
+            self.X_train, self.y_train, 
+            self.X_val, self.y_val, 
+            self.X_test, self.y_test,
+            self.configs,
             training_mode="self_supervised"
         )
 
@@ -185,69 +188,65 @@ class ECGTSTCCFlow(FlowSpec):
     def train_classifier(self):
         set_seed(self.seed)
         print(f"Training classifier on {self.device}")
-        # subset if requested
-        n = len(self.train_repr)
-        idx = np.random.permutation(n)[:max(1, int(n*self.label_fraction))]
-        X_sub, y_sub = self.train_repr[idx], self.y_train[idx]
+        print(f"Using {self.label_fraction * 100:.1f}% of labeled training data.")
 
-        # build classifier
-        feat_dim = X_sub.shape[1]
-        classifier = nn.Linear(feat_dim, 1).to(self.device)
-        loss_fn = nn.BCEWithLogitsLoss()
-        opt = optim.AdamW(classifier.parameters(), lr=self.classifier_lr)
+        # subsample labelled windows
+        indices      = np.arange(len(self.train_repr))
+        np.random.shuffle(indices)
+        keep         = max(1, int(len(indices) * self.label_fraction))
+        subset_idx   = indices[:keep]
 
-        train_ds = TensorDataset(torch.from_numpy(X_sub).float(), torch.from_numpy(y_sub).float())
-        val_ds   = TensorDataset(torch.from_numpy(self.val_repr).float(), torch.from_numpy(self.y_val).float())
+        X_train_sub  = self.train_repr[subset_idx]
+        y_train_sub  = self.y_train[subset_idx]
+
+        # build model and optimiser 
+        feat_dim     = X_train_sub.shape[-1]
+        self.classifier = LinearClassifier(input_dim=feat_dim).to(self.device)
+        loss_fn      = nn.BCEWithLogitsLoss()
+        optimizer    = optim.AdamW(self.classifier.parameters(), lr=self.classifier_lr)
+
+        # DataLoaders
+        train_ds = TensorDataset(torch.from_numpy(X_train_sub).float(),
+                                torch.from_numpy(y_train_sub).float())
+        val_ds   = TensorDataset(torch.from_numpy(self.val_repr).float(),
+                                torch.from_numpy(self.y_val).float())
+
         train_dl = DataLoader(train_ds, batch_size=self.classifier_batch_size, shuffle=True)
         val_dl   = DataLoader(val_ds,   batch_size=self.classifier_batch_size, shuffle=False)
 
+        # MLflow logging and training
         mlflow.log_params({
-            "classifier_epochs": self.classifier_epochs,
             "classifier_lr": self.classifier_lr,
+            "classifier_epochs": self.classifier_epochs,
             "classifier_batch_size": self.classifier_batch_size,
             "label_fraction": self.label_fraction
         })
 
-        best_acc = 0.
-        for epoch in range(1, self.classifier_epochs+1):
-            # train
-            classifier.train()
-            for xb, yb in train_dl:
-                xb, yb = xb.to(self.device), yb.to(self.device)
-                opt.zero_grad()
-                logits = classifier(xb).squeeze(1)
-                loss = loss_fn(logits, yb)
-                loss.backward(); opt.step()
-            # validate
-            classifier.eval()
-            correct, total = 0, 0
-            with torch.no_grad():
-                for xb, yb in val_dl:
-                    xb, yb = xb.to(self.device), yb.to(self.device)
-                    pred = torch.sigmoid(classifier(xb)).round()
-                    correct += (pred.cpu()==yb.cpu()).sum().item()
-                    total += yb.size(0)
-            acc = correct/total
-            best_acc = max(best_acc, acc)
-            print(f"[Epoch {epoch}] val acc={acc:.4f}")
-
-        self.classifier = classifier
+        self.classifier, val_accs, val_aurocs, val_pr_aucs, val_f1s = train_linear_classifier(
+            model      = self.classifier,
+            train_loader = train_dl,
+            val_loader   = val_dl,
+            loss_fn      = loss_fn,
+            optimizer    = optimizer,
+            epochs       = self.classifier_epochs,
+            device       = self.device
+        )
+        print("Classifier training complete.")
         self.next(self.evaluate)
 
     @step
     def evaluate(self):
-        test_ds = TensorDataset(torch.from_numpy(self.test_repr).float(),
+        """Evaluate the linear classifier on the held-out test windows."""
+        test_ds   = TensorDataset(torch.from_numpy(self.test_repr).float(),
                                 torch.from_numpy(self.y_test).float())
-        test_dl = DataLoader(test_ds, batch_size=self.classifier_batch_size, shuffle=False)
-        self.classifier.eval()
-        correct, total = 0, 0
-        with torch.no_grad():
-            for xb, yb in test_dl:
-                xb, yb = xb.to(self.device), yb.to(self.device)
-                pred = torch.sigmoid(self.classifier(xb)).round()
-                correct += (pred.cpu()==yb.cpu()).sum().item()
-                total += yb.size(0)
-        self.test_accuracy = correct/total
+        test_dl   = DataLoader(test_ds, batch_size=self.classifier_batch_size, shuffle=False)
+
+        self.test_accuracy, test_auroc, test_pr_auc, test_f1 = evaluate_classifier(
+            model       = self.classifier,
+            test_loader = test_dl,
+            device      = self.device
+        )
+
         print(f"Test accuracy = {self.test_accuracy:.4f}")
         self.next(self.register)
 
