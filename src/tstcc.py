@@ -612,3 +612,67 @@ def model_evaluate(model, temporal_contr_model, test_dl, device, training_mode):
     else:
         total_acc = torch.tensor(total_acc).mean()  # average acc
     return total_loss, total_acc, outs, trgs
+
+class Config(object):
+    """
+    Hyper-parameters tuned for windowed ECG segments
+    (shape = [N, 10 000, 1])
+    """
+    def __init__(self):
+
+        # ─────────────────── CNN encoder ────────────────────
+        self.input_channels      = 1         # ECG is univariate
+        self.kernel_size         = 32        # same as pFD → good for long series
+        self.stride              = 4
+        self.final_out_channels  = 128       # feature maps after last conv
+        self.dropout             = 0.35
+
+        # Length of the sequence that reaches the projection head
+        # 10 000 → 315 after the {conv + pool} stack (see calc below)
+        self.features_len        = 315
+
+        # We still keep a dummy “num_classes” so that the base model
+        # can be reused for fine-tuning, but it is ignored in SSL
+        self.num_classes         = 2
+
+        # ─────────────────── Training ───────────────────────
+        self.num_epoch           = 40
+
+        # Optimiser
+        self.beta1, self.beta2   = 0.9, 0.99
+        self.lr                  = 3e-4
+
+        # Data loader
+        self.batch_size          = 64        # 10000-sample windows use more mem
+        self.drop_last           = True      # match original repo
+
+        # ─────────────────── SSL blocks ─────────────────────
+        # Contextual contrastive loss
+        self.Context_Cont        = Context_Cont_configs()
+        # Temporal contrasting
+        self.TC                  = TC()      # hidden=100, timesteps=50
+        # Data augmentations
+        self.augmentation        = augmentations()
+
+
+class augmentations(object):
+    """
+    ECG is quite sensitive to amplitude changes; we therefore keep
+    small jitter noise and allow permutation across up to 8 segments.
+    """
+    def __init__(self):
+        self.jitter_scale_ratio = 0.001   # very mild scaling
+        self.jitter_ratio       = 0.05    # mild additive jitter
+        self.max_seg            = 8       # split into ≤8 segments for strong aug
+
+
+class Context_Cont_configs(object):
+    def __init__(self):
+        self.temperature           = 0.2
+        self.use_cosine_similarity = True
+
+
+class TC(object):
+    def __init__(self):
+        self.hidden_dim = 100      # same as original paper
+        self.timesteps  = 50       # predict 50 steps (~16 % of 315-step stream)
