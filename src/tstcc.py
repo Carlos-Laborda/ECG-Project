@@ -613,6 +613,9 @@ def model_evaluate(model, temporal_contr_model, test_dl, device, training_mode):
         total_acc = torch.tensor(total_acc).mean()  # average acc
     return total_loss, total_acc, outs, trgs
 
+# ----------------------------------------------------------------------
+# config.py
+# ----------------------------------------------------------------------
 class Config(object):
     """
     Hyper-parameters tuned for windowed ECG segments
