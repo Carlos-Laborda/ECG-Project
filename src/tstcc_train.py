@@ -14,7 +14,7 @@ from metaflow import FlowSpec, step, Parameter, current, project, resources
 
 from torch_utilities import load_processed_data, split_data_by_participant, set_seed
 
-from tstcc import data_generator_from_arrays, Trainer, base_Model, TC, NTXentLoss, _logger, Config as ECGConfig, LinearClassifier, train_linear_classifier, evaluate_classifier
+from tstcc import data_generator_from_arrays, Trainer, base_Model, TC, NTXentLoss, _logger, Config as ECGConfig, LinearClassifier, train_linear_classifier, evaluate_classifier, encode_representations
 
 @project(name="ecg_training_tstcc")
 class ECGTSTCCFlow(FlowSpec):
@@ -108,9 +108,6 @@ class ECGTSTCCFlow(FlowSpec):
         model_opt = optim.AdamW(self.model.parameters(), lr=self.tcc_lr, weight_decay=3e-4)
         tc_opt    = optim.AdamW(self.temporal_contr_model.parameters(), lr=self.tcc_lr, weight_decay=3e-4)
 
-        # logger
-        #logger = _logger(f"ts_tcc_{self.mlflow_run_id}.log")
-
         mlflow.set_tracking_uri(self.mlflow_tracking_uri)
         with mlflow.start_run(run_id=self.mlflow_run_id):
         # MLflow params
@@ -162,28 +159,24 @@ class ECGTSTCCFlow(FlowSpec):
         mlflow.set_tracking_uri(self.mlflow_tracking_uri)
         self.model.eval()
         self.temporal_contr_model.eval()
-
-        def _encode(X, y):
-            loader = DataLoader(
-                TensorDataset(torch.from_numpy(X).float(), torch.from_numpy(y).long()),
-                batch_size=self.tcc_batch_size, shuffle=False
-            )
-            reprs, labs = [], []
-            with torch.no_grad():
-                for xb, yb in loader:
-                    xb = xb.to(self.device)
-                    # conv encoder
-                    _, feats = self.model(xb)
-                    feats = F.normalize(feats, dim=1)
-                    # TC projection head
-                    _, c_proj = self.temporal_contr_model(feats, feats)
-                    reprs.append(c_proj.cpu().numpy())
-                    labs.append(yb.numpy())
-            return np.concatenate(reprs, axis=0), np.concatenate(labs, axis=0)
-
-        self.train_repr, _ = _encode(self.X_train, self.y_train)
-        self.val_repr, _   = _encode(self.X_val,   self.y_val)
-        self.test_repr, _  = _encode(self.X_test,  self.y_test)
+        
+        self.train_repr, _ = encode_representations(
+            self.X_train, self.y_train,
+            self.model, self.temporal_contr_model,
+            self.tcc_batch_size, self.device
+        )
+        
+        self.val_repr, _ = encode_representations(
+            self.X_val, self.y_val,
+            self.model, self.temporal_contr_model,
+            self.tcc_batch_size, self.device
+        )
+        
+        self.test_repr, _ = encode_representations(
+            self.X_test, self.y_test,
+            self.model, self.temporal_contr_model,
+            self.tcc_batch_size, self.device
+        )
 
         print(f"train_repr shape = {self.train_repr.shape}")
         self.next(self.train_classifier)
