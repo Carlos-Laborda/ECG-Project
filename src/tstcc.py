@@ -9,8 +9,7 @@ import sys
 import logging
 import mlflow
 
-from torch.utils.data import DataLoader
-from torch.utils.data import Dataset
+from torch.utils.data import DataLoader, TensorDataset, Dataset
 from sklearn.metrics import classification_report, cohen_kappa_score, confusion_matrix, accuracy_score
 from torchmetrics.classification import BinaryAUROC, BinaryAveragePrecision, BinaryF1Score
 from shutil import copy
@@ -43,43 +42,64 @@ def scaling(x, sigma=1.1):
 
 
 def permutation(x, max_segments=5, seg_mode="random"):
-    orig_steps = np.arange(x.shape[2])
+    x_np = x if isinstance(x, np.ndarray) else x.numpy()
+    N, C, L = x_np.shape
+    orig_steps = np.arange(L)
 
-    num_segs = np.random.randint(1, max_segments, size=(x.shape[0]))
-
-    ret = np.zeros_like(x)
-    for i, pat in enumerate(x):
-        if num_segs[i] > 1:
+    ret = np.empty_like(x_np)                 # (N, C, L)
+    for i in range(N):
+        # 1) choose how many segments to split into
+        n_seg = np.random.randint(1, max_segments + 1)
+        if n_seg > 1:
+            # 2) split & permute indices
             if seg_mode == "random":
-                split_points = np.random.choice(x.shape[2] - 2, num_segs[i] - 1, replace=False)
+                split_points = np.random.choice(L - 2, n_seg - 1, replace=False) + 1
                 split_points.sort()
                 splits = np.split(orig_steps, split_points)
             else:
-                splits = np.array_split(orig_steps, num_segs[i])
-            warp = np.concatenate(np.random.permutation(splits)).ravel()
-            ret[i] = pat[0,warp]
+                splits = np.array_split(orig_steps, n_seg)
+            order = np.random.permutation(len(splits))
+            warp = np.concatenate([splits[o] for o in order])
         else:
-            ret[i] = pat
-    return torch.from_numpy(ret)
+            warp = orig_steps
+
+        # 3) ***transpose*** to (C, L) before writing
+        ret[i] = x_np[i, :, warp].T
+
+    return ret
 
 # ----------------------------------------------------------------------
 # dataloader.py
 # ----------------------------------------------------------------------
 class Load_Dataset(Dataset):
-    # Initialize your data, download, etc.
     def __init__(self, dataset, config, training_mode):
-        super(Load_Dataset, self).__init__()
+        super().__init__()
         self.training_mode = training_mode
 
         X_train = dataset["samples"]
         y_train = dataset["labels"]
 
-        if len(X_train.shape) < 3:
-            X_train = X_train.unsqueeze(2)
+        # ─────────────────────────────────────────────────────
+        # 1) ensure a channel-dim exists
+        # ─────────────────────────────────────────────────────
+        if len(X_train.shape) < 3:           # (N, L)  ->  (N, L, 1)
+            if isinstance(X_train, np.ndarray):
+                X_train = np.expand_dims(X_train, 2)
+            else:  # torch.Tensor
+                X_train = X_train.unsqueeze(2)
 
-        if X_train.shape.index(min(X_train.shape)) != 1:  # make sure the Channels in second dim
-            X_train = X_train.permute(0, 2, 1)
+        # ─────────────────────────────────────────────────────
+        # 2) make channel dimension second: (N, L, C) → (N, C, L)
+        # ─────────────────────────────────────────────────────
+        if X_train.shape.index(min(X_train.shape)) != 1:
+            if isinstance(X_train, np.ndarray):
+                X_train = np.transpose(X_train, (0, 2, 1))
+            else:                             # torch.Tensor
+                X_train = X_train.permute(0, 2, 1)
 
+        # ─────────────────────────────────────────────────────
+        # 3) final conversion to torch tensors
+        # ─────────────────────────────────────────────────────
         if isinstance(X_train, np.ndarray):
             self.x_data = torch.from_numpy(X_train)
             self.y_data = torch.from_numpy(y_train).long()
@@ -87,9 +107,13 @@ class Load_Dataset(Dataset):
             self.x_data = X_train
             self.y_data = y_train
 
-        self.len = X_train.shape[0]
-        if training_mode == "self_supervised":  # no need to apply Augmentations in other modes
-            self.aug1, self.aug2 = DataTransform(self.x_data, config)
+        self.len = self.x_data.shape[0]
+
+        # Augmentations only for self-supervised mode
+        if training_mode == "self_supervised":
+            aug1_np, aug2_np = DataTransform(self.x_data.numpy(), config)
+            self.aug1 = torch.from_numpy(aug1_np).float()
+            self.aug2 = torch.from_numpy(aug2_np).float()
 
     def __getitem__(self, index):
         if self.training_mode == "self_supervised":
@@ -701,7 +725,7 @@ class Config(object):
         # Contextual contrastive loss
         self.Context_Cont        = Context_Cont_configs()
         # Temporal contrasting
-        self.TC                  = TC()      # hidden=100, timesteps=50
+        self.TC                  = TCConfig()      # hidden=100, timesteps=50
         # Data augmentations
         self.augmentation        = augmentations()
 
@@ -723,7 +747,7 @@ class Context_Cont_configs(object):
         self.use_cosine_similarity = True
 
 
-class TC(object):
+class TCConfig(object):
     def __init__(self):
         self.hidden_dim = 100      # same as original paper
         self.timesteps  = 50       # predict 50 steps (~16 % of 315-step stream)
@@ -929,3 +953,24 @@ def evaluate_classifier(
     
     print(f"Test Accuracy: {test_accuracy:.4f}, Test AUROC: {test_auroc:.4f}, Test PR-AUC: {test_pr_auc:.4f}, Test F1: {test_f1:.4f}")
     return test_accuracy, test_auroc, test_pr_auc, test_f1
+
+# ----------------------------------------------------------------------
+# Encoding function to textract TS-TCC representations
+# ----------------------------------------------------------------------
+def encode_representations(X, y, model, temporal_contr_model, tcc_batch_size, device):
+    loader = DataLoader(
+        TensorDataset(torch.from_numpy(X).float(), torch.from_numpy(y).long()),
+        batch_size=tcc_batch_size, shuffle=False
+    )
+    reprs, labs = [], []
+    with torch.no_grad():
+        for xb, yb in loader:
+            xb = xb.to(device)
+            # conv encoder
+            _, feats = model(xb)
+            feats = F.normalize(feats, dim=1)
+            # TC projection head
+            _, c_proj = temporal_contr_model(feats, feats)
+            reprs.append(c_proj.cpu().numpy())
+            labs.append(yb.numpy())
+    return np.concatenate(reprs, axis=0), np.concatenate(labs, axis=0)
