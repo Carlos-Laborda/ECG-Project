@@ -14,7 +14,7 @@ from metaflow import FlowSpec, step, Parameter, current, project, resources
 
 from torch_utilities import load_processed_data, split_data_by_participant, set_seed
 
-from tstcc import data_generator_from_arrays, Trainer, base_Model, TC, NTXentLoss, _logger, Config as ECGConfig, LinearClassifier, train_linear_classifier, evaluate_classifier, encode_representations
+from tstcc import data_generator_from_arrays, Trainer, base_Model, TC, NTXentLoss, Config as ECGConfig, LinearClassifier, train_linear_classifier, evaluate_classifier, encode_representations, show_shape
 
 @project(name="ecg_training_tstcc")
 class ECGTSTCCFlow(FlowSpec):
@@ -75,6 +75,8 @@ class ECGTSTCCFlow(FlowSpec):
         (self.X_train, self.y_train), (self.X_val, self.y_val), (self.X_test, self.y_test) = \
             split_data_by_participant(X, y, groups)
         print(f"Train samples: {len(self.X_train)}")
+        print(f"[DBG] preprocess_data  train/val/test shapes:",
+              self.X_train.shape, self.X_val.shape, self.X_test.shape)
         self.next(self.train_tstcc)
 
     @resources(memory=16000)
@@ -179,6 +181,8 @@ class ECGTSTCCFlow(FlowSpec):
         )
 
         print(f"train_repr shape = {self.train_repr.shape}")
+        show_shape("val_repr / test_repr",
+                   (self.val_repr, self.test_repr))
         self.next(self.train_classifier)
 
     @resources(memory=16000)
