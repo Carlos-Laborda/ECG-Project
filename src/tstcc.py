@@ -22,7 +22,7 @@ def DataTransform(sample, config):
 
     weak_aug = scaling(sample, config.augmentation.jitter_scale_ratio)
     strong_aug = jitter(permutation(sample, max_segments=config.augmentation.max_seg), config.augmentation.jitter_ratio)
-
+    dbg("weak/strong", weak_aug, strong_aug)
     return weak_aug, strong_aug
 
 
@@ -117,6 +117,7 @@ class Load_Dataset(Dataset):
 
     def __getitem__(self, index):
         if self.training_mode == "self_supervised":
+            dbg("getitem ssl", self.x_data[index], self.aug1[index], self.aug2[index])
             return self.x_data[index], self.y_data[index], self.aug1[index], self.aug2[index]
         else:
             return self.x_data[index], self.y_data[index], self.x_data[index], self.x_data[index]
@@ -382,12 +383,14 @@ class TC(nn.Module):
         self.seq_transformer = Seq_Transformer(patch_size=self.num_channels, dim=configs.TC.hidden_dim, depth=4, heads=4, mlp_dim=64)
 
     def forward(self, features_aug1, features_aug2):
+        dbg("TC input", features_aug1, features_aug2)
         z_aug1 = features_aug1  # features are (batch_size, #channels, seq_len)
         seq_len = z_aug1.shape[2]
         z_aug1 = z_aug1.transpose(1, 2)
 
         z_aug2 = features_aug2
         z_aug2 = z_aug2.transpose(1, 2)
+        dbg("TC transposed", z_aug1, z_aug2)
 
         batch = z_aug1.shape[0]
         t_samples = torch.randint(seq_len - self.timestep, size=(1,)).long().to(self.device)  # randomly pick time stamps
@@ -409,6 +412,7 @@ class TC(nn.Module):
             total = torch.mm(encode_samples[i], torch.transpose(pred[i], 0, 1))
             nce += torch.sum(torch.diag(self.lsoftmax(total)))
         nce /= -1. * batch * self.timestep
+        dbg("TC pred", pred) 
         return nce, self.projection_head(c_t)
     
 # ----------------------------------------------------------------------
@@ -445,11 +449,16 @@ class base_Model(nn.Module):
         self.logits = nn.Linear(model_output_dim * configs.final_out_channels, configs.num_classes)
 
     def forward(self, x_in):
+        dbg("conv1 in ", x_in)
         x = self.conv_block1(x_in)
+        dbg("conv1 out", x)
         x = self.conv_block2(x)
+        dbg("conv2 out", x)
         x = self.conv_block3(x)
+        dbg("conv3 out", x)
 
         x_flat = x.reshape(x.shape[0], -1)
+        dbg("flattened", x_flat)
         logits = self.logits(x_flat)
         return logits, x
     
@@ -457,6 +466,18 @@ class base_Model(nn.Module):
 # ----------------------------------------------------------------------
 # utils.py
 # ----------------------------------------------------------------------
+_DEBUG = True                         
+
+def dbg(tag, *tensors):
+    """
+    Print shapes of tensors (or python scalars) when _DEBUG is True.
+    Usage: dbg("after aug", aug1, aug2)
+    """
+    if not _DEBUG:
+        return
+    shapes = [tuple(t.shape) if torch.is_tensor(t) else str(type(t)) for t in tensors]
+    print(f"[DBG] {tag:>20s} :", *shapes, flush=True)
+
 def set_requires_grad(model, dict_, requires_grad=True):
     for param in model.named_parameters():
         if param[0] in dict_:
@@ -540,6 +561,16 @@ def copy_Files(destination, data_type):
     copy("models/loss.py", os.path.join(destination_dir, "loss.py"))
     copy("models/TC.py", os.path.join(destination_dir, "TC.py"))
 
+def compute_ssl_loss(feat1, feat2, tc_model, nt_xent_loss):
+    dbg("ssl feats", feat1, feat2)
+    feat1 = F.normalize(feat1, dim=1)
+    feat2 = F.normalize(feat2, dim=1)
+    loss1, proj1 = tc_model(feat1, feat2)
+    loss2, proj2 = tc_model(feat2, feat1)
+    proj1 = F.normalize(proj1, dim=1)
+    proj2 = F.normalize(proj2, dim=1)
+    ssl_loss = loss1 + loss2 + 0.7 * nt_xent_loss(proj1, proj2)
+    return ssl_loss
 
 # ----------------------------------------------------------------------
 # trainer.py
@@ -554,136 +585,95 @@ def Trainer(model, temporal_contr_model, model_optimizer, temp_cont_optimizer, t
     for epoch in range(1, config.num_epoch + 1):
         # Train and validate
         train_loss, train_acc = model_train(model, temporal_contr_model, model_optimizer, temp_cont_optimizer, criterion, train_dl, config, device, training_mode)
-        valid_loss, valid_acc, _, _ = model_evaluate(model, temporal_contr_model, valid_dl, device, training_mode)
-        if training_mode != 'self_supervised':  # use scheduler in all other modes.
-            scheduler.step(valid_loss)
-
-        print(f'\nEpoch : {epoch}\n'
-                     f'Train Loss     : {train_loss:.4f}\t | \tTrain Accuracy     : {train_acc:2.4f}\n'
-                     f'Valid Loss     : {valid_loss:.4f}\t | \tValid Accuracy     : {valid_acc:2.4f}')
-        # mlflow logging
-        mlflow.log_metrics({
-            "train_loss": train_loss,
-            "train_accuracy": train_acc,
-            "valid_loss": valid_loss,
-            "valid_accuracy": valid_acc
-        }, step=epoch)
+        val_loss, valid_acc, _, _ = model_evaluate(model, temporal_contr_model, valid_dl, device, training_mode, config)
+        if training_mode == "self_supervised":
+            print(f"Epoch {epoch:02d} | ssl_train_loss: {train_loss:.4f} | ssl_val_loss: {val_loss:.4f}")
+            mlflow.log_metrics({
+                "ssl_train_loss": train_loss,
+                "ssl_val_loss": val_loss
+            }, step=epoch)
 
     os.makedirs(os.path.join(experiment_log_dir, "saved_models"), exist_ok=True)
     chkpoint = {'model_state_dict': model.state_dict(), 'temporal_contr_model_state_dict': temporal_contr_model.state_dict()}
     torch.save(chkpoint, os.path.join(experiment_log_dir, "saved_models", f'ckp_last.pt'))
 
-    if training_mode != "self_supervised":  # no need to run the evaluation for self-supervised mode.
-        # evaluate on the test set
-        print('\nEvaluate on the Test set:')
-        test_loss, test_acc, _, _ = model_evaluate(model, temporal_contr_model, test_dl, device, training_mode)
-        print(f'Test loss      :{test_loss:0.4f}\t | Test Accuracy      : {test_acc:0.4f}')
-
     print("\n################## Training is Done! #########################")
 
 
-def model_train(model, temporal_contr_model, model_optimizer, temp_cont_optimizer, criterion, train_loader, config, device, training_mode):
-    total_loss = []
-    total_acc = []
+def model_train(model, temporal_contr_model,
+                model_opt, tc_opt,
+                criterion, train_loader,
+                config, device, training_mode):
+
     model.train()
     temporal_contr_model.train()
 
-    for batch_idx, (data, labels, aug1, aug2) in enumerate(train_loader):
-        # send to device
-        data, labels = data.float().to(device), labels.long().to(device)
+    nt_xent = NTXentLoss(device,
+                         config.batch_size,
+                         config.Context_Cont.temperature,
+                         config.Context_Cont.use_cosine_similarity)
+
+    batch_losses = []
+
+    for data, labels, aug1, aug2 in train_loader:
+
+        # ── move to device ────────────────────────────────────────────
         aug1, aug2 = aug1.float().to(device), aug2.float().to(device)
+        data, labels = data.float().to(device), labels.long().to(device)
+        dbg("batch data", data, aug1, aug2)
 
-        # optimizer
-        model_optimizer.zero_grad()
-        temp_cont_optimizer.zero_grad()
+        model_opt.zero_grad()
+        tc_opt.zero_grad()
 
+        # ── SSL vs supervised branch ─────────────────────────────────
         if training_mode == "self_supervised":
-            predictions1, features1 = model(aug1)
-            predictions2, features2 = model(aug2)
+            _, feat1 = model(aug1)
+            _, feat2 = model(aug2)
+            loss = compute_ssl_loss(feat1, feat2, temporal_contr_model, nt_xent)
+        else:                                        # <- we add this part back
+            preds, _ = model(data)
+            loss = criterion(preds, labels)
 
-            # normalize projection feature vectors
-            features1 = F.normalize(features1, dim=1)
-            features2 = F.normalize(features2, dim=1)
-
-            temp_cont_loss1, temp_cont_lstm_feat1 = temporal_contr_model(features1, features2)
-            temp_cont_loss2, temp_cont_lstm_feat2 = temporal_contr_model(features2, features1)
-
-            # normalize projection feature vectors
-            zis = temp_cont_lstm_feat1 
-            zjs = temp_cont_lstm_feat2 
-
-        else:
-            output = model(data)
-
-        # compute loss
-        if training_mode == "self_supervised":
-            lambda1 = 1
-            lambda2 = 0.7
-            nt_xent_criterion = NTXentLoss(device, config.batch_size, config.Context_Cont.temperature,
-                                           config.Context_Cont.use_cosine_similarity)
-            loss = (temp_cont_loss1 + temp_cont_loss2) * lambda1 +  nt_xent_criterion(zis, zjs) * lambda2
-            
-        else: # supervised training or fine tuining
-            predictions, features = output
-            loss = criterion(predictions, labels)
-            total_acc.append(labels.eq(predictions.detach().argmax(dim=1)).float().mean())
-
-        total_loss.append(loss.item())
+        # ── backward & step ──────────────────────────────────────────
         loss.backward()
-        model_optimizer.step()
-        temp_cont_optimizer.step()
+        model_opt.step()
+        tc_opt.step()
 
-    total_loss = torch.tensor(total_loss).mean()
+        batch_losses.append(loss.item())
 
-    if training_mode == "self_supervised":
-        total_acc = 0
-    else:
-        total_acc = torch.tensor(total_acc).mean()
-    return total_loss, total_acc
+    return torch.tensor(batch_losses).mean(), torch.nan              
 
+def model_evaluate(model, temporal_contr_model,
+                   dl, device, training_mode, config):
 
-def model_evaluate(model, temporal_contr_model, test_dl, device, training_mode):
     model.eval()
     temporal_contr_model.eval()
 
-    total_loss = []
-    total_acc = []
+    nt_xent = NTXentLoss(device,
+                         config.batch_size,
+                         config.Context_Cont.temperature,
+                         config.Context_Cont.use_cosine_similarity)
 
     criterion = nn.CrossEntropyLoss()
-    outs = np.array([])
-    trgs = np.array([])
+    val_losses = []
 
     with torch.no_grad():
-        for data, labels, _, _ in test_dl:
-            data, labels = data.float().to(device), labels.long().to(device)
+        for data, labels, aug1, aug2 in dl:
+
+            aug1, aug2 = aug1.to(device), aug2.to(device)
+            data, labels = data.to(device), labels.to(device)
 
             if training_mode == "self_supervised":
-                pass
+                _, feat1 = model(aug1)
+                _, feat2 = model(aug2)
+                loss = compute_ssl_loss(feat1, feat2, temporal_contr_model, nt_xent)
             else:
-                output = model(data)
+                preds, _ = model(data)
+                loss = criterion(preds, labels)
 
-            # compute loss
-            if training_mode != "self_supervised":
-                predictions, features = output
-                loss = criterion(predictions, labels)
-                total_acc.append(labels.eq(predictions.detach().argmax(dim=1)).float().mean())
-                total_loss.append(loss.item())
+            val_losses.append(loss.item())
 
-            if training_mode != "self_supervised":
-                pred = predictions.max(1, keepdim=True)[1]  # get the index of the max log-probability
-                outs = np.append(outs, pred.cpu().numpy())
-                trgs = np.append(trgs, labels.data.cpu().numpy())
-
-    if training_mode != "self_supervised":
-        total_loss = torch.tensor(total_loss).mean()  # average loss
-    else:
-        total_loss = 0
-    if training_mode == "self_supervised":
-        total_acc = 0
-        return total_loss, total_acc, [], []
-    else:
-        total_acc = torch.tensor(total_acc).mean()  # average acc
-    return total_loss, total_acc, outs, trgs
+    return torch.tensor(val_losses).mean(), torch.nan, [], []
 
 # ----------------------------------------------------------------------
 # config.py
@@ -965,6 +955,7 @@ def encode_representations(X, y, model, temporal_contr_model, tcc_batch_size, de
     reprs, labs = [], []
     with torch.no_grad():
         for xb, yb in loader:
+            dbg("encode xb", xb)
             xb = xb.to(device)
             if xb.shape.index(min(xb.shape)) != 1:
                 xb = xb.permute(0, 2, 1)
