@@ -966,6 +966,8 @@ def encode_representations(X, y, model, temporal_contr_model, tcc_batch_size, de
     with torch.no_grad():
         for xb, yb in loader:
             xb = xb.to(device)
+            if xb.shape.index(min(xb.shape)) != 1:
+                xb = xb.permute(0, 2, 1)
             # conv encoder
             _, feats = model(xb)
             feats = F.normalize(feats, dim=1)
