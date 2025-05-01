@@ -384,6 +384,7 @@ class TC(nn.Module):
 
     def forward(self, features_aug1, features_aug2):
         dbg("TC input", features_aug1, features_aug2)
+        show_shape("TC IN feats1/2", (features_aug1, features_aug2))
         z_aug1 = features_aug1  # features are (batch_size, #channels, seq_len)
         seq_len = z_aug1.shape[2]
         z_aug1 = z_aug1.transpose(1, 2)
@@ -391,6 +392,7 @@ class TC(nn.Module):
         z_aug2 = features_aug2
         z_aug2 = z_aug2.transpose(1, 2)
         dbg("TC transposed", z_aug1, z_aug2)
+        show_shape("TC context token", c_t)
 
         batch = z_aug1.shape[0]
         t_samples = torch.randint(seq_len - self.timestep, size=(1,)).long().to(self.device)  # randomly pick time stamps
@@ -450,6 +452,7 @@ class base_Model(nn.Module):
 
     def forward(self, x_in):
         dbg("conv1 in ", x_in)
+        show_shape("base_Model in", x_in)
         x = self.conv_block1(x_in)
         dbg("conv1 out", x)
         x = self.conv_block2(x)
@@ -459,6 +462,7 @@ class base_Model(nn.Module):
 
         x_flat = x.reshape(x.shape[0], -1)
         dbg("flattened", x_flat)
+        show_shape("base_Model feat_out(flat)", x_flat)
         logits = self.logits(x_flat)
         return logits, x
     
@@ -466,7 +470,7 @@ class base_Model(nn.Module):
 # ----------------------------------------------------------------------
 # utils.py
 # ----------------------------------------------------------------------
-_DEBUG = True                         
+_DEBUG = False                         
 
 def dbg(tag, *tensors):
     """
@@ -482,6 +486,17 @@ def set_requires_grad(model, dict_, requires_grad=True):
     for param in model.named_parameters():
         if param[0] in dict_:
             param[1].requires_grad = requires_grad
+
+def show_shape(label: str, obj):
+    """
+    Print label + shape only once per call site.
+    Accepts tensors, numpy arrays or anything with `.shape`.
+    """
+    if isinstance(obj, (list, tuple)):
+        shapes = [getattr(x, "shape", None) for x in obj]
+        print(f"[DBG] {label}: {[tuple(s) for s in shapes]}")
+    else:
+        print(f"[DBG] {label}: {tuple(getattr(obj, 'shape', ('?')))}")
 
 
 def fix_randomness(SEED):
@@ -615,7 +630,11 @@ def model_train(model, temporal_contr_model,
 
     batch_losses = []
 
-    for data, labels, aug1, aug2 in train_loader:
+    #for data, labels, aug1, aug2 in train_loader:
+    for batch_idx, (data, labels, aug1, aug2) in enumerate(train_loader):
+        if batch_idx == 0:
+            show_shape("train-loop INPUT   aug1/aug2", (aug1, aug2))
+            
 
         # ── move to device ────────────────────────────────────────────
         aug1, aug2 = aug1.float().to(device), aug2.float().to(device)
@@ -658,7 +677,9 @@ def model_evaluate(model, temporal_contr_model,
     val_losses = []
 
     with torch.no_grad():
-        for data, labels, aug1, aug2 in dl:
+        for batch_idx, (data, labels, aug1, aug2) in enumerate(dl):
+            if batch_idx == 0:
+                show_shape("eval-loop INPUT    aug1/aug2", (aug1, aug2))
 
             aug1, aug2 = aug1.to(device), aug2.to(device)
             data, labels = data.to(device), labels.to(device)
@@ -948,6 +969,7 @@ def evaluate_classifier(
 # Encoding function to textract TS-TCC representations
 # ----------------------------------------------------------------------
 def encode_representations(X, y, model, temporal_contr_model, tcc_batch_size, device):
+    show_shape("encode_repr - raw X", X)
     loader = DataLoader(
         TensorDataset(torch.from_numpy(X).float(), torch.from_numpy(y).long()),
         batch_size=tcc_batch_size, shuffle=False
@@ -955,7 +977,7 @@ def encode_representations(X, y, model, temporal_contr_model, tcc_batch_size, de
     reprs, labs = [], []
     with torch.no_grad():
         for xb, yb in loader:
-            dbg("encode xb", xb)
+            #dbg("encode xb", xb)
             xb = xb.to(device)
             if xb.shape.index(min(xb.shape)) != 1:
                 xb = xb.permute(0, 2, 1)
