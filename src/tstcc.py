@@ -14,6 +14,7 @@ from sklearn.metrics import classification_report, cohen_kappa_score, confusion_
 from torchmetrics.classification import BinaryAUROC, BinaryAveragePrecision, BinaryF1Score
 from shutil import copy
 from einops import rearrange, repeat
+from typing import Union, Sequence
 
 # ----------------------------------------------------------------------
 # augmentations.py
@@ -22,7 +23,6 @@ def DataTransform(sample, config):
 
     weak_aug = scaling(sample, config.augmentation.jitter_scale_ratio)
     strong_aug = jitter(permutation(sample, max_segments=config.augmentation.max_seg), config.augmentation.jitter_ratio)
-    dbg("weak/strong", weak_aug, strong_aug)
     return weak_aug, strong_aug
 
 
@@ -117,7 +117,6 @@ class Load_Dataset(Dataset):
 
     def __getitem__(self, index):
         if self.training_mode == "self_supervised":
-            dbg("getitem ssl", self.x_data[index], self.aug1[index], self.aug2[index])
             return self.x_data[index], self.y_data[index], self.aug1[index], self.aug2[index]
         else:
             return self.x_data[index], self.y_data[index], self.x_data[index], self.x_data[index]
@@ -383,7 +382,6 @@ class TC(nn.Module):
         self.seq_transformer = Seq_Transformer(patch_size=self.num_channels, dim=configs.TC.hidden_dim, depth=4, heads=4, mlp_dim=64)
 
     def forward(self, features_aug1, features_aug2):
-        dbg("TC input", features_aug1, features_aug2)
         show_shape("TC IN feats1/2", (features_aug1, features_aug2))
         z_aug1 = features_aug1  # features are (batch_size, #channels, seq_len)
         seq_len = z_aug1.shape[2]
@@ -391,7 +389,6 @@ class TC(nn.Module):
 
         z_aug2 = features_aug2
         z_aug2 = z_aug2.transpose(1, 2)
-        dbg("TC transposed", z_aug1, z_aug2)
 
         batch = z_aug1.shape[0]
         t_samples = torch.randint(seq_len - self.timestep, size=(1,)).long().to(self.device)  # randomly pick time stamps
@@ -414,7 +411,6 @@ class TC(nn.Module):
             total = torch.mm(encode_samples[i], torch.transpose(pred[i], 0, 1))
             nce += torch.sum(torch.diag(self.lsoftmax(total)))
         nce /= -1. * batch * self.timestep
-        dbg("TC pred", pred) 
         return nce, self.projection_head(c_t)
     
 # ----------------------------------------------------------------------
@@ -451,17 +447,12 @@ class base_Model(nn.Module):
         self.logits = nn.Linear(model_output_dim * configs.final_out_channels, configs.num_classes)
 
     def forward(self, x_in):
-        dbg("conv1 in ", x_in)
         show_shape("base_Model in", x_in)
         x = self.conv_block1(x_in)
-        dbg("conv1 out", x)
         x = self.conv_block2(x)
-        dbg("conv2 out", x)
         x = self.conv_block3(x)
-        dbg("conv3 out", x)
 
         x_flat = x.reshape(x.shape[0], -1)
-        dbg("flattened", x_flat)
         show_shape("base_Model feat_out(flat)", x_flat)
         logits = self.logits(x_flat)
         return logits, x
@@ -470,33 +461,33 @@ class base_Model(nn.Module):
 # ----------------------------------------------------------------------
 # utils.py
 # ----------------------------------------------------------------------
-_DEBUG = False                         
+DEBUG_SHAPES = True # flip to False to mute everything
 
-def dbg(tag, *tensors):
+_printed_once: set[str] = set()  
+
+def _shape(x):
+    """convenience – works for tensors / ndarrays / lists"""
+    if isinstance(x, (torch.Tensor, np.ndarray)):
+        return tuple(x.shape)
+    return str(type(x))
+
+def show_shape(label: str, obj: Union[torch.Tensor, np.ndarray, Sequence], *,
+               once: bool = True) -> None:
     """
-    Print shapes of tensors (or python scalars) when _DEBUG is True.
-    Usage: dbg("after aug", aug1, aug2)
+    Print `<label>: <shape>` in a *single* line.
+    If `once=True` (default) the same label is never printed again
     """
-    if not _DEBUG:
+    if not DEBUG_SHAPES:
         return
-    shapes = [tuple(t.shape) if torch.is_tensor(t) else str(type(t)) for t in tensors]
-    print(f"[DBG] {tag:>20s} :", *shapes, flush=True)
+    if once and label in _printed_once:
+        return
+    _printed_once.add(label)
 
-def set_requires_grad(model, dict_, requires_grad=True):
-    for param in model.named_parameters():
-        if param[0] in dict_:
-            param[1].requires_grad = requires_grad
-
-def show_shape(label: str, obj):
-    """
-    Print label + shape only once per call site.
-    Accepts tensors, numpy arrays or anything with `.shape`.
-    """
     if isinstance(obj, (list, tuple)):
-        shapes = [getattr(x, "shape", None) for x in obj]
-        print(f"[DBG] {label}: {[tuple(s) for s in shapes]}")
+        shapes = [_shape(o) for o in obj]
     else:
-        print(f"[DBG] {label}: {tuple(getattr(obj, 'shape', ('?')))}")
+        shapes = _shape(obj)
+    print(f"[DBG] {label:<26s} : {shapes}", flush=True)
 
 
 def fix_randomness(SEED):
@@ -577,7 +568,6 @@ def copy_Files(destination, data_type):
     copy("models/TC.py", os.path.join(destination_dir, "TC.py"))
 
 def compute_ssl_loss(feat1, feat2, tc_model, nt_xent_loss):
-    dbg("ssl feats", feat1, feat2)
     feat1 = F.normalize(feat1, dim=1)
     feat2 = F.normalize(feat2, dim=1)
     loss1, proj1 = tc_model(feat1, feat2)
@@ -639,7 +629,6 @@ def model_train(model, temporal_contr_model,
         # ── move to device ────────────────────────────────────────────
         aug1, aug2 = aug1.float().to(device), aug2.float().to(device)
         data, labels = data.float().to(device), labels.long().to(device)
-        dbg("batch data", data, aug1, aug2)
 
         model_opt.zero_grad()
         tc_opt.zero_grad()
@@ -977,7 +966,6 @@ def encode_representations(X, y, model, temporal_contr_model, tcc_batch_size, de
     reprs, labs = [], []
     with torch.no_grad():
         for xb, yb in loader:
-            #dbg("encode xb", xb)
             xb = xb.to(device)
             if xb.shape.index(min(xb.shape)) != 1:
                 xb = xb.permute(0, 2, 1)
