@@ -737,7 +737,7 @@ class augmentations(object):
     """
     def __init__(self):
         self.jitter_scale_ratio = 0.001   # very mild scaling
-        self.jitter_ratio       = 0.05    # mild additive jitter
+        self.jitter_ratio       = 0.001    # mild additive jitter
         self.max_seg            = 8       # split into ≤8 segments for strong aug
 
 
