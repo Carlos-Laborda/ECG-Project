@@ -114,6 +114,7 @@ class ECGTSTCCFlow(FlowSpec):
         with mlflow.start_run(run_id=self.mlflow_run_id):
         # MLflow params
             params = {
+                "model_name": self.model.__class__.__name__,
                 "tcc_epochs": self.tcc_epochs,
                 "tcc_lr": self.tcc_lr,
                 "tcc_batch_size": self.tcc_batch_size,
