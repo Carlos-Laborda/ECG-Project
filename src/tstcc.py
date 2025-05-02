@@ -392,7 +392,6 @@ class TC(nn.Module):
         z_aug2 = features_aug2
         z_aug2 = z_aug2.transpose(1, 2)
         dbg("TC transposed", z_aug1, z_aug2)
-        show_shape("TC context token", c_t)
 
         batch = z_aug1.shape[0]
         t_samples = torch.randint(seq_len - self.timestep, size=(1,)).long().to(self.device)  # randomly pick time stamps
@@ -405,6 +404,7 @@ class TC(nn.Module):
         forward_seq = z_aug1[:, :t_samples + 1, :]
 
         c_t = self.seq_transformer(forward_seq)
+        show_shape("TC context token", c_t)
 
         pred = torch.empty((self.timestep, batch, self.num_channels)).float().to(self.device)
         for i in np.arange(0, self.timestep):
