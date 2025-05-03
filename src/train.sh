@@ -34,3 +34,5 @@ python tstcc_train.py run \
   --window_data_path "../../../../var/scratch/cla224/ECG-Project/data/windowed_data.h5" \
   --tcc_epochs 3 \
   --label_fraction 1.0 \
+  --cc_temperature 0.07 \
+  --tc_timesteps 70 \
