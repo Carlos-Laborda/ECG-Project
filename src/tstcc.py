@@ -738,7 +738,7 @@ class augmentations(object):
     def __init__(self):
         self.jitter_scale_ratio = 0.001   # very mild scaling
         self.jitter_ratio       = 0.001    # mild additive jitter
-        self.max_seg            = 10       # split into ≤8 segments for strong aug
+        self.max_seg            = 8       # split into ≤8 segments for strong aug
 
 
 class Context_Cont_configs(object):
@@ -750,7 +750,7 @@ class Context_Cont_configs(object):
 class TCConfig(object):
     def __init__(self):
         self.hidden_dim = 100      # same as original paper
-        self.timesteps  = 50       # predict 50 steps (~16 % of 315-step stream)
+        self.timesteps  = 50       # 15 % – 30 % of seq_len (here 45 – 95).
 
 # ----------------------------------------------------------------------        
 # linear classifier
