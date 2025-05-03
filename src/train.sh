@@ -36,3 +36,4 @@ python tstcc_train.py run \
   --label_fraction 1.0 \
   --cc_temperature 0.07 \
   --tc_timesteps 70 \
+  --tc_hidden_dim 128
