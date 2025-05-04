@@ -703,11 +703,8 @@ class Config(object):
         self.dropout             = 0.35
 
         # Length of the sequence that reaches the projection head
-        # 10 000 → 315 after the {conv + pool} stack (see calc below)
+        # 10 000 → 315 after the conv + pool stack
         self.features_len        = 315
-
-        # We still keep a dummy “num_classes” so that the base model
-        # can be reused for fine-tuning, but it is ignored in SSL
         self.num_classes         = 2
 
         # ─────────────────── Training ───────────────────────
