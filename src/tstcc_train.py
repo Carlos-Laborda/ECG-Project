@@ -36,10 +36,6 @@ class ECGTSTCCFlow(FlowSpec):
     # temporal contrasting
     tc_timesteps = Parameter("tc_timesteps", default=50)
     tc_hidden_dim = Parameter("tc_hidden_dim", default=100)
-    # tc_depth = Parameter("tc_depth", default=4)
-    # tc_heads = Parameter("tc_heads", default=4)
-    # tc_mlp_dim = Parameter("tc_mlp_dim", default=64)
-    # tc_dropout = Parameter("tc_dropout", default=0.1)
 
     # contextual contrasting
     cc_temperature = Parameter("cc_temperature", default=0.2)
@@ -120,10 +116,6 @@ class ECGTSTCCFlow(FlowSpec):
                 "tcc_batch_size": self.tcc_batch_size,
                 "tc_timesteps": self.tc_timesteps,
                 "tc_hidden_dim": self.tc_hidden_dim,
-                # "tc_depth": self.tc_depth,
-                # "tc_heads": self.tc_heads,
-                # "tc_mlp_dim": self.tc_mlp_dim,
-                # "tc_dropout": self.tc_dropout,
                 "cc_temperature": self.cc_temperature,
                 "cc_use_cosine": self.cc_use_cosine
             }
