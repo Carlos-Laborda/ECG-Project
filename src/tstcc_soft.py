@@ -360,6 +360,311 @@ class NTXentLoss(torch.nn.Module):
 
         return loss / (2 * self.batch_size)
 
+# ----------------------------------------------------------------------
+# hard_losses.py
+# ----------------------------------------------------------------------
+def inst_CL_hard(z1, z2):
+    B, T = z1.size(0), z1.size(1)
+    if B == 1:
+        return z1.new_tensor(0.)
+    z = torch.cat([z1, z2], dim=0)  # 2B x T x C
+    z = z.transpose(0, 1)  # T x 2B x C
+    sim = torch.matmul(z, z.transpose(1, 2))  # T x 2B x 2B
+    logits = torch.tril(sim, diagonal=-1)[:, :, :-1]    # T x 2B x (2B-1)
+    logits += torch.triu(sim, diagonal=1)[:, :, 1:]
+    logits = -F.log_softmax(logits, dim=-1)
+    
+    i = torch.arange(B, device=z1.device)
+    loss = (logits[:, i, B + i - 1].mean() + logits[:, B + i, i].mean()) / 2
+    return loss
+
+def temp_CL_hard(z1, z2):
+    B, T = z1.size(0), z1.size(1)
+    if T == 1:
+        return z1.new_tensor(0.)
+    z = torch.cat([z1, z2], dim=1)  # B x 2T x C
+    sim = torch.matmul(z, z.transpose(1, 2))  # B x 2T x 2T
+    logits = torch.tril(sim, diagonal=-1)[:, :, :-1]    # B x 2T x (2T-1)
+    logits += torch.triu(sim, diagonal=1)[:, :, 1:]
+    logits = -F.log_softmax(logits, dim=-1)
+    
+    t = torch.arange(T, device=z1.device)
+    loss = (logits[:, t, T + t - 1].mean() + logits[:, T + t, t].mean()) / 2
+    return loss
+
+def hier_CL_hard(z1, z2, lambda_=0.5, temporal_unit=0):
+    loss = torch.tensor(0., device=z1.device)
+    d = 0
+    while z1.size(1) > 1:
+        if lambda_ != 0:
+            loss += lambda_ * inst_CL_hard(z1, z2)
+        if d >= temporal_unit:
+            if 1 - lambda_ != 0:
+                loss += (1 - lambda_) * temp_CL_hard(z1, z2)
+        d += 1
+        z1 = F.max_pool1d(z1.transpose(1, 2), kernel_size=2).transpose(1, 2)
+        z2 = F.max_pool1d(z2.transpose(1, 2), kernel_size=2).transpose(1, 2)
+        
+    if z1.size(1) == 1:
+        if lambda_ != 0:
+            loss += lambda_ * inst_CL_hard(z1, z2)
+        d += 1
+    return loss / d
+
+# ------------------------------------------------------------------------------------------#
+# soft_losses.py
+# ------------------------------------------------------------------------------------------#
+
+# (1) Instance-wise CL
+def inst_CL_soft(z1, z2, soft_labels_L, soft_labels_R):
+    B, T = z1.size(0), z1.size(1)
+    if B == 1:
+        return z1.new_tensor(0.)
+    z = torch.cat([z1, z2], dim=0)  # 2B x T x C
+    z = z.transpose(0, 1)  # T x 2B x C
+    sim = torch.matmul(z, z.transpose(1, 2))  # T x 2B x 2B
+    logits = torch.tril(sim, diagonal=-1)[:, :, :-1]    # T x 2B x (2B-1)
+    logits += torch.triu(sim, diagonal=1)[:, :, 1:]
+    logits = -F.log_softmax(logits, dim=-1)
+    i = torch.arange(B, device=z1.device)
+    loss = torch.sum(logits[:,i]*soft_labels_L)
+    loss += torch.sum(logits[:,B + i]*soft_labels_R)
+    loss /= (2*B*T)
+    return loss
+
+# (2) Temporal CL
+def temp_CL_soft(z1, z2, timelag_L, timelag_R):
+    B, T = z1.size(0), z1.size(1)
+    if T == 1:
+        return z1.new_tensor(0.)
+    z = torch.cat([z1, z2], dim=1)  # B x 2T x C
+    sim = torch.matmul(z, z.transpose(1, 2))  # B x 2T x 2T
+    logits = torch.tril(sim, diagonal=-1)[:, :, :-1]    # B x 2T x (2T-1)
+    logits += torch.triu(sim, diagonal=1)[:, :, 1:]
+    logits = -F.log_softmax(logits, dim=-1)
+    t = torch.arange(T, device=z1.device)
+    loss = torch.sum(logits[:,t]*timelag_L)
+    loss += torch.sum(logits[:,T + t]*timelag_R)
+    loss /= (2*B*T)
+    return loss
+
+#------------------------------------------------------------------------------------------#
+# (3) Hierarchical CL = Instance CL + Temporal CL
+# (The below differs by the way it generates timelag for temporal CL )
+## 3-1) hier_CL_soft : sigmoid
+## 3-2) hier_CL_soft_window : window
+## 3-3) hier_CL_soft_thres : threshold
+## 3-4) hier_CL_soft_gaussian : gaussian
+## 3-5) hier_CL_soft_interval : same interval
+## 3-6) hier_CL_soft_wo_inst : 3-1) w/o instance CL
+#------------------------------------------------------------------------------------------#
+
+def hier_CL_soft(z1, z2, soft_labels, tau_temp=2, lambda_=0.5, temporal_unit=0, 
+                 soft_temporal=False, soft_instance=False, temporal_hierarchy=True):
+    
+    if soft_labels is not None:
+        soft_labels = torch.tensor(soft_labels, device=z1.device)
+        soft_labels_L, soft_labels_R = dup_matrix(soft_labels)
+    loss = torch.tensor(0., device=z1.device)
+    d = 0
+    while z1.size(1) > 1:
+        if lambda_ != 0:
+            if soft_instance:
+                loss += lambda_ * inst_CL_soft(z1, z2, soft_labels_L, soft_labels_R)
+            else:
+                loss += lambda_ * inst_CL_hard(z1, z2)
+        if d >= temporal_unit:
+            if 1 - lambda_ != 0:
+                if soft_temporal:
+                    if temporal_hierarchy:
+                        timelag = timelag_sigmoid(z1.shape[1],tau_temp*(2**d))
+                    else:
+                        timelag = timelag_sigmoid(z1.shape[1],tau_temp)
+                    timelag = torch.tensor(timelag, device=z1.device)
+                    timelag_L, timelag_R = dup_matrix(timelag)
+                    loss += (1 - lambda_) * temp_CL_soft(z1, z2, timelag_L, timelag_R)
+                else:
+                    loss += (1 - lambda_) * temp_CL_hard(z1, z2)
+        d += 1
+        z1 = F.max_pool1d(z1.transpose(1, 2), kernel_size=2).transpose(1, 2)
+        z2 = F.max_pool1d(z2.transpose(1, 2), kernel_size=2).transpose(1, 2)
+
+    if z1.size(1) == 1:
+        if lambda_ != 0:
+            if soft_instance:
+                loss += lambda_ * inst_CL_soft(z1, z2, soft_labels_L, soft_labels_R)
+            else:
+                loss += lambda_ * inst_CL_hard(z1, z2)
+        d += 1
+
+    return loss / d
+
+
+def hier_CL_soft_window(z1, z2, soft_labels, window_ratio, tau_temp=2, lambda_=0.5,
+                        temporal_unit=0, soft_temporal=False, soft_instance=False):
+    soft_labels = torch.tensor(soft_labels, device=z1.device)
+    soft_labels_L, soft_labels_R = dup_matrix(soft_labels)
+    loss = torch.tensor(0., device=z1.device)
+    d = 0
+    while z1.size(1) > 1:
+        if lambda_ != 0:
+            if soft_instance:
+                loss += lambda_ * inst_CL_soft(z1, z2, soft_labels_L, soft_labels_R)
+            else:
+                loss += lambda_ * inst_CL_hard(z1, z2)
+        if d >= temporal_unit:
+            if 1 - lambda_ != 0:
+                if soft_temporal:
+                    timelag = timelag_sigmoid_window(z1.shape[1],tau_temp*(2**d),window_ratio)
+                    timelag = torch.tensor(timelag, device=z1.device)
+                    timelag_L, timelag_R = dup_matrix(timelag)
+                    loss += (1 - lambda_) * temp_CL_soft(z1, z2, timelag_L, timelag_R)
+                else:
+                    loss += (1 - lambda_) * temp_CL_hard(z1, z2)
+        d += 1
+        z1 = F.max_pool1d(z1.transpose(1, 2), kernel_size=2).transpose(1, 2)
+        z2 = F.max_pool1d(z2.transpose(1, 2), kernel_size=2).transpose(1, 2)
+
+    if z1.size(1) == 1:
+        if lambda_ != 0:
+            if soft_instance:
+                loss += lambda_ * inst_CL_soft(z1, z2, soft_labels_L, soft_labels_R)
+            else:
+                loss += lambda_ * inst_CL_hard(z1, z2)
+        d += 1
+
+    return loss / d
+
+def hier_CL_soft_thres(z1, z2, soft_labels, threshold, lambda_=0.5, temporal_unit=0, soft_temporal=False, soft_instance=False):
+    soft_labels = torch.tensor(soft_labels, device=z1.device)
+    soft_labels_L, soft_labels_R = dup_matrix(soft_labels)
+    loss = torch.tensor(0., device=z1.device)
+    d = 0
+    while z1.size(1) > 1:
+        if lambda_ != 0:
+            if soft_instance:
+                loss += lambda_ * inst_CL_soft(z1, z2, soft_labels_L, soft_labels_R)
+            else:
+                loss += lambda_ * inst_CL_hard(z1, z2)
+        if d >= temporal_unit:
+            if 1 - lambda_ != 0:
+                if soft_temporal:
+                    timelag = timelag_sigmoid_threshold(z1.shape[1], threshold)
+                    timelag = torch.tensor(timelag, device=z1.device)
+                    timelag_L, timelag_R = dup_matrix(timelag)
+                    loss += (1 - lambda_) * temp_CL_soft(z1, z2, timelag_L, timelag_R)
+                else:
+                    loss += (1 - lambda_) * temp_CL_hard(z1, z2)
+        d += 1
+        z1 = F.max_pool1d(z1.transpose(1, 2), kernel_size=2).transpose(1, 2)
+        z2 = F.max_pool1d(z2.transpose(1, 2), kernel_size=2).transpose(1, 2)
+
+    if z1.size(1) == 1:
+        if lambda_ != 0:
+            if soft_instance:
+                loss += lambda_ * inst_CL_soft(z1, z2, soft_labels_L, soft_labels_R)
+            else:
+                loss += lambda_ * inst_CL_hard(z1, z2)
+        d += 1
+
+    return loss / d
+
+
+def hier_CL_soft_gaussian(z1, z2, soft_labels, tau_temp=2, lambda_=0.5, temporal_unit=0, soft_temporal=False, soft_instance=False, temporal_hierarchy=True):
+    soft_labels = torch.tensor(soft_labels, device=z1.device)
+    soft_labels_L, soft_labels_R = dup_matrix(soft_labels)
+    loss = torch.tensor(0., device=z1.device)
+    d = 0
+    while z1.size(1) > 1:
+        if lambda_ != 0:
+            if soft_instance:
+                loss += lambda_ * inst_CL_soft(z1, z2, soft_labels_L, soft_labels_R)
+            else:
+                loss += lambda_ * inst_CL_hard(z1, z2)
+        if d >= temporal_unit:
+            if 1 - lambda_ != 0:
+                if soft_temporal:
+                    if temporal_hierarchy:
+                        timelag = timelag_gaussian(z1.shape[1],tau_temp/(2**d))
+                    else:
+                        timelag = timelag_gaussian(z1.shape[1],tau_temp)
+                    timelag = torch.tensor(timelag, device=z1.device)
+                    timelag_L, timelag_R = dup_matrix(timelag)
+                    loss += (1 - lambda_) * temp_CL_soft(z1, z2, timelag_L, timelag_R)
+                else:
+                    loss += (1 - lambda_) * temp_CL_hard(z1, z2)
+        d += 1
+        z1 = F.max_pool1d(z1.transpose(1, 2), kernel_size=2).transpose(1, 2)
+        z2 = F.max_pool1d(z2.transpose(1, 2), kernel_size=2).transpose(1, 2)
+
+    if z1.size(1) == 1:
+        if lambda_ != 0:
+            if soft_instance:
+                loss += lambda_ * inst_CL_soft(z1, z2, soft_labels_L, soft_labels_R)
+            else:
+                loss += lambda_ * inst_CL_hard(z1, z2)
+        d += 1
+
+    return loss / d
+
+
+def hier_CL_soft_interval(z1, z2, soft_labels, tau_temp=2, lambda_=0.5, temporal_unit=0, soft_temporal=False, soft_instance=False):
+    soft_labels = torch.tensor(soft_labels, device=z1.device)
+    soft_labels_L, soft_labels_R = dup_matrix(soft_labels)
+    loss = torch.tensor(0., device=z1.device)
+    d = 0
+    while z1.size(1) > 1:
+        if lambda_ != 0:
+            if soft_instance:
+                loss += lambda_ * inst_CL_soft(z1, z2, soft_labels_L, soft_labels_R)
+            else:
+                loss += lambda_ * inst_CL_hard(z1, z2)
+        if d >= temporal_unit:
+            if 1 - lambda_ != 0:
+                if soft_temporal:
+                    timelag = timelag_same_interval(z1.shape[1],tau_temp/(2**d))
+                    timelag = torch.tensor(timelag, device=z1.device)
+                    timelag_L, timelag_R = dup_matrix(timelag)
+                    loss += (1 - lambda_) * temp_CL_soft(z1, z2, timelag_L, timelag_R)
+                else:
+                    loss += (1 - lambda_) * temp_CL_hard(z1, z2)
+        d += 1
+        z1 = F.max_pool1d(z1.transpose(1, 2), kernel_size=2).transpose(1, 2)
+        z2 = F.max_pool1d(z2.transpose(1, 2), kernel_size=2).transpose(1, 2)
+
+    if z1.size(1) == 1:
+        if lambda_ != 0:
+            if soft_instance:
+                loss += lambda_ * inst_CL_soft(z1, z2, soft_labels_L, soft_labels_R)
+            else:
+                loss += lambda_ * inst_CL_hard(z1, z2)
+        d += 1
+
+    return loss / d
+
+def hier_CL_soft_wo_inst(z1, z2, soft_labels, tau_temp=2, lambda_=0.5, temporal_unit=0, soft_temporal=False, soft_instance=False):
+    soft_labels = torch.tensor(soft_labels, device=z1.device)
+    soft_labels_L, soft_labels_R = dup_matrix(soft_labels)
+    loss = torch.tensor(0., device=z1.device)
+    d = 0
+    while z1.size(1) > 1:
+        if d >= temporal_unit:
+            if 1 - lambda_ != 0:
+                if soft_temporal:
+                    timelag = timelag_sigmoid(z1.shape[1],tau_temp*(2**d))
+                    timelag = torch.tensor(timelag, device=z1.device)
+                    timelag_L, timelag_R = dup_matrix(timelag)
+                    loss += (1 - lambda_) * temp_CL_soft(z1, z2, timelag_L, timelag_R)
+                else:
+                    loss += (1 - lambda_) * temp_CL_hard(z1, z2)
+        d += 1
+        z1 = F.max_pool1d(z1.transpose(1, 2), kernel_size=2).transpose(1, 2)
+        z2 = F.max_pool1d(z2.transpose(1, 2), kernel_size=2).transpose(1, 2)
+
+    if z1.size(1) == 1:
+        d += 1
+
+    return loss / d
 
 # ----------------------------------------------------------------------
 # attention.py
@@ -649,6 +954,55 @@ class tstcc_soft(nn.Module):
             return aug_logits, aug
 
 # ----------------------------------------------------------------------
+# timelags.py
+# ----------------------------------------------------------------------    
+
+def dup_matrix(mat):
+    mat0 = torch.tril(mat, diagonal=-1)[:, :-1]   
+    mat0 += torch.triu(mat, diagonal=1)[:, 1:]
+    mat1 = torch.cat([mat0,mat],dim=1)
+    mat2 = torch.cat([mat,mat0],dim=1)
+    return mat1, mat2
+
+##############################################################################
+## 6 Different ways of generating time lags
+##############################################################################
+def timelag_sigmoid(T,sigma=1):
+    dist = np.arange(T)
+    dist = np.abs(dist - dist[:, np.newaxis])
+    matrix = 2 / (1 +np.exp(dist*sigma))
+    matrix = np.where(matrix < 1e-6, 0, matrix)  # set very small values to 0         
+    return matrix
+
+def timelag_gaussian(T,sigma):
+    dist = np.arange(T)
+    dist = np.abs(dist - dist[:, np.newaxis])
+    matrix = np.exp(-(dist**2)/(2 * sigma ** 2))
+    matrix = np.where(matrix < 1e-6, 0, matrix) 
+    return matrix
+
+def timelag_same_interval(T):
+    d = np.arange(T)
+    X, Y = np.meshgrid(d, d)
+    matrix = 1 - np.abs(X - Y) / T
+    return matrix
+
+def timelag_sigmoid_window(T, sigma=1, window_ratio=1.0):
+    dist = np.arange(T)
+    dist = np.abs(dist - dist[:, np.newaxis])
+    matrix = 2 / (1 +np.exp(dist*sigma))
+    matrix = np.where(matrix < 1e-6, 0, matrix)          
+    dist_from_diag = np.abs(np.subtract.outer(np.arange(dist.shape[0]), np.arange(dist.shape[1])))
+    matrix[dist_from_diag > T*window_ratio] = 0
+    return matrix
+
+def timelag_sigmoid_threshold(T, threshold=1.0):
+    dist = np.ones((T,T))
+    dist_from_diag = np.abs(np.subtract.outer(np.arange(dist.shape[0]), np.arange(dist.shape[1])))
+    dist[dist_from_diag > T*threshold] = 0
+    return dist
+
+# ----------------------------------------------------------------------
 # utils.py
 # ----------------------------------------------------------------------
 DEBUG_SHAPES = True # flip to False to mute everything
@@ -679,7 +1033,15 @@ def show_shape(label: str, obj: Union[torch.Tensor, np.ndarray, Sequence], *,
         shapes = _shape(obj)
     print(f"[DBG] {label:<26s} : {shapes}", flush=True)
 
+def set_requires_grad(model, dict_, requires_grad=True):
+    for param in model.named_parameters():
+        if param[0] in dict_:
+            param[1].requires_grad = requires_grad
 
+def loop_iterable(iterable):
+    while True:
+        yield from iterable
+        
 def fix_randomness(SEED):
     random.seed(SEED)
     np.random.seed(SEED)
@@ -687,6 +1049,16 @@ def fix_randomness(SEED):
     torch.cuda.manual_seed(SEED)
     torch.backends.cudnn.deterministic = True
 
+def init_weights(m):
+    for name, param in m.named_parameters():
+        nn.init.uniform_(param.data, -0.08, 0.08)
+        # if name=='weight':
+        #     nn.init.kaiming_uniform_(param.data)
+        # else:
+        #     torch.nn.init.zeros_(param.data)
+
+def count_parameters(model):
+    return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
 def epoch_time(start_time, end_time):
     elapsed_time = end_time - start_time
@@ -767,6 +1139,211 @@ def compute_ssl_loss(feat1, feat2, tc_model, nt_xent_loss):
     ssl_loss = loss1 + loss2 + 0.7 * nt_xent_loss(proj1, proj2)
     return ssl_loss
 
+# ----------------------------------------------------------------------
+# trainer_utils.py
+# ----------------------------------------------------------------------
+def densify(x, tau, alpha=0.5):
+    return ((2*alpha) / (1 + np.exp(-tau*x))) + (1-alpha)*np.eye(x.shape[0])
+
+def model_train(soft_labels, model, temporal_contr_model, model_optimizer, temp_cont_optimizer, criterion, train_loader, config,
+                device, training_mode, lambda_aux):
+    total_loss = []
+    total_acc = []
+    model.train()
+    temporal_contr_model.train()
+    soft_labels = torch.tensor(soft_labels, device=device)
+
+    for _, (idx, data, labels, aug1, aug2) in enumerate(train_loader):
+        data, labels = data.float().to(device), labels.long().to(device)
+        aug1, aug2 = aug1.float().to(device), aug2.float().to(device)
+        aug1 = aug1*100
+        aug2 = aug2*100
+        
+        model_optimizer.zero_grad()
+        temp_cont_optimizer.zero_grad()
+
+        if training_mode == "self_supervised":
+            
+            soft_labels_batch = soft_labels[idx][:,idx]
+
+            _, _, features1, features2, final_loss = model(aug1, aug2, soft_labels_batch)
+            del soft_labels_batch
+
+            features1 = F.normalize(features1, dim=1)
+            features2 = F.normalize(features2, dim=1)
+
+            temp_cont_loss1, temp_cont_feat1 = temporal_contr_model(features1, features2)
+            temp_cont_loss2, temp_cont_feat2 = temporal_contr_model(features2, features1)
+
+
+        if training_mode == "self_supervised":
+            lambda1 = 1
+            lambda2 = 0.7
+            nt_xent_criterion = NTXentLoss(device, config.batch_size, config.Context_Cont.temperature,
+                                           config.Context_Cont.use_cosine_similarity)
+            loss = (temp_cont_loss1 + temp_cont_loss2) * lambda1 + \
+                   nt_xent_criterion(temp_cont_feat1, temp_cont_feat2) * lambda2
+
+        else:
+            output = model(data, 0, 0, train=False)
+            predictions, _ = output
+            loss = criterion(predictions, labels)
+            total_acc.append(labels.eq(predictions.detach().argmax(dim=1)).float().mean())
+
+        if (training_mode == "self_supervised") :
+            loss += lambda_aux*final_loss
+           
+        total_loss.append(loss.item())
+        loss.backward()
+        model_optimizer.step()
+        temp_cont_optimizer.step()
+
+    total_loss = torch.tensor(total_loss).mean()
+
+    if training_mode == "self_supervised":
+        total_acc = 0
+    else:
+        total_acc = torch.tensor(total_acc).mean()
+    return total_loss, total_acc
+
+def model_train_wo_DTW(dist_func, dist_type, tau_inst, model, temporal_contr_model, 
+                       model_optimizer, temp_cont_optimizer, criterion, train_loader,
+                       config, device, training_mode, lambda_aux):
+    total_loss = []
+    total_acc = []
+    model.train()
+    temporal_contr_model.train()
+
+    for _, (_, data, labels, aug1, aug2) in enumerate(train_loader):
+        data, labels = data.float().to(device), labels.long().to(device)
+        aug1, aug2 = aug1.float().to(device), aug2.float().to(device)
+        aug1 = aug1*100
+        aug2 = aug2*100
+        
+        model_optimizer.zero_grad()
+        temp_cont_optimizer.zero_grad()
+
+        if training_mode == "self_supervised":
+            temp = data.view(data.shape[0], -1).detach().cpu().numpy()
+            dist_mat_batch = dist_func(temp)
+            if dist_type=='euc':
+                dist_mat_batch = (dist_mat_batch - np.min(dist_mat_batch)) / (np.max(dist_mat_batch) - np.min(dist_mat_batch))
+                dist_mat_batch = - dist_mat_batch
+            dist_mat_batch = densify(dist_mat_batch, tau_inst, alpha=0.5)
+            dist_mat_batch = torch.tensor(dist_mat_batch, device=device)
+            _, _, features1, features2, final_loss = model(aug1, aug2, dist_mat_batch)
+            del dist_mat_batch
+
+            features1 = F.normalize(features1, dim=1)
+            features2 = F.normalize(features2, dim=1)
+
+            temp_cont_loss1, temp_cont_feat1 = temporal_contr_model(features1, features2)
+            temp_cont_loss2, temp_cont_feat2 = temporal_contr_model(features2, features1)
+
+
+        if training_mode == "self_supervised":
+            lambda1 = 1
+            lambda2 = 0.7
+            nt_xent_criterion = NTXentLoss(device, config.batch_size, config.Context_Cont.temperature,
+                                           config.Context_Cont.use_cosine_similarity)
+            loss = (temp_cont_loss1 + temp_cont_loss2) * lambda1 + \
+                   nt_xent_criterion(temp_cont_feat1, temp_cont_feat2) * lambda2
+
+        else:
+            output = model(data, 0, 0, train=False)
+            predictions, _ = output
+            loss = criterion(predictions, labels)
+            total_acc.append(labels.eq(predictions.detach().argmax(dim=1)).float().mean())
+
+        if (training_mode == "self_supervised") :
+            loss += lambda_aux*final_loss
+        
+        total_loss.append(loss.item())
+        loss.backward()
+        model_optimizer.step()
+        temp_cont_optimizer.step()
+
+    total_loss = torch.tensor(total_loss).mean()
+
+    if (training_mode == "self_supervised"):
+        total_acc = 0
+    else:
+        total_acc = torch.tensor(total_acc).mean()
+    return total_loss, total_acc
+
+
+def model_evaluate(model, temporal_contr_model, test_dl, device, training_mode):
+    model.eval()
+    temporal_contr_model.eval()
+
+    total_loss = []
+    total_acc = []
+
+    criterion = nn.CrossEntropyLoss()
+    outs = np.array([])
+    trgs = np.array([])
+
+    with torch.no_grad():
+        for _, data, labels, _, _ in test_dl:
+            data, labels = data.float().to(device), labels.long().to(device)
+
+            if (training_mode == "self_supervised"):
+                pass
+            else:
+                output = model(data, 0, 0, train=False)
+
+            if (training_mode != "self_supervised"):
+                predictions, features = output
+                loss = criterion(predictions, labels)
+                total_acc.append(labels.eq(predictions.detach().argmax(dim=1)).float().mean())
+                total_loss.append(loss.item())
+
+                pred = predictions.max(1, keepdim=True)[1]  # get the index of the max log-probability
+                outs = np.append(outs, pred.cpu().numpy())
+                trgs = np.append(trgs, labels.data.cpu().numpy())
+
+    if (training_mode == "self_supervised"):
+        total_loss = 0
+        total_acc = 0
+        return total_loss, total_acc, [], []
+    else:
+        total_loss = torch.tensor(total_loss).mean()  # average loss
+        total_acc = torch.tensor(total_acc).mean()  # average acc
+        return total_loss, total_acc, outs, trgs
+
+
+def gen_pseudo_labels(model, dataloader, device, experiment_log_dir, pc):
+    model.eval()
+    softmax = nn.Softmax(dim=1)
+
+    all_pseudo_labels = np.array([])
+    all_labels = np.array([])
+    all_data = []
+
+    with torch.no_grad():
+        for _, data, labels, _, _ in dataloader:
+            data = data.float().to(device)
+            labels = labels.view((-1)).long().to(device)
+
+            output = model(data, 0, 0, train=False)
+            predictions, features = output
+
+            normalized_preds = softmax(predictions)
+            pseudo_labels = normalized_preds.max(1, keepdim=True)[1].squeeze()
+            all_pseudo_labels = np.append(all_pseudo_labels, pseudo_labels.cpu().numpy())
+
+            all_labels = np.append(all_labels, labels.cpu().numpy())
+            all_data.append(data)
+
+    all_data = torch.cat(all_data, dim=0)
+
+    data_save = dict()
+    data_save["samples"] = all_data
+    data_save["labels"] = torch.LongTensor(torch.from_numpy(all_pseudo_labels).long())
+    file_name = f"pseudo_train_data_{str(pc)}perc.pt"
+    torch.save(data_save, os.path.join(experiment_log_dir, file_name))
+    print("Pseudo labels generated ...")
+    
 # ----------------------------------------------------------------------
 # trainer.py
 # ----------------------------------------------------------------------
