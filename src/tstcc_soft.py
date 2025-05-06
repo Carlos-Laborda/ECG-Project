@@ -1347,18 +1347,20 @@ def gen_pseudo_labels(model, dataloader, device, experiment_log_dir, pc):
 # ----------------------------------------------------------------------
 # trainer.py
 # ----------------------------------------------------------------------
-def Trainer(model, temporal_contr_model, model_optimizer, temp_cont_optimizer, train_dl, valid_dl, test_dl, device, config, experiment_log_dir, training_mode):
-    # Start training
+def Trainer(DTW, model, temporal_contr_model, temp_cont_optimizer, train_dl, valid_dl, test_dl, device,
+            config, experiment_log_dir, training_mode):
     print("Training started ....")
 
+    # (1) Loss Function & LR Scheduler & Epochs
     criterion = nn.CrossEntropyLoss()
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(model_optimizer, 'min')
-
+    
+    # (2) Train
     for epoch in range(1, config.num_epoch + 1):
-        # Train and validate
-        train_loss, train_acc = model_train(model, temporal_contr_model, model_optimizer, temp_cont_optimizer, criterion, train_dl, config, device, training_mode)
+        train_loss, train_acc = model_train(DTW, model, temporal_contr_model, temp_cont_optimizer,
+                                            criterion, train_dl, config, device, training_mode, lambda_aux)
         val_loss, valid_acc, _, _ = model_evaluate(model, temporal_contr_model, valid_dl, device, training_mode, config)
-        if training_mode == "self_supervised":
+        
+        if (training_mode == "self_supervised"):
             print(f"Epoch {epoch:02d} | ssl_train_loss: {train_loss:.4f} | ssl_val_loss: {val_loss:.4f}")
             mlflow.log_metrics({
                 "ssl_train_loss": train_loss,
@@ -1368,7 +1370,93 @@ def Trainer(model, temporal_contr_model, model_optimizer, temp_cont_optimizer, t
     os.makedirs(os.path.join(experiment_log_dir, "saved_models"), exist_ok=True)
     chkpoint = {'model_state_dict': model.state_dict(), 'temporal_contr_model_state_dict': temporal_contr_model.state_dict()}
     torch.save(chkpoint, os.path.join(experiment_log_dir, "saved_models", f'ckp_last.pt'))
+    print("\n################## Training is Done! #########################")
+    
+def Trainer_wo_DTW(model, temporal_contr_model, model_optimizer, temp_cont_optimizer, train_dl, valid_dl, test_dl, device,
+            config, experiment_log_dir, training_mode):
+    print("Training started ....")
 
+    # (1) Loss Function & LR Scheduler & Epochs
+    criterion = nn.CrossEntropyLoss()
+    
+    ########################################################
+    if dist == 'cos':
+        dist_func = cosine_similarity
+    elif dist == 'euc':
+        dist_func = euclidean_distances
+    ########################################################
+    
+    # (2) Train
+    for epoch in range(1, config.num_epoch + 1):
+        train_loss, train_acc = model_train_wo_DTW(dist_func, dist, tau_inst, model, temporal_contr_model, model_optimizer, temp_cont_optimizer,
+                                            criterion, train_dl, config, device, training_mode, lambda_aux)
+        
+        val_loss, valid_acc, _, _ = model_evaluate(model, temporal_contr_model, valid_dl, device, training_mode)
+        
+        if (training_mode == "self_supervised"):
+            print(f"Epoch {epoch:02d} | ssl_train_loss: {train_loss:.4f} | ssl_val_loss: {val_loss:.4f}")
+            mlflow.log_metrics({
+                "ssl_train_loss": train_loss,
+                "ssl_val_loss": val_loss
+            }, step=epoch)
+    
+    os.makedirs(os.path.join(experiment_log_dir, "saved_models"), exist_ok=True)
+    chkpoint = {'model_state_dict': model.state_dict(), 'temporal_contr_model_state_dict': temporal_contr_model.state_dict()}
+    torch.save(chkpoint, os.path.join(experiment_log_dir, "saved_models", f'ckp_last.pt'))
+    print("\n################## Training is Done! #########################")
+    
+def Trainer_wo_val(DTW, model, temporal_contr_model, model_optimizer, temp_cont_optimizer, train_dl, test_dl, device,
+            config, experiment_log_dir, training_mode):
+    print("Training started ....")
+
+    # (1) Loss Function & LR Scheduler & Epochs
+    criterion = nn.CrossEntropyLoss()
+    
+    # (2) Train
+    for epoch in range(1, config.num_epoch + 1):
+        train_loss, train_acc = model_train(DWT, model, temporal_contr_model, model_optimizer, temp_cont_optimizer,
+                                            criterion, train_dl, config, device, training_mode, lambda_aux)
+                
+        if (training_mode == "self_supervised"):
+            print(f"Epoch {epoch:02d} | ssl_train_loss: {train_loss:.4f}")
+            mlflow.log_metrics({
+                "ssl_train_loss": train_loss,
+            }, step=epoch)
+    
+    os.makedirs(os.path.join(experiment_log_dir, "saved_models"), exist_ok=True)
+    chkpoint = {'model_state_dict': model.state_dict(), 'temporal_contr_model_state_dict': temporal_contr_model.state_dict()}
+    torch.save(chkpoint, os.path.join(experiment_log_dir, "saved_models", f'ckp_last.pt'))
+    print("\n################## Training is Done! #########################")
+
+def Trainer_wo_DTW_wo_val(model, temporal_contr_model, model_optimizer, temp_cont_optimizer, train_dl, valid_dl, test_dl, device,
+            config, experiment_log_dir, training_mode):
+    print("Training started ....")
+
+    # (1) Loss Function & LR Scheduler & Epochs
+    criterion = nn.CrossEntropyLoss()
+    
+    ########################################################
+    if dist == 'cos':
+        dist_func = cosine_similarity
+    elif dist == 'euc':
+        dist_func = euclidean_distances
+    ########################################################
+    
+    # (2) Train
+    for epoch in range(1, config.num_epoch + 1):
+        train_loss, train_acc = model_train_wo_DTW(dist_func, dist, tau_inst, model, temporal_contr_model, model_optimizer, temp_cont_optimizer,
+                                            criterion, train_dl, config, device, training_mode, lambda_aux)
+        
+        
+        if (training_mode == "self_supervised"):
+            print(f"Epoch {epoch:02d} | ssl_train_loss: {train_loss:.4f}")
+            mlflow.log_metrics({
+                "ssl_train_loss": train_loss,
+            }, step=epoch)
+    
+    os.makedirs(os.path.join(experiment_log_dir, "saved_models"), exist_ok=True)
+    chkpoint = {'model_state_dict': model.state_dict(), 'temporal_contr_model_state_dict': temporal_contr_model.state_dict()}
+    torch.save(chkpoint, os.path.join(experiment_log_dir, "saved_models", f'ckp_last.pt'))
     print("\n################## Training is Done! #########################")
 
 
@@ -1405,7 +1493,7 @@ def model_train(model, temporal_contr_model,
             _, feat1 = model(aug1)
             _, feat2 = model(aug2)
             loss = compute_ssl_loss(feat1, feat2, temporal_contr_model, nt_xent)
-        else:                                        # <- we add this part back
+        else:                                 
             preds, _ = model(data)
             loss = criterion(preds, labels)
 
