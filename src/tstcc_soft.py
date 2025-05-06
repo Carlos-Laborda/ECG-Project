@@ -1154,7 +1154,6 @@ def model_train(soft_labels, model, temporal_contr_model,
     temporal_contr_model.train()
     soft_labels = torch.tensor(soft_labels, device=device)
 
-
     nt_xent = NTXentLoss(device,
                          config.batch_size,
                          config.Context_Cont.temperature,
@@ -1337,6 +1336,7 @@ def gen_pseudo_labels(model, dataloader, device, experiment_log_dir, pc):
 def Trainer(DTW, model, temporal_contr_model, temp_cont_optimizer, train_dl, valid_dl, test_dl, device,
             config, experiment_log_dir, training_mode):
     print("Training started ....")
+    lambda_aux = config.lambda_
 
     # (1) Loss Function & LR Scheduler & Epochs
     criterion = nn.CrossEntropyLoss()
@@ -1362,6 +1362,9 @@ def Trainer(DTW, model, temporal_contr_model, temp_cont_optimizer, train_dl, val
 def Trainer_wo_DTW(model, temporal_contr_model, model_optimizer, temp_cont_optimizer, train_dl, valid_dl, test_dl, device,
             config, experiment_log_dir, training_mode):
     print("Training started ....")
+    dist = config.dist_type
+    tau_inst = config.tau_inst
+    lambda_aux = config.lambda_
 
     # (1) Loss Function & LR Scheduler & Epochs
     criterion = nn.CrossEntropyLoss()
@@ -1395,6 +1398,7 @@ def Trainer_wo_DTW(model, temporal_contr_model, model_optimizer, temp_cont_optim
 def Trainer_wo_val(DTW, model, temporal_contr_model, model_optimizer, temp_cont_optimizer, train_dl, test_dl, device,
             config, experiment_log_dir, training_mode):
     print("Training started ....")
+    lambda_aux = config.lambda_
 
     # (1) Loss Function & LR Scheduler & Epochs
     criterion = nn.CrossEntropyLoss()
@@ -1418,6 +1422,9 @@ def Trainer_wo_val(DTW, model, temporal_contr_model, model_optimizer, temp_cont_
 def Trainer_wo_DTW_wo_val(model, temporal_contr_model, model_optimizer, temp_cont_optimizer, train_dl, valid_dl, test_dl, device,
             config, experiment_log_dir, training_mode):
     print("Training started ....")
+    dist = config.dist_type
+    tau_inst = config.tau_inst
+    lambda_aux = config.lambda_
 
     # (1) Loss Function & LR Scheduler & Epochs
     criterion = nn.CrossEntropyLoss()
@@ -1477,6 +1484,14 @@ class Config(object):
         # Data loader
         self.batch_size          = 64        # 10000-sample windows use more mem
         self.drop_last           = True      # match original repo
+        
+        # soft parameters
+        self.lambda_        = 0.5
+        self.soft_instance  = True
+        self.soft_temporal  = True
+        self.tau_temp       = 2.0
+        self.tau_inst       = 10.0
+        self.dist_type      = "euc"
 
         # ─────────────────── SSL blocks ─────────────────────
         # Contextual contrastive loss
@@ -1485,7 +1500,6 @@ class Config(object):
         self.TC                  = TCConfig()      # hidden=100, timesteps=50
         # Data augmentations
         self.augmentation        = augmentations()
-
 
 class augmentations(object):
     """
@@ -1502,7 +1516,6 @@ class Context_Cont_configs(object):
     def __init__(self):
         self.temperature           = 0.2
         self.use_cosine_similarity = True
-
 
 class TCConfig(object):
     def __init__(self):
