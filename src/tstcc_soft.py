@@ -1169,7 +1169,7 @@ def model_train(soft_labels, model, temporal_contr_model,
         # ── move to device ────────────────────────────────────────────
         aug1, aug2 = aug1.float().to(device), aug2.float().to(device)
         data, labels = data.float().to(device), labels.long().to(device)
-        aug1 = aug1*100
+        aug1 = aug1*100 # careful with this
         aug2 = aug2*100
 
         model_opt.zero_grad()
@@ -1203,11 +1203,8 @@ def model_train_wo_DTW(dist_func, dist_type, tau_inst, model,
                        temporal_contr_model, model_opt, tc_opt,
                        criterion, train_loader, config, device, 
                        training_mode, lambda_aux):
-
     model.train()
     temporal_contr_model.train()
-    soft_labels = torch.tensor(soft_labels, device=device)
-
 
     nt_xent = NTXentLoss(device,
                          config.batch_size,
