@@ -1129,6 +1129,12 @@ def copy_Files(destination, data_type):
     copy("models/loss.py", os.path.join(destination_dir, "loss.py"))
     copy("models/TC.py", os.path.join(destination_dir, "TC.py"))
 
+# ----------------------------------------------------------------------
+# trainer_utils.py
+# ----------------------------------------------------------------------
+def densify(x, tau, alpha=0.5):
+    return ((2*alpha) / (1 + np.exp(-tau*x))) + (1-alpha)*np.eye(x.shape[0])
+
 def compute_ssl_loss(feat1, feat2, tc_model, nt_xent_loss):
     feat1 = F.normalize(feat1, dim=1)
     feat2 = F.normalize(feat2, dim=1)
@@ -1139,90 +1145,93 @@ def compute_ssl_loss(feat1, feat2, tc_model, nt_xent_loss):
     ssl_loss = loss1 + loss2 + 0.7 * nt_xent_loss(proj1, proj2)
     return ssl_loss
 
-# ----------------------------------------------------------------------
-# trainer_utils.py
-# ----------------------------------------------------------------------
-def densify(x, tau, alpha=0.5):
-    return ((2*alpha) / (1 + np.exp(-tau*x))) + (1-alpha)*np.eye(x.shape[0])
+def model_train(soft_labels, model, temporal_contr_model,
+                model_opt, tc_opt,
+                criterion, train_loader,
+                config, device, training_mode, lambda_aux):
 
-def model_train(soft_labels, model, temporal_contr_model, model_optimizer, temp_cont_optimizer, criterion, train_loader, config,
-                device, training_mode, lambda_aux):
-    total_loss = []
-    total_acc = []
     model.train()
     temporal_contr_model.train()
     soft_labels = torch.tensor(soft_labels, device=device)
 
-    for _, (idx, data, labels, aug1, aug2) in enumerate(train_loader):
-        data, labels = data.float().to(device), labels.long().to(device)
+
+    nt_xent = NTXentLoss(device,
+                         config.batch_size,
+                         config.Context_Cont.temperature,
+                         config.Context_Cont.use_cosine_similarity)
+
+    batch_losses = []
+
+    #for data, labels, aug1, aug2 in train_loader:
+    for batch_idx, (data, labels, aug1, aug2) in enumerate(train_loader):
+        if batch_idx == 0:
+            show_shape("train-loop INPUT   aug1/aug2", (aug1, aug2))
+
+        # ── move to device ────────────────────────────────────────────
         aug1, aug2 = aug1.float().to(device), aug2.float().to(device)
+        data, labels = data.float().to(device), labels.long().to(device)
         aug1 = aug1*100
         aug2 = aug2*100
-        
-        model_optimizer.zero_grad()
-        temp_cont_optimizer.zero_grad()
 
+        model_opt.zero_grad()
+        tc_opt.zero_grad()
+
+        # ── SSL vs supervised branch ─────────────────────────────────
         if training_mode == "self_supervised":
             
-            soft_labels_batch = soft_labels[idx][:,idx]
-
-            _, _, features1, features2, final_loss = model(aug1, aug2, soft_labels_batch)
+            soft_labels_batch = soft_labels[batch_idx][:,batch_idx]
+            
+            _, _, feat1, feat2, final_loss = model(aug1, aug2, soft_labels_batch)
             del soft_labels_batch
+            
+            loss = compute_ssl_loss(feat1, feat2, temporal_contr_model, nt_xent)
+            
+            loss += lambda_aux * final_loss
+        else:                                 
+            preds, _ = model(data)
+            loss = criterion(preds, labels)
 
-            features1 = F.normalize(features1, dim=1)
-            features2 = F.normalize(features2, dim=1)
-
-            temp_cont_loss1, temp_cont_feat1 = temporal_contr_model(features1, features2)
-            temp_cont_loss2, temp_cont_feat2 = temporal_contr_model(features2, features1)
-
-
-        if training_mode == "self_supervised":
-            lambda1 = 1
-            lambda2 = 0.7
-            nt_xent_criterion = NTXentLoss(device, config.batch_size, config.Context_Cont.temperature,
-                                           config.Context_Cont.use_cosine_similarity)
-            loss = (temp_cont_loss1 + temp_cont_loss2) * lambda1 + \
-                   nt_xent_criterion(temp_cont_feat1, temp_cont_feat2) * lambda2
-
-        else:
-            output = model(data, 0, 0, train=False)
-            predictions, _ = output
-            loss = criterion(predictions, labels)
-            total_acc.append(labels.eq(predictions.detach().argmax(dim=1)).float().mean())
-
-        if (training_mode == "self_supervised") :
-            loss += lambda_aux*final_loss
-           
-        total_loss.append(loss.item())
+        # ── backward & step ──────────────────────────────────────────
         loss.backward()
-        model_optimizer.step()
-        temp_cont_optimizer.step()
+        model_opt.step()
+        tc_opt.step()
 
-    total_loss = torch.tensor(total_loss).mean()
+        batch_losses.append(loss.item())
 
-    if training_mode == "self_supervised":
-        total_acc = 0
-    else:
-        total_acc = torch.tensor(total_acc).mean()
-    return total_loss, total_acc
+    return torch.tensor(batch_losses).mean(), torch.nan              
 
-def model_train_wo_DTW(dist_func, dist_type, tau_inst, model, temporal_contr_model, 
-                       model_optimizer, temp_cont_optimizer, criterion, train_loader,
-                       config, device, training_mode, lambda_aux):
-    total_loss = []
-    total_acc = []
+def model_train_wo_DTW(dist_func, dist_type, tau_inst, model, 
+                       temporal_contr_model, model_opt, tc_opt,
+                       criterion, train_loader, config, device, 
+                       training_mode, lambda_aux):
+
     model.train()
     temporal_contr_model.train()
+    soft_labels = torch.tensor(soft_labels, device=device)
 
-    for _, (_, data, labels, aug1, aug2) in enumerate(train_loader):
-        data, labels = data.float().to(device), labels.long().to(device)
+
+    nt_xent = NTXentLoss(device,
+                         config.batch_size,
+                         config.Context_Cont.temperature,
+                         config.Context_Cont.use_cosine_similarity)
+
+    batch_losses = []
+
+    #for data, labels, aug1, aug2 in train_loader:
+    for batch_idx, (data, labels, aug1, aug2) in enumerate(train_loader):
+        if batch_idx == 0:
+            show_shape("train-loop INPUT   aug1/aug2", (aug1, aug2))
+
+        # ── move to device ────────────────────────────────────────────
         aug1, aug2 = aug1.float().to(device), aug2.float().to(device)
+        data, labels = data.float().to(device), labels.long().to(device)
         aug1 = aug1*100
         aug2 = aug2*100
-        
-        model_optimizer.zero_grad()
-        temp_cont_optimizer.zero_grad()
 
+        model_opt.zero_grad()
+        tc_opt.zero_grad()
+
+        # ── SSL vs supervised branch ─────────────────────────────────
         if training_mode == "self_supervised":
             temp = data.view(data.shape[0], -1).detach().cpu().numpy()
             dist_mat_batch = dist_func(temp)
@@ -1231,46 +1240,25 @@ def model_train_wo_DTW(dist_func, dist_type, tau_inst, model, temporal_contr_mod
                 dist_mat_batch = - dist_mat_batch
             dist_mat_batch = densify(dist_mat_batch, tau_inst, alpha=0.5)
             dist_mat_batch = torch.tensor(dist_mat_batch, device=device)
-            _, _, features1, features2, final_loss = model(aug1, aug2, dist_mat_batch)
+            
+            _, _, feat1, feat2, final_loss = model(aug1, aug2, dist_mat_batch)
             del dist_mat_batch
+            
+            loss = compute_ssl_loss(feat1, feat2, temporal_contr_model, nt_xent)
+            
+            loss += lambda_aux * final_loss
+        else:                                 
+            preds, _ = model(data)
+            loss = criterion(preds, labels)
 
-            features1 = F.normalize(features1, dim=1)
-            features2 = F.normalize(features2, dim=1)
-
-            temp_cont_loss1, temp_cont_feat1 = temporal_contr_model(features1, features2)
-            temp_cont_loss2, temp_cont_feat2 = temporal_contr_model(features2, features1)
-
-
-        if training_mode == "self_supervised":
-            lambda1 = 1
-            lambda2 = 0.7
-            nt_xent_criterion = NTXentLoss(device, config.batch_size, config.Context_Cont.temperature,
-                                           config.Context_Cont.use_cosine_similarity)
-            loss = (temp_cont_loss1 + temp_cont_loss2) * lambda1 + \
-                   nt_xent_criterion(temp_cont_feat1, temp_cont_feat2) * lambda2
-
-        else:
-            output = model(data, 0, 0, train=False)
-            predictions, _ = output
-            loss = criterion(predictions, labels)
-            total_acc.append(labels.eq(predictions.detach().argmax(dim=1)).float().mean())
-
-        if (training_mode == "self_supervised") :
-            loss += lambda_aux*final_loss
-        
-        total_loss.append(loss.item())
+        # ── backward & step ──────────────────────────────────────────
         loss.backward()
-        model_optimizer.step()
-        temp_cont_optimizer.step()
+        model_opt.step()
+        tc_opt.step()
 
-    total_loss = torch.tensor(total_loss).mean()
+        batch_losses.append(loss.item())
 
-    if (training_mode == "self_supervised"):
-        total_acc = 0
-    else:
-        total_acc = torch.tensor(total_acc).mean()
-    return total_loss, total_acc
-
+    return torch.tensor(batch_losses).mean(), torch.nan
 
 def model_evaluate(model, temporal_contr_model, test_dl, device, training_mode):
     model.eval()
@@ -1310,7 +1298,6 @@ def model_evaluate(model, temporal_contr_model, test_dl, device, training_mode):
         total_loss = torch.tensor(total_loss).mean()  # average loss
         total_acc = torch.tensor(total_acc).mean()  # average acc
         return total_loss, total_acc, outs, trgs
-
 
 def gen_pseudo_labels(model, dataloader, device, experiment_log_dir, pc):
     model.eval()
@@ -1457,87 +1444,6 @@ def Trainer_wo_DTW_wo_val(model, temporal_contr_model, model_optimizer, temp_con
     chkpoint = {'model_state_dict': model.state_dict(), 'temporal_contr_model_state_dict': temporal_contr_model.state_dict()}
     torch.save(chkpoint, os.path.join(experiment_log_dir, "saved_models", f'ckp_last.pt'))
     print("\n################## Training is Done! #########################")
-
-
-def model_train(model, temporal_contr_model,
-                model_opt, tc_opt,
-                criterion, train_loader,
-                config, device, training_mode):
-
-    model.train()
-    temporal_contr_model.train()
-
-    nt_xent = NTXentLoss(device,
-                         config.batch_size,
-                         config.Context_Cont.temperature,
-                         config.Context_Cont.use_cosine_similarity)
-
-    batch_losses = []
-
-    #for data, labels, aug1, aug2 in train_loader:
-    for batch_idx, (data, labels, aug1, aug2) in enumerate(train_loader):
-        if batch_idx == 0:
-            show_shape("train-loop INPUT   aug1/aug2", (aug1, aug2))
-            
-
-        # ── move to device ────────────────────────────────────────────
-        aug1, aug2 = aug1.float().to(device), aug2.float().to(device)
-        data, labels = data.float().to(device), labels.long().to(device)
-
-        model_opt.zero_grad()
-        tc_opt.zero_grad()
-
-        # ── SSL vs supervised branch ─────────────────────────────────
-        if training_mode == "self_supervised":
-            _, feat1 = model(aug1)
-            _, feat2 = model(aug2)
-            loss = compute_ssl_loss(feat1, feat2, temporal_contr_model, nt_xent)
-        else:                                 
-            preds, _ = model(data)
-            loss = criterion(preds, labels)
-
-        # ── backward & step ──────────────────────────────────────────
-        loss.backward()
-        model_opt.step()
-        tc_opt.step()
-
-        batch_losses.append(loss.item())
-
-    return torch.tensor(batch_losses).mean(), torch.nan              
-
-def model_evaluate(model, temporal_contr_model,
-                   dl, device, training_mode, config):
-
-    model.eval()
-    temporal_contr_model.eval()
-
-    nt_xent = NTXentLoss(device,
-                         config.batch_size,
-                         config.Context_Cont.temperature,
-                         config.Context_Cont.use_cosine_similarity)
-
-    criterion = nn.CrossEntropyLoss()
-    val_losses = []
-
-    with torch.no_grad():
-        for batch_idx, (data, labels, aug1, aug2) in enumerate(dl):
-            if batch_idx == 0:
-                show_shape("eval-loop INPUT    aug1/aug2", (aug1, aug2))
-
-            aug1, aug2 = aug1.to(device), aug2.to(device)
-            data, labels = data.to(device), labels.to(device)
-
-            if training_mode == "self_supervised":
-                _, feat1 = model(aug1)
-                _, feat2 = model(aug2)
-                loss = compute_ssl_loss(feat1, feat2, temporal_contr_model, nt_xent)
-            else:
-                preds, _ = model(data)
-                loss = criterion(preds, labels)
-
-            val_losses.append(loss.item())
-
-    return torch.tensor(val_losses).mean(), torch.nan, [], []
 
 # ----------------------------------------------------------------------
 # config.py
