@@ -17,6 +17,7 @@ from shutil import copy
 from einops import rearrange, repeat
 from typing import Union, Sequence
 from sklearn.preprocessing import MinMaxScaler
+from sklearn.metrics.pairwise import cosine_similarity, euclidean_distances
 from fastdtw import fastdtw
 from tslearn.metrics import dtw, dtw_path,gak
 
@@ -24,7 +25,6 @@ from tslearn.metrics import dtw, dtw_path,gak
 # augmentations.py
 # ----------------------------------------------------------------------
 def DataTransform(sample, config):
-
     weak_aug = scaling(sample, config.augmentation.jitter_scale_ratio)
     strong_aug = jitter(permutation(sample, max_segments=config.augmentation.max_seg), config.augmentation.jitter_ratio)
     return weak_aug, strong_aug
@@ -1414,7 +1414,7 @@ def Trainer_wo_val(DTW, model, temporal_contr_model, model_optimizer, temp_cont_
     
     # (2) Train
     for epoch in range(1, config.num_epoch + 1):
-        train_loss, train_acc = model_train(DWT, model, temporal_contr_model, model_optimizer, temp_cont_optimizer,
+        train_loss, train_acc = model_train(DTW, model, temporal_contr_model, model_optimizer, temp_cont_optimizer,
                                             criterion, train_dl, config, device, training_mode, lambda_aux)
                 
         if (training_mode == "self_supervised"):
@@ -1446,7 +1446,6 @@ def Trainer_wo_DTW_wo_val(model, temporal_contr_model, model_optimizer, temp_con
     for epoch in range(1, config.num_epoch + 1):
         train_loss, train_acc = model_train_wo_DTW(dist_func, dist, tau_inst, model, temporal_contr_model, model_optimizer, temp_cont_optimizer,
                                             criterion, train_dl, config, device, training_mode, lambda_aux)
-        
         
         if (training_mode == "self_supervised"):
             print(f"Epoch {epoch:02d} | ssl_train_loss: {train_loss:.4f}")
