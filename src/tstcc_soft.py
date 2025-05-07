@@ -18,7 +18,6 @@ from einops import rearrange, repeat
 from typing import Union, Sequence
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.metrics.pairwise import cosine_similarity, euclidean_distances
-from fastdtw import fastdtw
 from tslearn.metrics import dtw, dtw_path,gak
 
 # ----------------------------------------------------------------------
@@ -877,59 +876,65 @@ class tstcc_soft(nn.Module):
             #-------------------------------------------------#
             aug1 = self.conv_block1(aug1)
             aug2 = self.conv_block1(aug2)
+            z1, z2 = _btc(aug1), _btc(aug2) # transpose
+            T      = z1.size(1)
             if self.soft_temporal:
                 d=0
-                timelag = timelag_sigmoid(aug1.shape[2], self.tau_temp*(2**d))
-                timelag = torch.tensor(timelag, device=aug1.device)
+                timelag = timelag_sigmoid(T, self.tau_temp*(2**d))
+                timelag = torch.tensor(timelag, device=z1.device)
                 timelag_L, timelag_R = dup_matrix(timelag)
-                temporal_loss += (1-self.lambda_) * temp_CL_soft(aug1, aug2, timelag_L, timelag_R)
+                temporal_loss += (1-self.lambda_) * temp_CL_soft(z1, z2, timelag_L, timelag_R)
             else:
-                temporal_loss += (1-self.lambda_) * temp_CL_hard(aug1, aug2)
+                temporal_loss += (1-self.lambda_) * temp_CL_hard(z1, z2)
             if self.soft_instance:
-                instance_loss += self.lambda_ * inst_CL_soft(aug1, aug2, soft_labels_L, soft_labels_R)
+                instance_loss += self.lambda_ * inst_CL_soft(z1, z2, soft_labels_L, soft_labels_R)
             else:
-                instance_loss += self.lambda_ * inst_CL_hard(aug1, aug2)
+                instance_loss += self.lambda_ * inst_CL_hard(z1, z2)
 
             #-------------------------------------------------#
             # DEPTH = 2
             #-------------------------------------------------#
             aug1 = self.conv_block2(aug1)
             aug2 = self.conv_block2(aug2)
+            z1, z2 = _btc(aug1), _btc(aug2) # transpose
+            T      = z1.size(1)
 
             if self.soft_temporal:
                 d=1
-                timelag = timelag_sigmoid(aug1.shape[2],self.tau_temp*(2**d))
-                timelag = torch.tensor(timelag, device=aug1.device)
+                timelag = timelag_sigmoid(T,self.tau_temp*(2**d))
+                timelag = torch.tensor(timelag, device=z1.device)
                 timelag_L, timelag_R = dup_matrix(timelag)
-                temporal_loss += (1-self.lambda_) * temp_CL_soft(aug1, aug2, timelag_L, timelag_R)
+                temporal_loss += (1-self.lambda_) * temp_CL_soft(z1, z2, timelag_L, timelag_R)
             else:
-                temporal_loss += (1-self.lambda_) * temp_CL_hard(aug1, aug2)
+                temporal_loss += (1-self.lambda_) * temp_CL_hard(z1, z2)
                 
             if self.soft_instance:
-                instance_loss += self.lambda_ * inst_CL_soft(aug1, aug2, soft_labels_L, soft_labels_R)
+                instance_loss += self.lambda_ * inst_CL_soft(z1, z2, soft_labels_L, soft_labels_R)
             else:
-                instance_loss += self.lambda_ * inst_CL_hard(aug1, aug2)
+                instance_loss += self.lambda_ * inst_CL_hard(z1, z2)
             
             #-------------------------------------------------#
             # DEPTH = 3
             #-------------------------------------------------#
             aug1 = self.conv_block3(aug1)
             aug2 = self.conv_block3(aug2)
+            z1, z2 = _btc(aug1), _btc(aug2) # transpose
+            T      = z1.size(1)
         
             if self.soft_temporal:
                 d=2
-                timelag = timelag_sigmoid(aug1.shape[2],self.tau_temp*(2**d))
-                timelag = torch.tensor(timelag, device=aug1.device)
+                timelag = timelag_sigmoid(T,self.tau_temp*(2**d))
+                timelag = torch.tensor(timelag, device=z1.device)
                 timelag_L, timelag_R = dup_matrix(timelag)
-                temporal_loss += (1-self.lambda_) * temp_CL_soft(aug1, aug2, timelag_L, timelag_R)
+                temporal_loss += (1-self.lambda_) * temp_CL_soft(z1, z2, timelag_L, timelag_R)
             else:
-                temporal_loss += (1-self.lambda_) * temp_CL_hard(aug1, aug2)
+                temporal_loss += (1-self.lambda_) * temp_CL_hard(z1, z2)
            
             if self.soft_instance:
-                instance_loss += self.lambda_ * inst_CL_soft(aug1, aug2, soft_labels_L, soft_labels_R)
+                instance_loss += self.lambda_ * inst_CL_soft(z1, z2, soft_labels_L, soft_labels_R)
                 del soft_labels_L, soft_labels_R
             else:
-                instance_loss += self.lambda_ * inst_CL_hard(aug1, aug2)
+                instance_loss += self.lambda_ * inst_CL_hard(z1, z2)
         
         else:
             aug = self.conv_block1(aug1)
@@ -955,7 +960,6 @@ class tstcc_soft(nn.Module):
 # ----------------------------------------------------------------------
 # timelags.py
 # ----------------------------------------------------------------------    
-
 def dup_matrix(mat):
     mat0 = torch.tril(mat, diagonal=-1)[:, :-1]   
     mat0 += torch.triu(mat, diagonal=1)[:, 1:]
@@ -1004,6 +1008,10 @@ def timelag_sigmoid_threshold(T, threshold=1.0):
 # ----------------------------------------------------------------------
 # utils.py
 # ----------------------------------------------------------------------
+def _btc(x):
+    # (B, C, L)  ->  (B, L, C)
+    return x.transpose(1, 2).contiguous()
+
 DEBUG_SHAPES = True # flip to False to mute everything
 
 _printed_once: set[str] = set()  
