@@ -861,7 +861,6 @@ class tstcc_soft(nn.Module):
         self.lambda_ = configs.lambda_ # 0.5
         self.soft_temporal = configs.soft_temporal #True
         self.soft_instance = configs.soft_instance #True
-        
         self.tau_temp = configs.tau_temp
 
     def forward(self, aug1, aug2, soft_labels, train=True):
@@ -1333,7 +1332,7 @@ def gen_pseudo_labels(model, dataloader, device, experiment_log_dir, pc):
 def Trainer(DTW, model, temporal_contr_model, temp_cont_optimizer, train_dl, valid_dl, test_dl, device,
             config, experiment_log_dir, training_mode):
     print("Training started ....")
-    lambda_aux = config.lambda_
+    lambda_aux = config.lambda_aux
 
     # (1) Loss Function & LR Scheduler & Epochs
     criterion = nn.CrossEntropyLoss()
@@ -1361,7 +1360,7 @@ def Trainer_wo_DTW(model, temporal_contr_model, model_optimizer, temp_cont_optim
     print("Training started ....")
     dist = config.dist_type
     tau_inst = config.tau_inst
-    lambda_aux = config.lambda_
+    lambda_aux = config.lambda_aux
 
     # (1) Loss Function & LR Scheduler & Epochs
     criterion = nn.CrossEntropyLoss()
@@ -1395,7 +1394,7 @@ def Trainer_wo_DTW(model, temporal_contr_model, model_optimizer, temp_cont_optim
 def Trainer_wo_val(DTW, model, temporal_contr_model, model_optimizer, temp_cont_optimizer, train_dl, test_dl, device,
             config, experiment_log_dir, training_mode):
     print("Training started ....")
-    lambda_aux = config.lambda_
+    lambda_aux = config.lambda_aux
 
     # (1) Loss Function & LR Scheduler & Epochs
     criterion = nn.CrossEntropyLoss()
@@ -1421,7 +1420,7 @@ def Trainer_wo_DTW_wo_val(model, temporal_contr_model, model_optimizer, temp_con
     print("Training started ....")
     dist = config.dist_type
     tau_inst = config.tau_inst
-    lambda_aux = config.lambda_
+    lambda_aux = config.lambda_aux
 
     # (1) Loss Function & LR Scheduler & Epochs
     criterion = nn.CrossEntropyLoss()
@@ -1483,7 +1482,8 @@ class Config(object):
         self.drop_last           = True      # match original repo
         
         # soft parameters
-        self.lambda_        = 0.5
+        self.lambda_        = 0.5 # Balance instance vs temporal contrast in soft loss
+        self.lambda_aux    = 0.5  # Weight for soft loss contribution wrt the original TS-TCC loss
         self.soft_instance  = True
         self.soft_temporal  = True
         self.tau_temp       = 2.0
