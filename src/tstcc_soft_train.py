@@ -99,13 +99,13 @@ class ECGTSTCCFlow(FlowSpec):
         self.configs.TC.timesteps = self.tc_timesteps   
         self.configs.TC.hidden_dim = self.tc_hidden_dim
         
-        self.configs.TC.lambda_aux = self.lambda_aux
-        self.configs.TC.soft_instance = self.soft_instance
-        self.configs.TC.soft_temporal = self.soft_temporal
-        self.configs.TC.tau_temp = self.tau_temp
-        self.configs.TC.tau_inst = self.tau_inst
-        self.configs.TC.dist_type = self.dist_type
-        self.configs.TC.lambda_ = self.lambda_
+        self.configs.lambda_aux = self.lambda_aux
+        self.configs.soft_instance = self.soft_instance
+        self.configs.soft_temporal = self.soft_temporal
+        self.configs.tau_temp = self.tau_temp
+        self.configs.tau_inst = self.tau_inst
+        self.configs.dist_type = self.dist_type
+        self.configs.lambda_ = self.lambda_
 
         # Data loaders
         train_dl, val_dl, test_dl = data_generator_from_arrays(
