@@ -121,8 +121,8 @@ class ECGTSTCCFlow(FlowSpec):
         self.temporal_contr_model = TC(self.configs, self.device).to(self.device)
 
         # optimizers
-        model_opt = optim.AdamW(self.model.parameters(), lr=self.tcc_lr, weight_decay=3e-4)
-        tc_opt    = optim.AdamW(self.temporal_contr_model.parameters(), lr=self.tcc_lr, weight_decay=3e-4)
+        model_opt = optim.Adam(self.model.parameters(), lr=self.tcc_lr, weight_decay=3e-4)
+        tc_opt    = optim.Adam(self.temporal_contr_model.parameters(), lr=self.tcc_lr, weight_decay=3e-4)
 
         mlflow.set_tracking_uri(self.mlflow_tracking_uri)
         with mlflow.start_run(run_id=self.mlflow_run_id):
