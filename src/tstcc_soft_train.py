@@ -46,8 +46,8 @@ class ECGTSTCCFlow(FlowSpec):
     lambda_aux      = Parameter("lambda_aux",       default=0.5)
     soft_instance   = Parameter("soft_instance",    default=True)
     soft_temporal   = Parameter("soft_temporal",    default=True)
-    tau_temp        = Parameter("tau_temp",         default=2.5)
-    tau_inst        = Parameter("tau_inst",         default=50.0)
+    tau_temp        = Parameter("tau_temp",         default=1)
+    tau_inst        = Parameter("tau_inst",         default=1)
     dist_type       = Parameter("dist_type",        default="euc")
     lambda_         = Parameter("lambda_",          default=0.5)
 
