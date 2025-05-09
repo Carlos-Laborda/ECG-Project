@@ -32,7 +32,7 @@ class ECGTSTCCFlow(FlowSpec):
     # TS-TCC pretraining
     tcc_epochs = Parameter("tcc_epochs", default=40)
     tcc_lr = Parameter("tcc_lr", default=3e-4)
-    tcc_batch_size = Parameter("tcc_batch_size", default=64)
+    tcc_batch_size = Parameter("tcc_batch_size", default=128)
 
     # temporal contrasting
     tc_timesteps = Parameter("tc_timesteps", default=50)
