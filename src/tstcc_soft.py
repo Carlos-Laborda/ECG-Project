@@ -1698,27 +1698,6 @@ def evaluate_classifier(
 # ----------------------------------------------------------------------
 # Encoding function to textract TS-TCC representations
 # ----------------------------------------------------------------------
-# def encode_representations(X, y, model, temporal_contr_model, tcc_batch_size, device):
-#     show_shape("encode_repr - raw X", X)
-#     loader = DataLoader(
-#         TensorDataset(torch.from_numpy(X).float(), torch.from_numpy(y).long()),
-#         batch_size=tcc_batch_size, shuffle=False
-#     )
-#     reprs, labs = [], []
-#     with torch.no_grad():
-#         for xb, yb in loader:
-#             xb = xb.to(device)
-#             if xb.shape.index(min(xb.shape)) != 1:
-#                 xb = xb.permute(0, 2, 1)
-#             # conv encoder
-#             _, feats = model(xb)
-#             feats = F.normalize(feats, dim=1)
-#             # TC projection head
-#             _, c_proj = temporal_contr_model(feats, feats)
-#             reprs.append(c_proj.cpu().numpy())
-#             labs.append(yb.numpy())
-#     return np.concatenate(reprs, axis=0), np.concatenate(labs, axis=0)
-
 def encode_representations(X, y, model, temporal_contr_model,
                            batch_size, device):
     show_shape("encode_repr - raw X", X)
