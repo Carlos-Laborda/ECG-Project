@@ -1460,7 +1460,7 @@ class Config(object):
         self.lambda_aux    = 0.5  # Weight for soft loss contribution wrt the original TS-TCC loss
         self.soft_instance  = True
         self.soft_temporal  = True
-        self.tau_temp       = 2.0
+        self.tau_temp       = 2.5
         self.tau_inst       = 10.0
         self.dist_type      = "euc"
 
