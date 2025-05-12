@@ -1223,7 +1223,8 @@ def model_train_wo_DTW(dist_func, dist_type, tau_inst, model,
 
         # SSL vs supervised branch
         if training_mode == "self_supervised":
-            temp = data.view(data.shape[0], -1).detach().cpu().numpy()
+            #temp = data.view(data.shape[0], -1).detach().cpu().numpy()
+            temp = aug1.view(aug1.size(0), -1).cpu().numpy()
             dist_mat_batch = dist_func(temp)
             if dist_type=='euc':
                 dist_mat_batch = (dist_mat_batch - np.min(dist_mat_batch)) / (np.max(dist_mat_batch) - np.min(dist_mat_batch))
