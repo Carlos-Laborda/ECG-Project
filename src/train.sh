@@ -47,6 +47,7 @@ python tstcc_soft_train.py run \
   --cc_temperature 0.07 \
   --tc_timesteps 70 \
   --tc_hidden_dim 128 \
-  --tau_inst 50
+  --tau_inst 10 \
+  --lambda_aux 0.2 \
 #  --tau_temp 2 \
   
