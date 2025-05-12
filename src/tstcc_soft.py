@@ -1203,8 +1203,6 @@ def model_train_wo_DTW(dist_func, dist_type, tau_inst, model,
         # move to device
         aug1, aug2 = aug1.float().to(device), aug2.float().to(device)
         data, labels = data.float().to(device), labels.long().to(device)
-        aug1 = aug1*100
-        aug2 = aug2*100
 
         model_opt.zero_grad()
         tc_opt.zero_grad()
