@@ -182,6 +182,7 @@ class Load_Dataset(Dataset):
     def __init__(self, dataset, config, training_mode):
         super().__init__()
         self.training_mode = training_mode
+        self.config = config
 
         X_train = dataset["samples"]
         y_train = dataset["labels"]
@@ -217,16 +218,29 @@ class Load_Dataset(Dataset):
         self.len = self.x_data.shape[0]
 
         # Augmentations only for self-supervised mode
-        if training_mode == "self_supervised":
-            aug1_np, aug2_np = DataTransform(self.x_data.numpy(), config)
-            self.aug1 = torch.from_numpy(aug1_np).float()
-            self.aug2 = torch.from_numpy(aug2_np).float()
+        # if training_mode == "self_supervised":
+        #     aug1_np, aug2_np = DataTransform(self.x_data.numpy(), config)
+        #     self.aug1 = torch.from_numpy(aug1_np).float()
+        #     self.aug2 = torch.from_numpy(aug2_np).float()
 
-    def __getitem__(self, index):
+    # def __getitem__(self, index):
+    #     if self.training_mode == "self_supervised":
+    #         return self.x_data[index], self.y_data[index], self.aug1[index], self.aug2[index]
+    #     else:
+    #         return self.x_data[index], self.y_data[index], self.x_data[index], self.x_data[index]
+
+    def __getitem__(self, idx):
+        x = self.x_data[idx]          # (C,L)
         if self.training_mode == "self_supervised":
-            return self.x_data[index], self.y_data[index], self.aug1[index], self.aug2[index]
+            weak, strong = DataTransform(
+                x.unsqueeze(0).numpy(),   # keep shape (1,C,L)
+                self.config
+            )
+            weak = torch.from_numpy(weak.squeeze(0))
+            strong = torch.from_numpy(strong.squeeze(0))
+            return x, self.y_data[idx], weak, strong
         else:
-            return self.x_data[index], self.y_data[index], self.x_data[index], self.x_data[index]
+            return x, self.y_data[idx], x, x
 
     def __len__(self):
         return self.len
