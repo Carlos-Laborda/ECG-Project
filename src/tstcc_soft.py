@@ -1151,8 +1151,8 @@ def model_train(soft_labels, model, temporal_contr_model,
         # move to device 
         aug1, aug2 = aug1.float().to(device), aug2.float().to(device)
         data, labels = data.float().to(device), labels.long().to(device)
-        aug1 = aug1*100 # careful with this
-        aug2 = aug2*100
+        aug1 = aug1*1 # careful with this
+        aug2 = aug2*1
 
         model_opt.zero_grad()
         tc_opt.zero_grad()
