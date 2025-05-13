@@ -4,7 +4,11 @@ import torch.nn.functional as F
 import numpy as np
 import math
 import cv2
+import mlflow
 from torch.utils.data import Dataset, DataLoader
+
+from torchmetrics.classification import BinaryAUROC, BinaryAveragePrecision, BinaryF1Score
+from typing import Union, Sequence
 
 # ----------------------------------------------------------------------
 # Augmentations
@@ -187,7 +191,7 @@ class SimCLRDataset(Dataset):
         v2 = torch.tensor(v2, dtype=torch.float).unsqueeze(0)
         return v1, v2
 
-def get_simclr_model(window:int=2560, device:str="cpu"):
+def get_simclr_model(window:int=10000, device:str="cpu"):
     enc = ECGEncoder(window=window).to(device)
     proj = ProjectionHead().to(device)
     return SimCLR(enc, proj)
@@ -220,3 +224,236 @@ def encode_representations(model, X, batch_size:int, device:str):
         h = F.normalize(model.f(xb), dim=1)
         reps.append(h.cpu().numpy())
     return np.concatenate(reps,0)
+
+
+# ----------------------------------------------------------------------        
+# linear classifier
+# ----------------------------------------------------------------------
+class LinearClassifier(nn.Module):
+    def __init__(self, input_dim, num_classes=1):
+        super(LinearClassifier, self).__init__()
+        self.fc = nn.Linear(input_dim, num_classes)
+
+    def forward(self, x):
+        # x is expected to be of shape (batch, feature_dim)
+        return self.fc(x)
+    
+# --------------------------------------------------------
+# Classifier Training Loop
+# --------------------------------------------------------
+def train_linear_classifier(
+    model,
+    train_loader,
+    val_loader,
+    optimizer,
+    loss_fn,
+    epochs,
+    device,
+):
+    """
+    Trains a linear classifier with validation loop and MLflow logging.
+
+    Args:
+        model: The classifier model (subclass of nn.Module).
+        train_loader: DataLoader for the training set.
+        val_loader: DataLoader for the validation set.
+        optimizer: The optimizer for training.
+        loss_fn: The loss function.
+        epochs: Number of training epochs.
+        device: The device to train on ('cpu' or 'cuda').
+
+    Returns:
+        Tuple: (Trained model, list of validation accuracies, list of validation AUROCs, list of validation PR-AUCs, list of validation F1-Scores)
+    """
+    val_accuracies = []
+    val_aurocs = []
+    val_pr_aucs = []
+    val_f1_scores = []
+    
+    train_auroc_metric = BinaryAUROC()
+    val_auroc_metric = BinaryAUROC()
+    train_pr_auc_metric = BinaryAveragePrecision()
+    val_pr_auc_metric = BinaryAveragePrecision()
+    train_f1_metric = BinaryF1Score() 
+    val_f1_metric = BinaryF1Score()
+
+    for epoch in range(1, epochs + 1):
+        # Training phase
+        model.train()
+        running_loss = 0.0
+        correct_train = total_train = 0
+        train_auroc_metric.reset()
+        train_pr_auc_metric.reset()
+        train_f1_metric.reset()
+        
+        for features, labels in train_loader:
+            features, labels = features.to(device), labels.to(device)
+            optimizer.zero_grad()
+            outputs = model(features).squeeze() 
+            loss = loss_fn(outputs, labels)
+            loss.backward()
+            optimizer.step()
+            
+            running_loss += loss.item() * features.size(0)
+            # Accuracy calculation
+            preds_train = (torch.sigmoid(outputs) > 0.5).float()
+            correct_train += (preds_train == labels).sum().item()
+            total_train += labels.size(0)
+            # Update metrics
+            outputs_cpu = outputs.detach().cpu()
+            labels_cpu_int = labels.cpu().int()
+            preds_train_cpu_int = preds_train.cpu().int()
+            
+            train_auroc_metric.update(outputs_cpu, labels_cpu_int)
+            train_pr_auc_metric.update(outputs_cpu, labels_cpu_int)
+            train_f1_metric.update(preds_train_cpu_int, labels_cpu_int)
+                
+        epoch_loss = running_loss / total_train if total_train > 0 else 0.0
+        epoch_train_acc = correct_train / total_train if total_train > 0 else 0.0
+        epoch_train_auroc = train_auroc_metric.compute().item()
+        epoch_train_pr_auc = train_pr_auc_metric.compute().item()
+        epoch_train_f1 = train_f1_metric.compute().item()
+        
+        mlflow.log_metrics({
+            "classifier_train_loss": epoch_loss,
+            "classifier_train_accuracy": epoch_train_acc,
+            "classifier_train_auroc": epoch_train_auroc,
+            "classifier_train_pr_auc": epoch_train_pr_auc,
+            "classifier_train_f1": epoch_train_f1,
+        }, step=epoch)
+
+        print(f"Epoch {epoch}/{epochs} - Train Loss: {epoch_loss:.4f}, Train Acc: {epoch_train_acc:.4f}, Train AUROC: {epoch_train_auroc:.4f}, Train PR-AUC: {epoch_train_pr_auc:.4f}, Train F1: {epoch_train_f1:.4f}")
+
+        # Validation phase
+        model.eval()
+        correct_val = total_val = 0
+        val_auroc_metric.reset()
+        val_pr_auc_metric.reset()
+        val_f1_metric.reset()
+        
+        with torch.no_grad():
+            for features, labels in val_loader:
+                features, labels = features.to(device), labels.to(device)
+                outputs = model(features).squeeze()
+                # Accuracy calculation
+                preds_val = (torch.sigmoid(outputs) > 0.5).float()
+                correct_val += (preds_val == labels).sum().item()
+                total_val += labels.size(0)
+                # Update metrics
+                outputs_cpu = outputs.cpu()
+                labels_cpu_int = labels.cpu().int()
+                preds_val_cpu_int = preds_val.cpu().int()
+                
+                val_auroc_metric.update(outputs_cpu, labels_cpu_int)
+                val_pr_auc_metric.update(outputs_cpu, labels_cpu_int)
+                val_f1_metric.update(preds_val_cpu_int, labels_cpu_int)
+        
+        val_acc = correct_val / total_val if total_val > 0 else 0.0
+        val_auroc = val_auroc_metric.compute().item()
+        val_pr_auc = val_pr_auc_metric.compute().item()
+        val_f1 = val_f1_metric.compute().item()
+        val_accuracies.append(val_acc)
+        val_aurocs.append(val_auroc)
+        val_pr_aucs.append(val_pr_auc)
+        val_f1_scores.append(val_f1)
+        
+        mlflow.log_metrics({
+            "val_accuracy": val_acc,
+            "val_auroc": val_auroc,
+            "val_pr_auc": val_pr_auc,
+            "val_f1": val_f1,
+        }, step=epoch)
+        
+        print(f"Epoch {epoch}/{epochs} - Val Acc: {val_acc:.4f}, Val AUROC: {val_auroc:.4f}, Val PR-AUC: {val_pr_auc:.4f}, Val F1: {val_f1:.4f}")
+
+    return model, val_accuracies, val_aurocs, val_pr_aucs, val_f1_scores
+
+# --------------------------------------------------------
+# Classifier Evaluation Loop
+# --------------------------------------------------------
+def evaluate_classifier(
+    model,
+    test_loader,
+    device
+):
+    """
+    Evaluates the classifier on the test set and logs the accuracy to MLflow.
+
+    Args:
+        model: The trained classifier model.
+        test_loader: DataLoader for the test set.
+        device: The device to evaluate on ('cpu' or 'cuda').
+
+    Returns:
+        float: The test accuracy, test AUROC, and test PR-AUC.
+    """
+    model.eval()
+    correct = total = 0
+    test_auroc_metric = BinaryAUROC()
+    test_pr_auc_metric = BinaryAveragePrecision()
+    test_f1_metric = BinaryF1Score()
+    test_auroc_metric.reset()
+    test_pr_auc_metric.reset()
+    test_f1_metric.reset()
+    
+    with torch.no_grad():
+        for features, labels in test_loader:
+            features, labels = features.to(device), labels.to(device)
+            outputs = model(features).squeeze() 
+            # Accuracy calculation
+            preds = (torch.sigmoid(outputs) > 0.5).float()
+            correct += (preds == labels).sum().item()
+            total += labels.size(0)
+            # Update metrics
+            outputs_cpu = outputs.cpu()
+            labels_cpu_int = labels.cpu().int()
+            preds_cpu_int = preds.cpu().int()
+            
+            test_auroc_metric.update(outputs_cpu, labels_cpu_int)
+            test_pr_auc_metric.update(outputs_cpu, labels_cpu_int)
+            test_f1_metric.update(preds_cpu_int, labels_cpu_int)
+
+    test_accuracy = correct / total if total > 0 else 0.0
+    test_auroc = test_auroc_metric.compute().item()
+    test_pr_auc = test_pr_auc_metric.compute().item()
+    test_f1 = test_f1_metric.compute().item()
+    
+    mlflow.log_metrics({
+        "test_accuracy": test_accuracy,
+        "test_auroc": test_auroc,
+        "test_pr_auc": test_pr_auc,
+        "test_f1": test_f1,
+    })
+    
+    print(f"Test Accuracy: {test_accuracy:.4f}, Test AUROC: {test_auroc:.4f}, Test PR-AUC: {test_pr_auc:.4f}, Test F1: {test_f1:.4f}")
+    return test_accuracy, test_auroc, test_pr_auc, test_f1
+
+
+
+DEBUG_SHAPES = True # flip to False to mute everything
+
+_printed_once: set[str] = set()  
+
+def _shape(x):
+    """convenience – works for tensors / ndarrays / lists"""
+    if isinstance(x, (torch.Tensor, np.ndarray)):
+        return tuple(x.shape)
+    return str(type(x))
+
+def show_shape(label: str, obj: Union[torch.Tensor, np.ndarray, Sequence], *,
+               once: bool = True) -> None:
+    """
+    Print `<label>: <shape>` in a *single* line.
+    If `once=True` (default) the same label is never printed again
+    """
+    if not DEBUG_SHAPES:
+        return
+    if once and label in _printed_once:
+        return
+    _printed_once.add(label)
+
+    if isinstance(obj, (list, tuple)):
+        shapes = [_shape(o) for o in obj]
+    else:
+        shapes = _shape(obj)
+    print(f"[DBG] {label:<26s} : {shapes}", flush=True)
