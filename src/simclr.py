@@ -4,7 +4,7 @@ import torch.nn.functional as F
 import numpy as np
 import math
 import cv2
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, DataLoader
 
 # ----------------------------------------------------------------------
 # Augmentations
@@ -89,7 +89,7 @@ def DataTransform(signal):
 # ----------------------------------------------------------------------
 class ECGEncoder(nn.Module):
     """1D CNN encoder with 3 blocks, each block: Conv1d -> ReLU -> MaxPool -> Dropout"""
-    def __init__(self, input_channels=1, dropout=0.3):
+    def __init__(self, input_channels=1, dropout=0.3, window=10000):
         super(ECGEncoder, self).__init__()
         self.block1 = nn.Sequential(
             nn.Conv1d(input_channels, 32, kernel_size=32, stride=1, padding=16, bias=False),
@@ -111,7 +111,7 @@ class ECGEncoder(nn.Module):
         )
         # After conv blocks, flatten and FC to 80 units
         self.flatten = nn.Flatten()
-        self.fc = nn.Linear(128 *  (2560 // 8), 80)  # adjust 2560/window size accordingly
+        self.fc = nn.Linear(128 *  (window // 8), 80) 
         # L2 regularization to be set via optimizer weight_decay
 
     def forward(self, x):
@@ -126,53 +126,47 @@ class ECGEncoder(nn.Module):
 # Projection head g(.)
 # ----------------------------------------------------------------------
 class ProjectionHead(nn.Module):
-    """Non-linear projection to 256 dims with softmax activation"""
-    def __init__(self, input_dim=80, proj_dim=256):
-        super(ProjectionHead, self).__init__()
-        self.fc = nn.Linear(input_dim, proj_dim)
-        self.softmax = nn.Softmax(dim=-1)
+    """MLP → 256‑dim, followed by L2‑norm (no softmax)."""
+    def __init__(self, in_dim=80, proj_dim=256):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(in_dim, proj_dim), nn.ReLU(inplace=True),
+            nn.Linear(proj_dim, proj_dim))
 
     def forward(self, h):
-        z = self.fc(h)
-        z = self.softmax(z)
-        return z
+        z = self.net(h)
+        return F.normalize(z, dim=1)
 
 # ----------------------------------------------------------------------
 # SimCLR Model
 # ----------------------------------------------------------------------
 class SimCLR(nn.Module):
-    def __init__(self, encoder, projector):
-        super(SimCLR, self).__init__()
-        self.encoder = encoder
-        self.projector = projector
+    def __init__(self, encoder:ECGEncoder, projector:ProjectionHead):
+        super().__init__()
+        self.f, self.g = encoder, projector
 
-    def forward(self, x_i, x_j):
-        # x_i, x_j: two views, shape (N,C,L)
-        h_i = self.encoder(x_i)
-        h_j = self.encoder(x_j)
-        z_i = self.projector(h_i)
-        z_j = self.projector(h_j)
-        return h_i, h_j, z_i, z_j
-
+    def forward(self, x1, x2):                 # views (B,1,L)
+        h1, h2 = self.f(x1), self.f(x2)        # (B,80)
+        z1, z2 = self.g(h1), self.g(h2)        # (B,256)
+        return h1, h2, z1, z2
+    
 # ----------------------------------------------------------------------
 # NT-Xent Loss
 # ----------------------------------------------------------------------
 class NTXentLoss(nn.Module):
-    def __init__(self, batch_size, temperature=0.5):
-        super(NTXentLoss, self).__init__()
-        self.batch_size = batch_size
-        self.temperature = temperature
-        self.cross_entropy = nn.CrossEntropyLoss()
+    def __init__(self, batch_size:int, T:float=0.5):
+        super().__init__()
+        self.B, self.T = batch_size, T
+        self.register_buffer("labels", torch.arange(batch_size).repeat(2))
 
-    def forward(self, z_i, z_j):
-        N = 2 * self.batch_size
-        z = torch.cat([z_i, z_j], dim=0)  # shape (2N, D)
-        sim = F.cosine_similarity(z.unsqueeze(1), z.unsqueeze(0), dim=2) / self.temperature
-        labels = torch.arange(self.batch_size).repeat(2)
-        labels = labels.to(z_i.device)
-        mask = (~torch.eye(N, N, dtype=bool)).float().to(z_i.device)
-        logits = sim * mask - 1e9 * (1 - mask)
-        loss = self.cross_entropy(logits, labels)
+    def forward(self, z1, z2):                 # (B,D)
+        z = torch.cat([z1, z2], dim=0)         # (2B,D)
+        sim = torch.mm(z, z.t()) / self.T      # cosine sims after norm
+        sim.fill_diagonal_(-1e9)               # mask self‑contrast
+        l_pos = torch.diag(sim, self.B)        # positives
+        r_pos = torch.diag(sim, -self.B)
+        positives = torch.cat([l_pos, r_pos], 0)[:,None]     # (2B,1)
+        loss = -torch.mean(torch.log(torch.exp(positives) / torch.exp(sim).sum(dim=1, keepdim=True)))
         return loss
 
 # ----------------------------------------------------------------------
@@ -192,3 +186,37 @@ class SimCLRDataset(Dataset):
         v1 = torch.tensor(v1, dtype=torch.float).unsqueeze(0)
         v2 = torch.tensor(v2, dtype=torch.float).unsqueeze(0)
         return v1, v2
+
+def get_simclr_model(window:int=2560, device:str="cpu"):
+    enc = ECGEncoder(window=window).to(device)
+    proj = ProjectionHead().to(device)
+    return SimCLR(enc, proj)
+
+def simclr_data_loaders(X_train, X_val, batch_size:int):
+    return (DataLoader(SimCLRDataset(X_train), batch_size, shuffle=True,  drop_last=True),
+            DataLoader(SimCLRDataset(X_val),   batch_size, shuffle=False, drop_last=True))
+
+def pretrain_one_epoch(model, loader, loss_fn, opt, device):
+    model.train()
+    tot = 0
+    for v1,v2 in loader:
+        v1,v2 = v1.to(device), v2.to(device)
+        _,_,z1,z2 = model(v1,v2)
+        loss = loss_fn(z1, z2)
+        opt.zero_grad()
+        loss.backward()
+        opt.step()
+        tot += loss.item()
+    return tot/len(loader)
+
+@torch.no_grad()
+def encode_representations(model, X, batch_size:int, device:str):
+    """Return L2‑normalised encoder outputs h."""
+    loader = DataLoader(torch.from_numpy(X).float(), batch_size, shuffle=False)
+    reps = []
+    model.eval()
+    for xb in loader:
+        xb = xb.unsqueeze(1).to(device) if xb.ndim==2 else xb.to(device)
+        h = F.normalize(model.f(xb), dim=1)
+        reps.append(h.cpu().numpy())
+    return np.concatenate(reps,0)
