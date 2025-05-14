@@ -40,6 +40,9 @@ dependencies:
       - tensorflow
       - mlflow
       - mlflow[extras]
+      - opentelemetry-api
+      - opentelemetry-sdk
+      - importlib-metadata
       - mlserver
       - mlserver-mlflow
       - packaging
@@ -58,3 +61,4 @@ dependencies:
       - tslearn
       - torchmetrics
       - einops
+      - opencv-python
