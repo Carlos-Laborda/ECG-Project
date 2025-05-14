@@ -63,7 +63,7 @@ class ECGSimCLRFlow(FlowSpec):
     @resources(memory=16000)
     @step
     def pretrain_simclr(self):
-        model = get_simclr_model(window=self.X_train.shape[-1],
+        model = get_simclr_model(window=self.X_train.shape[1],
                                  device=self.device)
         loss_fn = NTXentLoss(self.batch_size, self.temperature)
         opt     = optim.AdamW(model.parameters(), lr=self.lr, weight_decay=1e-4)
