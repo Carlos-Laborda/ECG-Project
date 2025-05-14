@@ -13,25 +13,25 @@ from simclr import (get_simclr_model, NTXentLoss, simclr_data_loaders, pretrain_
 class ECGSimCLRFlow(FlowSpec):
 
     # pipeline parameters
-    mlflow_uri          = Parameter("mlflow_tracking_uri",
+    mlflow_tracking_uri = Parameter("mlflow_tracking_uri",
                                     default=os.getenv("MLFLOW_TRACKING_URI",
                                                       "https://127.0.0.1:5000"))
-    window_data_path    = Parameter("window_data_path",
+    window_data_path = Parameter("window_data_path",
                                     default="../data/interim/windowed_data.h5")
-    seed                = Parameter("seed", default=42)
+    seed = Parameter("seed", default=42)
 
     # SimCLR pre‑training
-    epochs              = Parameter("epochs",      default=100)
-    lr                  = Parameter("lr",          default=1e-3)
-    batch_size          = Parameter("batch_size",  default=128)
-    temperature         = Parameter("temperature", default=0.5)
+    epochs = Parameter("epochs", default=100)
+    lr = Parameter("lr",default=1e-3)
+    batch_size = Parameter("batch_size", default=128)
+    temperature = Parameter("temperature", default=0.5)
 
     # linear classifier
-    clf_epochs          = Parameter("clf_epochs",   default=25)
-    clf_lr              = Parameter("clf_lr",       default=1e-4)
-    clf_batch_size      = Parameter("clf_batch_size", default=32)
-    label_fraction      = Parameter("label_fraction", default=1.0)
-    accuracy_threshold  = Parameter("accuracy_threshold", default=0.74)
+    clf_epochs = Parameter("clf_epochs", default=25)
+    clf_lr = Parameter("clf_lr",       default=1e-4)
+    clf_batch_size = Parameter("clf_batch_size", default=32)
+    label_fraction = Parameter("label_fraction", default=1.0)
+    accuracy_threshold = Parameter("accuracy_threshold", default=0.74)
 
     @step
     def start(self):
@@ -69,7 +69,7 @@ class ECGSimCLRFlow(FlowSpec):
         opt     = optim.AdamW(model.parameters(), lr=self.lr, weight_decay=1e-4)
         train_dl, val_dl = simclr_data_loaders(self.X_train, self.X_val,
                                                self.batch_size)
-        mlflow.set_tracking_uri(self.mlflow_uri)
+        mlflow.set_tracking_uri(self.mlflow_tracking_uri)
         with mlflow.start_run(run_id=self.mlflow_run_id):
             params = {
                 "epochs": self.epochs, "lr": self.lr,
@@ -139,7 +139,7 @@ class ECGSimCLRFlow(FlowSpec):
                           torch.from_numpy(self.y_val).float()),
             batch_size=self.clf_batch_size, shuffle=False)
         
-        mlflow.set_tracking_uri(self.mlflow_uri)
+        mlflow.set_tracking_uri(self.mlflow_tracking_uri)
         with mlflow.start_run(run_id=self.mlflow_run_id):
             params = {
                 "classifier_lr": self.clf_lr,
@@ -163,7 +163,7 @@ class ECGSimCLRFlow(FlowSpec):
             TensorDataset(torch.from_numpy(self.test_repr).float(),
                           torch.from_numpy(self.y_test).float()),
             batch_size=self.clf_batch_size, shuffle=False)
-        mlflow.set_tracking_uri(self.mlflow_uri)
+        mlflow.set_tracking_uri(self.mlflow_tracking_uri)
         with mlflow.start_run(run_id=self.mlflow_run_id):
             self.test_acc, *_ = evaluate_classifier(
                 self.classifier, test_dl, self.device)
@@ -171,7 +171,7 @@ class ECGSimCLRFlow(FlowSpec):
 
     @step
     def register(self):
-        mlflow.set_tracking_uri(self.mlflow_uri)
+        mlflow.set_tracking_uri(self.mlflow_tracking_uri)
         if self.test_acc >= self.accuracy_threshold:
             with mlflow.start_run(run_id=current.run_id):
                 mlflow.pytorch.log_model(
