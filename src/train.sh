@@ -39,15 +39,20 @@ export MLFLOW_TRACKING_URI=http://fs0.das6.cs.vu.nl:5005
 #   --tcc_batch_size 128 \
 #   --tc_hidden_dim 128
 
-python tstcc_soft_train.py run \
+# python tstcc_soft_train.py run \
+#   --mlflow_tracking_uri "http://fs0.das6.cs.vu.nl:5005" \
+#   --window_data_path "../../../../var/scratch/cla224/ECG-Project/data/windowed_data.h5" \
+#   --tcc_epochs 3 \
+#   --label_fraction 1.0 \
+#   --cc_temperature 0.07 \
+#   --tc_timesteps 70 \
+#   --tc_hidden_dim 128 \
+#   --tau_inst 10 \
+#   --lambda_aux 0.2 \
+#   --tau_temp 1 \
+  
+python simclr_train.py run \
   --mlflow_tracking_uri "http://fs0.das6.cs.vu.nl:5005" \
   --window_data_path "../../../../var/scratch/cla224/ECG-Project/data/windowed_data.h5" \
-  --tcc_epochs 3 \
+  --epochs 3 \
   --label_fraction 1.0 \
-  --cc_temperature 0.07 \
-  --tc_timesteps 70 \
-  --tc_hidden_dim 128 \
-  --tau_inst 10 \
-  --lambda_aux 0.2 \
-  --tau_temp 1 \
-  
