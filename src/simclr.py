@@ -11,6 +11,24 @@ from torchmetrics.classification import BinaryAUROC, BinaryAveragePrecision, Bin
 from typing import Union, Sequence
 
 # ----------------------------------------------------------------------
+# helpers (put right after the imports in simclr.py)
+# ----------------------------------------------------------------------
+def to_1d(x: np.ndarray) -> np.ndarray:
+    """Remove channel/extra dims so that augmentations see (L,) arrays."""
+    return np.asarray(x).squeeze()        # guarantees positive length axis=-1
+
+def same_length(arr: np.ndarray, target_len: int) -> np.ndarray:
+    """Resample (with linear interp) so that len(arr)==target_len."""
+    if arr.shape[-1] == target_len:
+        return arr
+    return cv2.resize(arr.reshape(-1, 1), (1, target_len),
+                      interpolation=cv2.INTER_LINEAR).flatten()
+
+def safe_contiguous(x: np.ndarray) -> np.ndarray:
+    """Ensure positive stride & contiguous memory."""
+    return np.ascontiguousarray(x)
+
+# ----------------------------------------------------------------------
 # Augmentations
 # ----------------------------------------------------------------------
 def add_noise(signal, noise_amount):
@@ -47,22 +65,24 @@ def permute(signal, pieces):
     np.random.shuffle(segments)
     return np.concatenate(segments, axis=-1)
 
-
 def time_warp(signal, pieces=4, stretch_factor=1.2, squeeze_factor=0.8):
+    signal = to_1d(signal)                
     L = signal.shape[-1]
+    if L < pieces:                 
+        return signal.copy()
+
     seg_len = L // pieces
     output = []
     for i in range(pieces):
         seg = signal[i*seg_len:(i+1)*seg_len]
-        if np.random.rand() < 0.5:
-            new_len = int(np.ceil(len(seg) * stretch_factor))
-        else:
-            new_len = int(np.ceil(len(seg) * squeeze_factor))
-        seg = seg.reshape(-1,1)
-        warped = cv2.resize(seg, (1, new_len), interpolation=cv2.INTER_LINEAR).flatten()
+        new_len = int(np.ceil(len(seg) * (stretch_factor if np.random.rand() < 0.5
+                                          else squeeze_factor)))
+        warped = cv2.resize(seg.reshape(-1, 1), (1, new_len),
+                            interpolation=cv2.INTER_LINEAR).flatten()
         output.append(warped)
-    return np.concatenate(output, axis=-1)
 
+    warped_all = np.concatenate(output, axis=-1)
+    return same_length(warped_all, L)      
 
 # List of available augmentations
 AUGMENTATIONS = [
@@ -75,17 +95,19 @@ AUGMENTATIONS = [
     lambda x: time_warp(x, pieces=4, stretch_factor=1.2, squeeze_factor=0.8)
 ]
 
-
 def DataTransform(signal):
     """Generate two augmented views of the same ECG signal."""
-    view1 = signal.copy()
-    view2 = signal.copy()
-    # apply 2 random augmentations to each view
+    signal = to_1d(signal)       
+    target_len = signal.shape[-1]
+
+    view1, view2 = signal.copy(), signal.copy()
     for _ in range(2):
-        aug = np.random.choice(AUGMENTATIONS)
-        view1 = aug(view1)
-        aug = np.random.choice(AUGMENTATIONS)
-        view2 = aug(view2)
+        view1 = np.random.choice(AUGMENTATIONS)(view1)
+        view2 = np.random.choice(AUGMENTATIONS)(view2)
+
+    # guarantee fixed length & positive strides
+    view1 = safe_contiguous(same_length(view1, target_len))
+    view2 = safe_contiguous(same_length(view2, target_len))
     return view1, view2
 
 # ----------------------------------------------------------------------
@@ -186,6 +208,7 @@ class SimCLRDataset(Dataset):
     def __getitem__(self, idx):
         x = self.signals[idx]
         v1, v2 = DataTransform(x)
+        
         # reshape to (C,L)
         v1 = torch.tensor(v1, dtype=torch.float).unsqueeze(0)
         v2 = torch.tensor(v2, dtype=torch.float).unsqueeze(0)
@@ -220,11 +243,10 @@ def encode_representations(model, X, batch_size:int, device:str):
     reps = []
     model.eval()
     for xb in loader:
-        xb = xb.unsqueeze(1).to(device) if xb.ndim==2 else xb.to(device)
+        xb = xb.permute(0, 2, 1).to(device) 
         h = F.normalize(model.f(xb), dim=1)
         reps.append(h.cpu().numpy())
     return np.concatenate(reps,0)
-
 
 # ----------------------------------------------------------------------        
 # linear classifier
