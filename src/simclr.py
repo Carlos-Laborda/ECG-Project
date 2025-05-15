@@ -29,14 +29,14 @@ def safe_contiguous(x: np.ndarray) -> np.ndarray:
     return np.ascontiguousarray(x)
 
 # ----------------------------------------------------------------------
-# Augmentations
+# Augmentations (following paper’s guidelines (15, 0.9, 20, 9, 1.05))
 # ----------------------------------------------------------------------
 def add_noise(signal, noise_amount):
     noise = np.random.normal(0, noise_amount, size=signal.shape)
     return signal + noise
 
 
-def add_noise_with_SNR(signal, snr_db):
+def add_noise_with_SNR(signal, snr_db=15):
     x_watts = signal ** 2
     sig_avg_watts = np.mean(x_watts)
     sig_avg_db = 10 * np.log10(sig_avg_watts)
@@ -46,7 +46,7 @@ def add_noise_with_SNR(signal, snr_db):
     return signal + noise
 
 
-def scaled(signal, factor):
+def scaled(signal, factor=0.9):
     return signal * factor
 
 
@@ -58,14 +58,14 @@ def hor_flip(signal):
     return np.flip(signal)
 
 
-def permute(signal, pieces):
+def permute(signal, pieces=20):
     L = signal.shape[-1]
     piece_len = L // pieces
     segments = [signal[i*piece_len:(i+1)*piece_len] for i in range(pieces)]
     np.random.shuffle(segments)
     return np.concatenate(segments, axis=-1)
 
-def time_warp(signal, pieces=4, stretch_factor=1.2, squeeze_factor=0.8):
+def time_warp(signal, pieces=9, stretch_factor=1.05, squeeze_factor=0.95):
     signal = to_1d(signal)                
     L = signal.shape[-1]
     if L < pieces:                 
@@ -82,17 +82,16 @@ def time_warp(signal, pieces=4, stretch_factor=1.2, squeeze_factor=0.8):
         output.append(warped)
 
     warped_all = np.concatenate(output, axis=-1)
-    return same_length(warped_all, L)      
+    return same_length(warped_all, L) 
 
 # List of available augmentations
 AUGMENTATIONS = [
-    lambda x: add_noise(x, noise_amount=0.01),
-    lambda x: add_noise_with_SNR(x, snr_db=20),
-    lambda x: scaled(x, factor=np.random.uniform(0.9,1.1)),
-    lambda x: negate(x),
-    lambda x: hor_flip(x),
-    lambda x: permute(x, pieces=4),
-    lambda x: time_warp(x, pieces=4, stretch_factor=1.2, squeeze_factor=0.8)
+    add_noise_with_SNR,   # uses snr_db=15
+    scaled,               # uses factor=0.9
+    permute,              # uses pieces=20
+    time_warp,            # uses pieces=9, stretch=1.05, squeeze=0.95
+    negate,
+    hor_flip,
 ]
 
 def DataTransform(signal):
