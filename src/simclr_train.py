@@ -72,6 +72,7 @@ class ECGSimCLRFlow(FlowSpec):
         mlflow.set_tracking_uri(self.mlflow_tracking_uri)
         with mlflow.start_run(run_id=self.mlflow_run_id):
             params = {
+                "model_name": model.__class__.__name__,
                 "epochs": self.epochs, "lr": self.lr,
                 "batch_size": self.batch_size,
                 "temperature": self.temperature}
