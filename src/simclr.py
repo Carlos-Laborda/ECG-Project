@@ -112,60 +112,60 @@ def safe_contiguous(x: np.ndarray) -> np.ndarray:
 # -------------------------------------------------------------
 # Tuned augmentations for 10k-sample ECG windows
 # -------------------------------------------------------------
-# def add_noise_with_SNR(x, snr_db=None):
-#     snr = snr_db if snr_db is not None else np.random.uniform(18, 30)
-#     p_signal = np.mean(x**2)
-#     p_noise  = p_signal / (10**(snr/10))
-#     return x + np.random.normal(0, np.sqrt(p_noise), size=x.shape)
+def add_noise_with_SNR(x, snr_db=None):
+    snr = snr_db if snr_db is not None else np.random.uniform(18, 30)
+    p_signal = np.mean(x**2)
+    p_noise  = p_signal / (10**(snr/10))
+    return x + np.random.normal(0, np.sqrt(p_noise), size=x.shape)
 
-# def random_scaling(x):
-#     return x * np.random.uniform(0.9, 1.1)
+def random_scaling(x):
+    return x * np.random.uniform(0.9, 1.1)
 
-# def random_crop_shift(x, crop_len=8000):
-#     if len(x) <= crop_len:
-#         return x
-#     start = np.random.randint(0, len(x)-crop_len)
-#     cropped = x[start:start+crop_len]
-#     pad_left  = np.random.randint(0, len(x)-crop_len)
-#     pad_right = len(x)-crop_len-pad_left
-#     return np.pad(cropped, (pad_left, pad_right))
+def random_crop_shift(x, crop_len=8000):
+    if len(x) <= crop_len:
+        return x
+    start = np.random.randint(0, len(x)-crop_len)
+    cropped = x[start:start+crop_len]
+    pad_left  = np.random.randint(0, len(x)-crop_len)
+    pad_right = len(x)-crop_len-pad_left
+    return np.pad(cropped, (pad_left, pad_right))
 
-# def local_jitter(x):
-#     return x + np.random.normal(0, 0.003*np.std(x), size=x.shape)
+def local_jitter(x):
+    return x + np.random.normal(0, 0.003*np.std(x), size=x.shape)
 
-# def baseline_wander(x):
-#     f = np.random.uniform(0.05, 0.3)
-#     t = np.arange(len(x)) / 1000   
-#     amp = np.random.uniform(0.01, 0.05) * np.std(x)
-#     return x + amp * np.sin(2*np.pi*f*t)
+def baseline_wander(x):
+    f = np.random.uniform(0.05, 0.3)
+    t = np.arange(len(x)) / 1000   
+    amp = np.random.uniform(0.01, 0.05) * np.std(x)
+    return x + amp * np.sin(2*np.pi*f*t)
 
-# def negate(x):   return -x
-# def hor_flip(x): return np.ascontiguousarray(np.flip(x))
+def negate(x):   return -x
+def hor_flip(x): return np.ascontiguousarray(np.flip(x))
 
-# AUGS = [
-#     (add_noise_with_SNR, 0.25),
-#     (random_scaling,     0.20),
-#     (random_crop_shift,  0.20),
-#     (local_jitter,       0.15),
-#     (baseline_wander,    0.10),
-#     (negate,             0.05),
-#     (hor_flip,           0.05),
-# ]
+AUGS = [
+    (add_noise_with_SNR, 0.25),
+    (random_scaling,     0.25),
+    (random_crop_shift,  0.25),
+    (local_jitter,       0.15),
+    #(baseline_wander,    0.10),
+    (negate,             0.05),
+    (hor_flip,           0.05),
+]
 
-# funcs, probs = zip(*AUGS)
+funcs, probs = zip(*AUGS)
 
-# def sample_augmented(x: np.ndarray) -> np.ndarray:
-#     idx = np.random.choice(len(funcs), p=probs)
-#     return funcs[idx](x)
+def sample_augmented(x: np.ndarray) -> np.ndarray:
+    idx = np.random.choice(len(funcs), p=probs)
+    return funcs[idx](x)
 
-# def DataTransform(signal):
-#     sig = to_1d(signal)
-#     v1, v2 = sig.copy(), sig.copy()
-#     v1 = sample_augmented(v1); v1 = sample_augmented(v1)
-#     v2 = sample_augmented(v2); v2 = sample_augmented(v2)
-#     # ensure shape & contiguity
-#     L = sig.shape[-1]
-#     return safe_contiguous(same_length(v1, L)), safe_contiguous(same_length(v2, L))
+def DataTransform(signal):
+    sig = to_1d(signal)
+    v1, v2 = sig.copy(), sig.copy()
+    v1 = sample_augmented(v1); v1 = sample_augmented(v1)
+    v2 = sample_augmented(v2); v2 = sample_augmented(v2)
+    # ensure shape & contiguity
+    L = sig.shape[-1]
+    return safe_contiguous(same_length(v1, L)), safe_contiguous(same_length(v2, L))
 
 def add_noise(signal: np.ndarray, noise_amount: float = 0.15) -> np.ndarray:
     """
