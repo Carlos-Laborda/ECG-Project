@@ -139,17 +139,17 @@ def baseline_wander(x):
     amp = np.random.uniform(0.01, 0.05) * np.std(x)
     return x + amp * np.sin(2*np.pi*f*t)
 
-def negate(x):   return -x
-def hor_flip(x): return np.ascontiguousarray(np.flip(x))
+# def negate(x):   return -x
+# def hor_flip(x): return np.ascontiguousarray(np.flip(x))
 
 AUGS = [
-    (add_noise_with_SNR, 0.25),
+    (add_noise_with_SNR, 0.30),
     (random_scaling,     0.25),
-    (random_crop_shift,  0.25),
+    (random_crop_shift,  0.20),
     (local_jitter,       0.15),
-    #(baseline_wander,    0.10),
-    (negate,             0.05),
-    (hor_flip,           0.05),
+    (baseline_wander,    0.10),
+    #(negate,             0.05),
+    #(hor_flip,           0.05),
 ]
 
 funcs, probs = zip(*AUGS)
