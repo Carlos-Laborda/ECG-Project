@@ -282,7 +282,7 @@ class ECGEncoder(nn.Module):
 # ----------------------------------------------------------------------
 class ProjectionHead(nn.Module):
     """MLP → 256‑dim, followed by L2‑norm (no softmax)."""
-    def __init__(self, in_dim=80, proj_dim=256):
+    def __init__(self, in_dim=80, proj_dim=128):
         super().__init__()
         self.net = nn.Sequential(
             nn.Linear(in_dim, proj_dim), nn.ReLU(inplace=True),
