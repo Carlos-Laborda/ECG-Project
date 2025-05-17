@@ -139,17 +139,17 @@ def baseline_wander(x):
     amp = np.random.uniform(0.01, 0.05) * np.std(x)
     return x + amp * np.sin(2*np.pi*f*t)
 
-# def negate(x):   return -x
-# def hor_flip(x): return np.ascontiguousarray(np.flip(x))
+def negate(x):   return -x
+def hor_flip(x): return np.ascontiguousarray(np.flip(x))
 
 AUGS = [
-    (add_noise_with_SNR, 0.30),
-    (random_scaling,     0.25),
+    (add_noise_with_SNR, 0.25),
+    (random_scaling,     0.20),
     (random_crop_shift,  0.20),
     (local_jitter,       0.15),
     (baseline_wander,    0.10),
-    #(negate,             0.05),
-    #(hor_flip,           0.05),
+    (negate,             0.05),
+    (hor_flip,           0.05),
 ]
 
 funcs, probs = zip(*AUGS)
@@ -167,76 +167,76 @@ def DataTransform(signal):
     L = sig.shape[-1]
     return safe_contiguous(same_length(v1, L)), safe_contiguous(same_length(v2, L))
 
-def add_noise(signal: np.ndarray, noise_amount: float = 0.15) -> np.ndarray:
-    """
-    Gaussian noise σ=0.15 — optimal in [0.1,0.25].
-    """
-    noise = np.random.normal(0, noise_amount, size=signal.shape)
-    return signal + noise
+# def add_noise(signal: np.ndarray, noise_amount: float = 0.15) -> np.ndarray:
+#     """
+#     Gaussian noise σ=0.15 — optimal in [0.1,0.25].
+#     """
+#     noise = np.random.normal(0, noise_amount, size=signal.shape)
+#     return signal + noise
 
-def scaled(signal: np.ndarray, factor: float = 1.2) -> np.ndarray:
-    """
-    Scaling factor=1.2 — in the good range [0.5,1.7].
-    """
-    return signal * factor
+# def scaled(signal: np.ndarray, factor: float = 1.2) -> np.ndarray:
+#     """
+#     Scaling factor=1.2 — in the good range [0.5,1.7].
+#     """
+#     return signal * factor
 
-def permute(signal: np.ndarray, pieces: int = 8) -> np.ndarray:
-    """
-    Permute into 8 segments (mid-range between 2 and 20).
-    """
-    L = signal.shape[-1]
-    seg_len = L // pieces
-    segments = [signal[i*seg_len:(i+1)*seg_len] for i in range(pieces)]
-    np.random.shuffle(segments)
-    return np.concatenate(segments, axis=-1)
+# def permute(signal: np.ndarray, pieces: int = 8) -> np.ndarray:
+#     """
+#     Permute into 8 segments (mid-range between 2 and 20).
+#     """
+#     L = signal.shape[-1]
+#     seg_len = L // pieces
+#     segments = [signal[i*seg_len:(i+1)*seg_len] for i in range(pieces)]
+#     np.random.shuffle(segments)
+#     return np.concatenate(segments, axis=-1)
 
-def time_warp(
-    signal: np.ndarray,
-    pieces: int = 4,
-    stretch_factor: float = 1.25,
-    squeeze_factor: float = 0.75
-) -> np.ndarray:
-    """
-    4-segment warp with mild ±25% stretch/squeeze.
-    """
-    x = to_1d(signal)
-    L = x.shape[-1]
-    seg_len = L // pieces
-    warped = []
-    for i in range(pieces):
-        seg = x[i*seg_len:(i+1)*seg_len]
-        sf = stretch_factor if np.random.rand()<0.5 else squeeze_factor
-        newlen = int(np.ceil(len(seg) * sf))
-        w = cv2.resize(seg.reshape(-1,1), (1,newlen),
-                       interpolation=cv2.INTER_LINEAR).flatten()
-        warped.append(w)
-    w_all = np.concatenate(warped, axis=-1)
-    return safe_contiguous(same_length(w_all, L))
+# def time_warp(
+#     signal: np.ndarray,
+#     pieces: int = 4,
+#     stretch_factor: float = 1.25,
+#     squeeze_factor: float = 0.75
+# ) -> np.ndarray:
+#     """
+#     4-segment warp with mild ±25% stretch/squeeze.
+#     """
+#     x = to_1d(signal)
+#     L = x.shape[-1]
+#     seg_len = L // pieces
+#     warped = []
+#     for i in range(pieces):
+#         seg = x[i*seg_len:(i+1)*seg_len]
+#         sf = stretch_factor if np.random.rand()<0.5 else squeeze_factor
+#         newlen = int(np.ceil(len(seg) * sf))
+#         w = cv2.resize(seg.reshape(-1,1), (1,newlen),
+#                        interpolation=cv2.INTER_LINEAR).flatten()
+#         warped.append(w)
+#     w_all = np.concatenate(warped, axis=-1)
+#     return safe_contiguous(same_length(w_all, L))
 
-# only keep the 4 that actually helped
-AUGMENTATIONS = [
-    add_noise,   # σ=0.15
-    scaled,      # factor=1.2
-    permute,     # pieces=8
-    time_warp,   # pieces=4, warp±25%
-]
+# # only keep the 4 that actually helped
+# AUGMENTATIONS = [
+#     add_noise,   # σ=0.15
+#     scaled,      # factor=1.2
+#     permute,     # pieces=8
+#     time_warp,   # pieces=4, warp±25%
+# ]
 
-def DataTransform(signal: np.ndarray):
-    """Generate two fixed-hyperparam views of the same ECG."""
-    x = to_1d(signal)
-    L = x.shape[-1]
+# def DataTransform(signal: np.ndarray):
+#     """Generate two fixed-hyperparam views of the same ECG."""
+#     x = to_1d(signal)
+#     L = x.shape[-1]
 
-    v1, v2 = x.copy(), x.copy()
-    # two different augmentations per view
-    v1 = np.random.choice(AUGMENTATIONS)(v1)
-    v1 = np.random.choice(AUGMENTATIONS)(v1)
-    v2 = np.random.choice(AUGMENTATIONS)(v2)
-    v2 = np.random.choice(AUGMENTATIONS)(v2)
+#     v1, v2 = x.copy(), x.copy()
+#     # two different augmentations per view
+#     v1 = np.random.choice(AUGMENTATIONS)(v1)
+#     v1 = np.random.choice(AUGMENTATIONS)(v1)
+#     v2 = np.random.choice(AUGMENTATIONS)(v2)
+#     v2 = np.random.choice(AUGMENTATIONS)(v2)
 
-    # restore length & contiguity
-    v1 = safe_contiguous(same_length(v1, L))
-    v2 = safe_contiguous(same_length(v2, L))
-    return v1, v2
+#     # restore length & contiguity
+#     v1 = safe_contiguous(same_length(v1, L))
+#     v2 = safe_contiguous(same_length(v2, L))
+#     return v1, v2
 
 
 # ----------------------------------------------------------------------
