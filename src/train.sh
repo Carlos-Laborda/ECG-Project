@@ -56,5 +56,3 @@ python simclr_train.py run \
   --window_data_path "../../../../var/scratch/cla224/ECG-Project/data/windowed_data.h5" \
   --epochs 100 \
   --label_fraction 1.0 \
-  --temperature 0.2 \
-  --batch_size 256 \
