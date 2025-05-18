@@ -23,8 +23,8 @@ class ECGSimCLRFlow(FlowSpec):
     # SimCLR pre‑training
     epochs = Parameter("epochs", default=100)
     lr = Parameter("lr",default=1e-3)
-    batch_size = Parameter("batch_size", default=128)
-    temperature = Parameter("temperature", default=0.5)
+    batch_size = Parameter("batch_size", default=256)
+    temperature = Parameter("temperature", default=0.2)
 
     # linear classifier
     clf_epochs = Parameter("clf_epochs", default=25)
