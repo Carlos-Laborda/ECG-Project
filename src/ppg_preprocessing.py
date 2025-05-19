@@ -1,13 +1,3 @@
-"""
-ppg_preprocessing.py
---------------------
-End-to-end preprocessing for Empatica EmbracePlus PPG (BVP) signals:
-1. .avro → HDF5 (raw segments)
-2. cleaning: 0.5–4 Hz band-pass 
-3. z-score: user-specific (per participant)
-4. windowing: 10-s windows, 5-s stride  (=> 640 × 1 arrays)
-"""
-
 import os, glob, h5py
 from datetime import datetime, timezone
 
@@ -18,45 +8,36 @@ from scipy.signal import butter, filtfilt, iirnotch
 # ───────────────────────────────
 # helper funct.
 # ───────────────────────────────
-def list_avro_files(root_dir):
-    return sorted(glob.glob(os.path.join(root_dir, "P*_empatica", "raw_data", "v6", "*.avro")))
+def participant_id(avro_path: str) -> str:
+    """
+    .../P07_empatica/raw_data/v6/file.avro  ->  P07_empatica
+    """
+    return os.path.basename(os.path.dirname(os.path.dirname(os.path.dirname(avro_path))))
 
-# def butter_bandpass(sig, fs, low=0.5, high=4.0, order=4):
-#     nyq = 0.5 * fs
-#     b, a = butter(order, [low/nyq, high/nyq], btype="band")
-#     return filtfilt(b, a, sig)
-
-# def notch_50hz(sig, fs, q=30):
-#     nyq = 0.5 * fs
-#     b, a = iirnotch(50/nyq, q)
-#     return filtfilt(b, a, sig)
-
-# def clean_ppg(sig, fs):
-#     sig = butter_bandpass(sig, fs)
-#     sig = notch_50hz(sig, fs)     
-#     return sig.astype(np.float32)
+def is_valid_segment(sig, fs):
+    return (len(sig) > 0) and (fs is not None) and (fs > 0)
 
 def butter_bandpass_safe(sig, fs, low=0.5, high=4.0, order=4):
-    """Band-pass 0.5–4 Hz robusto a fs bajos."""
+    """Band-pass 0.5–4 Hz got at low fs."""
     if fs <= 0:
-        print(f"[WARN] fs={fs} Hz no válido → skip band-pass")
+        print(f"[WARN] fs={fs} Hz not valid → skip band-pass")
         return sig
     nyq = 0.5 * fs
-    high = min(high, 0.45 * fs)       # que high < 0.5*fs
-    if low >= high:                   # aún inválido
-        print(f"[WARN] fs={fs} Hz demasiado bajo para 0.5–4 Hz → skip band-pass")
+    high = min(high, 0.45 * fs)       
+    if low >= high:                   
+        print(f"[WARN] fs={fs} Hz too low for 0.5–4 Hz → skip band-pass")
         return sig
     low_norm, high_norm = low/nyq, high/nyq
     try:
         b, a = butter(order, [low_norm, high_norm], btype="band")
         return filtfilt(b, a, sig)
     except ValueError as e:
-        print(f"[WARN] butter() falló ({e}) → skip band-pass")
+        print(f"[WARN] butter() failed ({e}) → skip band-pass")
         return sig
 
 def notch_50_safe(sig, fs, q=30):
-    """Notch 50 Hz solo si fs lo permite."""
-    if fs < 100:                      # Nyquist < 50 Hz
+    """Notch 50 Hz only if allowed."""
+    if fs < 100:                     
         return sig
     nyq = 0.5 * fs
     w0 = 50 / nyq
@@ -72,23 +53,27 @@ def clean_ppg(sig, fs):
 # .avro to raw HDF5
 # ───────────────────────────────
 def avro_to_hdf5(root_dir, out_h5):
+    print(f"\n[INFO] AVRO → HDF5   |   root = {root_dir}")
     with h5py.File(out_h5, "w") as fout:
-        for fpath in list_avro_files(root_dir):
-            participant = os.path.basename(os.path.dirname(os.path.dirname(fpath)))  # P41_empatica
-            group = fout.require_group(participant)
-            seg_name = os.path.splitext(os.path.basename(fpath))[0]                  # 1-1-P41_…
+        for idx, fpath in enumerate(sorted(glob.glob(os.path.join(
+                        root_dir, "P*_empatica", "raw_data", "v6", "*.avro"))), 1):
+            part = participant_id(fpath)
             with open(fpath, "rb") as f:
-                rec = next(fastavro.reader(f))          # exactly one record per file
+                rec = next(fastavro.reader(f))
                 bvp = rec["rawData"]["bvp"]
-                fs  = bvp["samplingFrequency"]          # 64
-                vals = np.asarray(bvp["values"], dtype=np.float32)
-                dset = group.create_dataset(
-                    seg_name, data=vals,
-                    compression="gzip", compression_opts=4, dtype='float32'
-                )
-                dset.attrs["fs"] = fs
-                dset.attrs["t0_us"] = bvp["timestampStart"]
-    print(f"Raw PPG segments saved → {out_h5}")
+                fs, vals = bvp["samplingFrequency"], np.asarray(bvp["values"], dtype=np.float32)
+            if not is_valid_segment(vals, fs):
+                print(f" SKIP {os.path.basename(fpath)} – empty or fs=0")
+                continue
+
+            grp  = fout.require_group(part)
+            dset = grp.create_dataset(
+                os.path.splitext(os.path.basename(fpath))[0],
+                data=vals, compression="gzip", compression_opts=4, dtype='float32'
+            )
+            dset.attrs.update({"fs": fs, "t0_us": bvp["timestampStart"]})
+            print(f"[{idx}] {part}: stored {len(vals)} samples @ {fs} Hz")
+    print(f"[OK] Raw HDF5 → {out_h5}")
 
 # ───────────────────────────────
 # cleaning
@@ -96,17 +81,20 @@ def avro_to_hdf5(root_dir, out_h5):
 def clean_hdf5(in_h5, out_h5):
     with h5py.File(in_h5, "r") as fin, h5py.File(out_h5, "w") as fout:
         for part in fin:
-            pg_out = fout.create_group(part)
+            grp_out = fout.create_group(part)
+            kept = 0
             for seg in fin[part]:
-                sig  = fin[part][seg][...]
-                fs   = fin[part][seg].attrs["fs"]
-                sig_c = clean_ppg(sig, fs)
-                ds = pg_out.create_dataset(
-                    seg, data=sig_c,
-                    compression="gzip", compression_opts=4, dtype='float32'
-                )
-                ds.attrs.update(fin[part][seg].attrs)
-    print(f"Cleaned PPG saved → {out_h5}")
+                sig, fs = fin[part][seg][...], fin[part][seg].attrs["fs"]
+                if not is_valid_segment(sig, fs): 
+                    continue
+                grp_out.create_dataset(seg, data=clean_ppg(sig, fs),
+                                       compression="gzip", compression_opts=4)
+                grp_out[seg].attrs.update(fin[part][seg].attrs)
+                kept += 1
+            if kept == 0:
+                del fout[part]                            
+                print(f"  Removed {part} – no valid segments")
+    print(f"[OK] Clean HDF5 → {out_h5}")
 
 # ───────────────────────────────
 # user-specific z-score
@@ -114,42 +102,45 @@ def clean_hdf5(in_h5, out_h5):
 def normalize_hdf5(in_h5, out_h5):
     with h5py.File(in_h5, "r") as fin, h5py.File(out_h5, "w") as fout:
         for part in fin:
-            concat = np.concatenate([fin[part][seg][...] for seg in fin[part]])
+            segs = list(fin[part].keys())
+            if len(segs) == 0:
+                continue
+            concat = np.concatenate([fin[part][s][...] for s in segs])
             mu, sigma = concat.mean(), concat.std() or 1.0
-            pg_out = fout.create_group(part)
-            for seg in fin[part]:
+            grp_out = fout.create_group(part)
+            for seg in segs:
                 norm = (fin[part][seg][...] - mu) / sigma
-                ds = pg_out.create_dataset(
-                    seg, data=norm.astype(np.float32),
-                    compression="gzip", compression_opts=4, dtype='float32'
-                )
+                ds = grp_out.create_dataset(seg, data=norm.astype(np.float32),
+                                            compression="gzip", compression_opts=4)
                 ds.attrs.update(fin[part][seg].attrs)
                 ds.attrs["mu"], ds.attrs["sigma"] = float(mu), float(sigma)
-    print(f"Normalised PPG saved → {out_h5}")
+    print(f"[OK] Normalised HDF5 → {out_h5}")
 
 # ───────────────────────────────
 # windowing (10 s, 5 s stride)
 # ───────────────────────────────
-def sliding_windows(sig, w, s):
-    if len(sig) < w: return []
-    idx = np.arange(0, len(sig) - w + 1, s)
-    return np.stack([sig[i:i+w] for i in idx])
-
 def window_hdf5(in_h5, out_h5, win_sec=10, step_sec=5):
     with h5py.File(in_h5, "r") as fin, h5py.File(out_h5, "w") as fout:
         for part in fin:
-            fs = float(list(fin[part].values())[0].attrs["fs"])   # same for all segs
-            w, s = int(win_sec*fs), int(step_sec*fs)
-            pg_out = fout.create_group(part)
+            fs = next((fin[part][seg].attrs["fs"] for seg in fin[part]
+                       if fin[part][seg].attrs["fs"] > 0), None)
+            if fs is None:
+                print(f" Skip {part} – fs=0 in all segments")
+                continue
+            w, s = int(win_sec * fs), int(step_sec * fs)
+            if w == 0 or s == 0:
+                print(f" Skip {part} – w or s == 0")
+                continue
+
+            grp_out = fout.create_group(part)
             for seg in fin[part]:
                 sig = fin[part][seg][...]
-                win = sliding_windows(sig, w, s)
-                if win.size == 0: continue
-                pg_out.create_dataset(
-                    seg, data=win, compression="gzip", compression_opts=4
-                )
-            print(f"{part}: windowed.")
-    print(f"Windowed PPG saved → {out_h5}")
+                if len(sig) < w:
+                    continue
+                idx = np.arange(0, len(sig) - w + 1, s)
+                windows = np.stack([sig[i:i+w] for i in idx])
+                grp_out.create_dataset(seg, data=windows, compression="gzip", compression_opts=4)
+    print(f"[OK] Windowed HDF5 → {out_h5}")
 
 # ───────────────────────────────
 # main
