@@ -21,19 +21,51 @@ from scipy.signal import butter, filtfilt, iirnotch
 def list_avro_files(root_dir):
     return sorted(glob.glob(os.path.join(root_dir, "P*_empatica", "raw_data", "v6", "*.avro")))
 
-def butter_bandpass(sig, fs, low=0.5, high=4.0, order=4):
-    nyq = 0.5 * fs
-    b, a = butter(order, [low/nyq, high/nyq], btype="band")
-    return filtfilt(b, a, sig)
+# def butter_bandpass(sig, fs, low=0.5, high=4.0, order=4):
+#     nyq = 0.5 * fs
+#     b, a = butter(order, [low/nyq, high/nyq], btype="band")
+#     return filtfilt(b, a, sig)
 
-def notch_50hz(sig, fs, q=30):
+# def notch_50hz(sig, fs, q=30):
+#     nyq = 0.5 * fs
+#     b, a = iirnotch(50/nyq, q)
+#     return filtfilt(b, a, sig)
+
+# def clean_ppg(sig, fs):
+#     sig = butter_bandpass(sig, fs)
+#     sig = notch_50hz(sig, fs)     
+#     return sig.astype(np.float32)
+
+def butter_bandpass_safe(sig, fs, low=0.5, high=4.0, order=4):
+    """Band-pass 0.5–4 Hz robusto a fs bajos."""
+    if fs <= 0:
+        print(f"[WARN] fs={fs} Hz no válido → skip band-pass")
+        return sig
     nyq = 0.5 * fs
-    b, a = iirnotch(50/nyq, q)
+    high = min(high, 0.45 * fs)       # que high < 0.5*fs
+    if low >= high:                   # aún inválido
+        print(f"[WARN] fs={fs} Hz demasiado bajo para 0.5–4 Hz → skip band-pass")
+        return sig
+    low_norm, high_norm = low/nyq, high/nyq
+    try:
+        b, a = butter(order, [low_norm, high_norm], btype="band")
+        return filtfilt(b, a, sig)
+    except ValueError as e:
+        print(f"[WARN] butter() falló ({e}) → skip band-pass")
+        return sig
+
+def notch_50_safe(sig, fs, q=30):
+    """Notch 50 Hz solo si fs lo permite."""
+    if fs < 100:                      # Nyquist < 50 Hz
+        return sig
+    nyq = 0.5 * fs
+    w0 = 50 / nyq
+    b, a = iirnotch(w0, q)
     return filtfilt(b, a, sig)
 
 def clean_ppg(sig, fs):
-    sig = butter_bandpass(sig, fs)
-    sig = notch_50hz(sig, fs)     
+    sig = butter_bandpass_safe(sig, fs)
+    sig = notch_50_safe(sig, fs)
     return sig.astype(np.float32)
 
 # ───────────────────────────────
@@ -123,7 +155,7 @@ def window_hdf5(in_h5, out_h5, win_sec=10, step_sec=5):
 # main
 # ───────────────────────────────
 if __name__ == "__main__":
-    ROOT_DIR       = "../Empatica Avro Files"
+    ROOT_DIR       = "../data/raw/Empatica Avro Files"
     RAW_H5         = "../data/interim/ppg_raw.h5"
     CLEAN_H5       = "../data/interim/ppg_clean.h5"
     NORM_H5        = "../data/interim/ppg_norm.h5"
