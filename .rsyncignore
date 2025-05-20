@@ -48,6 +48,8 @@ src/training_ML.py
 src/training_cv.py
 src/keras_models.py
 src/inspection.py
+src/ppg_preprocessing.py
+src/ppg_inspect.py
 
 data/interim/*.h5
 
