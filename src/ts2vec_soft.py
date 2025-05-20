@@ -16,6 +16,7 @@ import tqdm
 from datetime import datetime
 import pickle
 import mlflow
+import h5py
 
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.metrics.pairwise import cosine_similarity, euclidean_distances
@@ -155,6 +156,27 @@ class custom_dataset(Dataset):
     X = torch.FloatTensor(self.X[idx])
     return X, idx
 
+# --------------------------------------------------------
+# ppg_window_loader.py
+# --------------------------------------------------------
+def load_ppg_windows(hdf5_path: str):
+    """
+    Returns
+        windows   : np.ndarray, shape (N, 640, 1)
+        subj_idx  : np.ndarray, shape (N,)   # integer participant id
+    """
+    windows = []
+    subj_idx = []
+    with h5py.File(hdf5_path, "r") as f:
+        for p_i, pid in enumerate(f):
+            for seg in f[pid]:
+                win = f[pid][seg][...]           # (n_win, 640)
+                win = win[..., None]             # → (n_win, 640, 1)
+                windows.append(win)
+                subj_idx.append(np.full(len(win), p_i, dtype=np.int32))
+    windows = np.concatenate(windows, axis=0).astype(np.float32)
+    subj_idx = np.concatenate(subj_idx, axis=0)
+    return windows, subj_idx
 
 # --------------------------------------------------------
 # hard contrastive losses
