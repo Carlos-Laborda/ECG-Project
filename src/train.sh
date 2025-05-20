@@ -51,8 +51,15 @@ export MLFLOW_TRACKING_URI=http://fs0.das6.cs.vu.nl:5005
 #   --lambda_aux 0.2 \
 #   --tau_temp 1 \
   
-python simclr_train.py run \
+# python simclr_train.py run \
+#   --mlflow_tracking_uri "http://fs0.das6.cs.vu.nl:5005" \
+#   --window_data_path "../../../../var/scratch/cla224/ECG-Project/data/windowed_data.h5" \
+#   --epochs 100 \
+#   --label_fraction 1.0 \
+
+python ppg_ts2vecsoft_train.py run \
   --mlflow_tracking_uri "http://fs0.das6.cs.vu.nl:5005" \
-  --window_data_path "../../../../var/scratch/cla224/ECG-Project/data/windowed_data.h5" \
-  --epochs 100 \
+  --ecg_window_path "../../../../var/scratch/cla224/ECG-Project/data/windowed_data.h5" \
+  --ppg_window_path "../../../../var/scratch/cla224/ECG-Project/data/ppg_windows.h5" \
+  --ts2vec_epochs 50 \
   --label_fraction 1.0 \
