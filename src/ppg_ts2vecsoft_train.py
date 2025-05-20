@@ -30,7 +30,7 @@ class PPG2ECG_TS2VecFlow(FlowSpec):
     ts2vec_batch_size      = Parameter("ts2vec_batch_size", default=8) 
     ts2vec_output_dims     = Parameter("ts2vec_output_dims", default=320)
     ts2vec_hidden_dims     = Parameter("ts2vec_hidden_dims", default=64)
-    ts2vec_depth           = Parameter("ts2vec_depth", default=8) # maybe 10 is better?
+    ts2vec_depth           = Parameter("ts2vec_depth", default=10) # maybe 10 is better?
     ts2vec_max_train_length= Parameter("ts2vec_max_train_length", default=None)
     ts2vec_temporal_unit   = Parameter("ts2vec_temporal_unit", default=0)
 
@@ -65,6 +65,7 @@ class PPG2ECG_TS2VecFlow(FlowSpec):
         self.next(self.load_data)
 
     # ------------------------------------------------------------------
+    @resources(memory=16000)
     @step
     def load_data(self):
         """Load PPG windows (unlabeled) + ECG windows (labeled)."""
@@ -99,7 +100,7 @@ class PPG2ECG_TS2VecFlow(FlowSpec):
         else:
             soft_lab  = None
         # ---------------------------------------------
-        self.ts2vec = TS2Vec_soft(
+        self.ts2vec_soft_ppg = TS2Vec_soft(
             input_dims=input_dims,
             output_dims=self.ts2vec_output_dims,
             hidden_dims=self.ts2vec_hidden_dims,
@@ -113,22 +114,45 @@ class PPG2ECG_TS2VecFlow(FlowSpec):
             soft_instance=(tau_inst>0),
             soft_temporal=(self.ts2vec_tau_temp>0)
         )
-        run_dir = f"ts2vec_ppg_{self.mlflow_run_id}"
-        os.makedirs(run_dir, exist_ok=True)
-        self.ts2vec.fit(self.X_ppg, soft_lab, run_dir,
-                        n_epochs=self.ts2vec_epochs, verbose=True)
-        self.encoder_path = f"{run_dir}/encoder.pth"
-        self.ts2vec.save(self.encoder_path)
-        mlflow.log_artifact(self.encoder_path, artifact_path="ts2vec_encoder")
+        # Log and run pretraining
+        mlflow.set_tracking_uri(self.mlflow_tracking_uri)
+        with mlflow.start_run(run_id=self.mlflow_run_id):
+            params = {
+                "model_name": self.ts2vec_soft_ppg.__class__.__name__, 
+                "ts2vec_epochs": self.ts2vec_epochs,
+                "ts2vec_lr": self.ts2vec_lr,
+                "ts2vec_batch_size": self.ts2vec_batch_size,
+                "ts2vec_output_dims": self.ts2vec_output_dims,
+                "ts2vec_hidden_dims": self.ts2vec_hidden_dims,
+                "ts2vec_depth": self.ts2vec_depth,
+                "ts2vec_max_train_length": self.ts2vec_max_train_length,
+                "ts2vec_temporal_unit": self.ts2vec_temporal_unit,
+                # soft CL params
+                "ts2vec_dist_type": self.ts2vec_dist_type,
+                "ts2vec_tau_inst": self.ts2vec_tau_inst,
+                "ts2vec_tau_temp": self.ts2vec_tau_temp,
+                "ts2vec_alpha": self.ts2vec_alpha,
+                "ts2vec_lambda": self.ts2vec_lambda,
+            }
+            mlflow.log_params(params)
+        
+            run_dir = f"ts2vec_soft_ppg_{self.mlflow_run_id}"
+            os.makedirs(run_dir, exist_ok=True)
+            self.ts2vec_soft_ppg.fit(self.X_ppg, soft_lab, run_dir,
+                            n_epochs=self.ts2vec_epochs, verbose=True)
+            self.encoder_path = f"{run_dir}/encoder.pth"
+            self.ts2vec_soft_ppg.save(self.encoder_path)
+            mlflow.log_artifact(self.encoder_path, artifact_path="ts2vec_encoder")
         self.next(self.extract_representations)
 
     # ------------------------------------------------------------------
     @step
     def extract_representations(self):
         """Encode ECG windows with the frozen PPG-trained encoder."""
-        self.train_repr = self.ts2vec.encode(self.X_train_ecg, encoding_window="full_series")
-        self.val_repr   = self.ts2vec.encode(self.X_val_ecg,   encoding_window="full_series")
-        self.test_repr  = self.ts2vec.encode(self.X_test_ecg,  encoding_window="full_series")
+        mlflow.set_tracking_uri(self.mlflow_tracking_uri)
+        self.train_repr = self.ts2vec_soft_ppg.encode(self.X_train_ecg, encoding_window="full_series")
+        self.val_repr   = self.ts2vec_soft_ppg.encode(self.X_val_ecg,   encoding_window="full_series")
+        self.test_repr  = self.ts2vec_soft_ppg.encode(self.X_test_ecg,  encoding_window="full_series")
         print("Representations extracted:", self.train_repr.shape)
         self.next(self.train_classifier)
 
@@ -139,8 +163,8 @@ class PPG2ECG_TS2VecFlow(FlowSpec):
         set_seed(self.seed)
         idx = np.random.permutation(len(self.train_repr))[: int(len(self.train_repr)*self.label_fraction)]
         feat_dim = self.train_repr.shape[-1]
-        clf = LinearClassifier(input_dim=feat_dim).to(self.device)
-        opt = optim.AdamW(clf.parameters(), lr=self.classifier_lr)
+        self.classifier = LinearClassifier(input_dim=feat_dim).to(self.device)
+        opt = optim.AdamW(self.classifier.parameters(), lr=self.classifier_lr)
         loss_fn = nn.BCEWithLogitsLoss()
 
         train_ds = TensorDataset(torch.from_numpy(self.train_repr[idx]).float(),
@@ -149,30 +173,45 @@ class PPG2ECG_TS2VecFlow(FlowSpec):
                                  torch.from_numpy(self.y_val).float())
         train_loader = DataLoader(train_ds, batch_size=self.classifier_batch_size, shuffle=True)
         val_loader   = DataLoader(val_ds,   batch_size=self.classifier_batch_size)
+        
+        mlflow.set_tracking_uri(self.mlflow_tracking_uri)
+        with mlflow.start_run(run_id=self.mlflow_run_id):
+            params = {
+                "classifier_lr": self.classifier_lr,
+                "classifier_epochs": self.classifier_epochs,
+                "classifier_batch_size": self.classifier_batch_size,
+                "label_fraction": self.label_fraction
+            }
+            mlflow.log_params(params)
 
-        _, _, _, _ = train_linear_classifier(
-            clf, train_loader, val_loader, opt, loss_fn,
-            self.classifier_epochs, self.device
-        )
-        self.classifier = clf
+            self.classifier, _, _, _, _ = train_linear_classifier(
+                self.classifier, train_loader, val_loader, opt, loss_fn,
+                self.classifier_epochs, self.device
+            )
+        print("Classifier training complete.")
         self.next(self.evaluate)
 
     # ------------------------------------------------------------------
     @step
     def evaluate(self):
+        """Evaluate the classifier performance on the test data."""
+        mlflow.set_tracking_uri(self.mlflow_tracking_uri)
         test_ds = TensorDataset(torch.from_numpy(self.test_repr).float(),
                                 torch.from_numpy(self.y_test).float())
         test_loader = DataLoader(test_ds, batch_size=self.classifier_batch_size)
-        self.test_accuracy, *_ = evaluate_classifier(self.classifier, test_loader, self.device)
+        with mlflow.start_run(run_id=self.mlflow_run_id):
+            self.test_accuracy, *_ = evaluate_classifier(self.classifier, test_loader, self.device)
         self.next(self.register)
 
     # ------------------------------------------------------------------
     @step
     def register(self):
+        mlflow.set_tracking_uri(self.mlflow_tracking_uri)
         if self.test_accuracy >= self.accuracy_threshold:
-            mlflow.pytorch.log_model(self.classifier,
-                artifact_path="classifier_model",
-                registered_model_name="PPG-pretrained_TS2Vec_classifier_soft")
+            with mlflow.start_run(run_id=current.run_id):
+                mlflow.pytorch.log_model(self.classifier,
+                    artifact_path="classifier_model",
+                    registered_model_name="PPG-pretrained_TS2Vec_classifier_soft")
             self.registered = True
         else:
             self.registered = False
@@ -182,7 +221,7 @@ class PPG2ECG_TS2VecFlow(FlowSpec):
     @step
     def end(self):
         print("=== PPG→ECG TS2Vec-Soft Pipeline finished ===")
-        print(f"Test accuracy: {self.test_accuracy:.4f}  |  Model registered: {self.registered}")
+        print(f"Test accuracy: {self.test_accuracy:.4f}")
 
 # ────────────────────────────────────────────────────────────
 if __name__ == "__main__":
