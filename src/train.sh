@@ -61,5 +61,6 @@ python ppg_ts2vecsoft_train.py run \
   --mlflow_tracking_uri "http://fs0.das6.cs.vu.nl:5005" \
   --ecg_window_path "../../../../var/scratch/cla224/ECG-Project/data/windowed_data.h5" \
   --ppg_window_path "../../../../var/scratch/cla224/ECG-Project/data/ppg_windows.h5" \
-  --ts2vec_epochs 50 \
+  --ts2vec_epochs 10 \
   --label_fraction 1.0 \
+  --ts2vec_tau_inst 10 \
