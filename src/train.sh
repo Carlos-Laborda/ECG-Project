@@ -57,6 +57,7 @@ export MLFLOW_TRACKING_URI=http://fs0.das6.cs.vu.nl:5005
 #   --epochs 100 \
 #   --label_fraction 1.0 \
 
+# Transfer learning
 python ppg_ts2vecsoft_train.py run \
   --mlflow_tracking_uri "http://fs0.das6.cs.vu.nl:5005" \
   --ecg_window_path "../../../../var/scratch/cla224/ECG-Project/data/windowed_data.h5" \
@@ -64,3 +65,4 @@ python ppg_ts2vecsoft_train.py run \
   --ts2vec_epochs 10 \
   --label_fraction 1.0 \
   --ts2vec_tau_inst 10 \
+  --ts2vec_batch_size 4 \
