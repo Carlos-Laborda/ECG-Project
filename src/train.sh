@@ -65,4 +65,5 @@ python ppg_ts2vecsoft_train.py run \
   --ts2vec_epochs 10 \
   --label_fraction 1.0 \
   --ts2vec_tau_inst 10 \
-  --ts2vec_batch_size 4 \
+  --ts2vec_batch_size 8 \
+  --ts2vec_dist_type "DTW" \
