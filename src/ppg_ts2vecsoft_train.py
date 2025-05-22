@@ -6,12 +6,11 @@ from metaflow import FlowSpec, step, Parameter, current, project, resources
 from ts2vec_soft import TS2Vec_soft, LinearClassifier
 from ts2vec_soft import save_sim_mat, densify, train_linear_classifier, evaluate_classifier, load_ppg_windows
 from torch_utilities import load_processed_data, split_data_by_participant, set_seed
-# ────────────────────────────────────────────────────────────
 
 @project(name="ppg2ecg_ts2vec_soft")
 class PPG2ECG_TS2VecFlow(FlowSpec):
 
-    ## MLflow + DATA PATHS ---------------------------------------------------
+    # MLflow + DATA PATHS 
     mlflow_tracking_uri = Parameter("mlflow_tracking_uri",
         default=os.getenv("MLFLOW_TRACKING_URI", "https://127.0.0.1:5000"))
     ppg_window_path = Parameter("ppg_window_path",
@@ -21,34 +20,32 @@ class PPG2ECG_TS2VecFlow(FlowSpec):
         help="Path to windowed ECG data",
         default="../data/interim/windowed_data.h5")      
 
-    ## Misc & reproducibility -----------------------------------------------
     seed = Parameter("seed", default=42)
 
-    ## TS2Vec hyper-params ------------------------------
+    # TS2Vec hyper-params 
     ts2vec_epochs          = Parameter("ts2vec_epochs", default=50)
     ts2vec_lr              = Parameter("ts2vec_lr", default=1e-3)
     ts2vec_batch_size      = Parameter("ts2vec_batch_size", default=8) 
     ts2vec_output_dims     = Parameter("ts2vec_output_dims", default=320)
     ts2vec_hidden_dims     = Parameter("ts2vec_hidden_dims", default=64)
-    ts2vec_depth           = Parameter("ts2vec_depth", default=10) # maybe 10 is better?
+    ts2vec_depth           = Parameter("ts2vec_depth", default=10)
     ts2vec_max_train_length= Parameter("ts2vec_max_train_length", default=None)
     ts2vec_temporal_unit   = Parameter("ts2vec_temporal_unit", default=0)
 
-    ## Soft-contrastive hyper-params -----------------------------------------
+    # Soft-contrastive hyper-params 
     ts2vec_dist_type = Parameter("ts2vec_dist_type", default="EUC")
     ts2vec_tau_inst  = Parameter("ts2vec_tau_inst", default=50.0)
     ts2vec_tau_temp  = Parameter("ts2vec_tau_temp", default=2.5)
     ts2vec_alpha     = Parameter("ts2vec_alpha",    default=0.5)
     ts2vec_lambda    = Parameter("ts2vec_lambda",   default=0.5)
 
-    ## Classifier hyper-params ----------------------------------------
+    # Classifier hyper-params 
     classifier_epochs      = Parameter("classifier_epochs", default=25)
     classifier_lr          = Parameter("classifier_lr", default=1e-4)
     classifier_batch_size  = Parameter("classifier_batch_size", default=32)
     accuracy_threshold     = Parameter("accuracy_threshold", default=0.74)
     label_fraction         = Parameter("label_fraction", default=1.0)
 
-    # ────────────────────────────────────────────────────────────────────
     @step
     def start(self):
         mlflow.set_tracking_uri(self.mlflow_tracking_uri)
@@ -64,7 +61,6 @@ class PPG2ECG_TS2VecFlow(FlowSpec):
         print(f"Using device: {self.device}")
         self.next(self.load_data)
 
-    # ------------------------------------------------------------------
     @resources(memory=16000)
     @step
     def load_data(self):
@@ -84,13 +80,12 @@ class PPG2ECG_TS2VecFlow(FlowSpec):
         print(f"ECG train windows: {self.X_train_ecg.shape}")
         self.next(self.train_ts2vec)
 
-    # ------------------------------------------------------------------
     @resources(memory=16000)
     @step
     def train_ts2vec(self):
         """Pre-train TS2Vec-Soft on PPG windows only."""
         input_dims = 1                    
-        # ----- soft-label matrix (instance-wise) -----
+        # soft-label matrix (instance-wise)
         tau_inst  = self.ts2vec_tau_inst
         if tau_inst > 0:
             print("Computing soft-label matrix (may take a while)…")
@@ -99,7 +94,7 @@ class PPG2ECG_TS2VecFlow(FlowSpec):
             soft_lab  = densify(- (1 - sim_mat), tau_inst, self.ts2vec_alpha)
         else:
             soft_lab  = None
-        # ---------------------------------------------
+
         self.ts2vec_soft_ppg = TS2Vec_soft(
             input_dims=input_dims,
             output_dims=self.ts2vec_output_dims,
@@ -145,7 +140,6 @@ class PPG2ECG_TS2VecFlow(FlowSpec):
             mlflow.log_artifact(self.encoder_path, artifact_path="ts2vec_encoder")
         self.next(self.extract_representations)
 
-    # ------------------------------------------------------------------
     @step
     def extract_representations(self):
         """Encode ECG windows with the frozen PPG-trained encoder."""
@@ -156,7 +150,6 @@ class PPG2ECG_TS2VecFlow(FlowSpec):
         print("Representations extracted:", self.train_repr.shape)
         self.next(self.train_classifier)
 
-    # ------------------------------------------------------------------
     @resources(memory=16000)
     @step
     def train_classifier(self):
@@ -191,7 +184,6 @@ class PPG2ECG_TS2VecFlow(FlowSpec):
         print("Classifier training complete.")
         self.next(self.evaluate)
 
-    # ------------------------------------------------------------------
     @step
     def evaluate(self):
         """Evaluate the classifier performance on the test data."""
@@ -203,7 +195,6 @@ class PPG2ECG_TS2VecFlow(FlowSpec):
             self.test_accuracy, *_ = evaluate_classifier(self.classifier, test_loader, self.device)
         self.next(self.register)
 
-    # ------------------------------------------------------------------
     @step
     def register(self):
         mlflow.set_tracking_uri(self.mlflow_tracking_uri)
@@ -217,12 +208,10 @@ class PPG2ECG_TS2VecFlow(FlowSpec):
             self.registered = False
         self.next(self.end)
 
-    # ------------------------------------------------------------------
     @step
     def end(self):
         print("=== PPG→ECG TS2Vec-Soft Pipeline finished ===")
         print(f"Test accuracy: {self.test_accuracy:.4f}")
 
-# ────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     PPG2ECG_TS2VecFlow()
