@@ -58,12 +58,12 @@ export MLFLOW_TRACKING_URI=http://fs0.das6.cs.vu.nl:5005
 #   --label_fraction 1.0 \
 
 # Transfer learning
-python ppg_ts2vecsoft_train.py run \
+# python ppg_ts2vecsoft_train.py run \
+#   --mlflow_tracking_uri "http://fs0.das6.cs.vu.nl:5005" \
+#   --ecg_window_path "../../../../var/scratch/cla224/ECG-Project/data/windowed_data.h5" \
+#   --ppg_window_path "../../../../var/scratch/cla224/ECG-Project/data/ppg_windows.h5" \
+
+python ts2vec_soft_train_cv.py run  \
   --mlflow_tracking_uri "http://fs0.das6.cs.vu.nl:5005" \
-  --ecg_window_path "../../../../var/scratch/cla224/ECG-Project/data/windowed_data.h5" \
-  --ppg_window_path "../../../../var/scratch/cla224/ECG-Project/data/ppg_windows.h5" \
-  --ts2vec_epochs 10 \
-  --label_fraction 1.0 \
-  --ts2vec_tau_inst 10 \
-  --ts2vec_batch_size 8 \
-  --ts2vec_dist_type "DTW" \
+  --window_data_path "../../../../var/scratch/cla224/ECG-Project/data/windowed_data.h5" \
+  
