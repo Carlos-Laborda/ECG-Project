@@ -167,10 +167,6 @@ class ECGTS2VecCVFlow(FlowSpec):
     #  ↓↓↓  helper methods (kept outside flow steps)  ↓↓↓
     # ──────────────────────────────────────────────────────────
     def _pretrain_ts2vec(self):
-        """
-        Exactly the same logic you had in `train_ts2vec`, wrapped as a helper
-        so it stays inside one @step.  Per-fold MLflow run is nested.
-        """
         # ── compute (optional) soft label matrix ─────────────────────────
         if self.ts2vec_tau_inst > 0:
             X_flat = self.X_train.squeeze(-1) if self.X_train.ndim == 3 else self.X_train
@@ -207,9 +203,6 @@ class ECGTS2VecCVFlow(FlowSpec):
             mlflow.log_param("fold", current.index)
 
     def _train_classifier(self):
-        """
-        Same code you already had, abridged for clarity.
-        """
         # label-sub-sampling
         idx   = np.random.permutation(len(self.train_repr))
         nkeep = max(1, int(len(idx) * self.label_fraction))
@@ -270,6 +263,5 @@ class ECGTS2VecCVFlow(FlowSpec):
             "fold_pr":  self.test_pr,
         })
 
-# ──────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     ECGTS2VecCVFlow()
