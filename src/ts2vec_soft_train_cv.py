@@ -53,15 +53,17 @@ class ECGTS2VecCVFlow(FlowSpec):
     # -------------  FLOW: start -------------
     @step
     def start(self):
-        """Initialise RNGs and MLflow."""
+        mlflow.set_tracking_uri(self.mlflow_tracking_uri)
+        try:
+            run = mlflow.start_run(run_name=current.run_id)
+            self.mlflow_run_id = run.info.run_id
+        except Exception as e:
+            raise RuntimeError(f"MLflow connection failed: {e}")
         set_seed(self.seed)
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
-
-        mlflow.set_tracking_uri(self.mlflow_tracking_uri)
-        logging.info("MLflow tracking set to %s", self.mlflow_tracking_uri)
+        print(f"Using device: {self.device}")
         self.next(self.load_data)
 
-    # -------------  load raw windowed data -------------
     @step
     def load_data(self):
         X, y, groups = load_processed_data(
@@ -71,111 +73,46 @@ class ECGTS2VecCVFlow(FlowSpec):
         self.X, self.y, self.groups = X, y, groups
         self.next(self.make_splits)
 
-    # -------------  create participant-wise splits and fork -------------
     @step
     def make_splits(self):
         gkf = GroupKFold(n_splits=self.k_folds)
-        self.splits = [(train_idx, test_idx)
-                       for train_idx, test_idx in gkf.split(self.X, self.y, self.groups)]
-        self.next(self.cv_fold, foreach="splits")   # -> fan-out 
+        self.folds = []
+        for fold_id, (train_idx_all, test_idx) in enumerate(gkf.split(self.X, self.y, self.groups)):
+            # participant-wise 20 % validation inside train
+            gss = GroupShuffleSplit(n_splits=1, test_size=0.20, random_state=self.seed)
+            val_rel, train_rel = next(gss.split(train_idx_all,
+                                               self.y[train_idx_all],
+                                               self.groups[train_idx_all]))
+            fold = dict(
+                fold_id   = fold_id,
+                train_idx = train_idx_all[train_rel],
+                val_idx   = train_idx_all[val_rel],
+                test_idx  = test_idx,
+            )
+            self.folds.append(fold)
+        self.next(self.pretrain_ts2vec, foreach="folds")   # ⥂ fan-out
 
-    # -------------  CHILD BRANCH: one fold -------------
+    # ─────────── PER-FOLD BRANCH ───────────
+    # All following steps run per-fold and pass their artifacts along the branch.
+
     @resources(memory=16000)
     @step
-    def cv_fold(self):
-        """
-        Everything from preprocessing → pre-training → fine-tune → evaluate
-        happens inside this branch, completely isolated per fold.
-        """
-        # ----------------  indices ----------------
-        train_idx_all, test_idx = self.input  # supplied by foreach
-        # make *participant-wise* 20 % validation split inside train part
-        gss = GroupShuffleSplit(n_splits=1, test_size=0.20, random_state=self.seed)
-        val_rel, train_rel = next(gss.split(train_idx_all,
-                                           self.y[train_idx_all],
-                                           self.groups[train_idx_all]))
-        train_idx = train_idx_all[train_rel]
-        val_idx   = train_idx_all[val_rel]
+    def pretrain_ts2vec(self):
+        """Self-supervised pre-training for this fold."""
+        data = self.input          # dict from foreach
+        self.fold_id   = data["fold_id"]
+        self.train_idx = data["train_idx"]; self.val_idx = data["val_idx"]; self.test_idx = data["test_idx"]
 
-        # ----------------  tensors ----------------
-        self.X_train, self.y_train = self.X[train_idx], self.y[train_idx]
-        self.X_val,   self.y_val   = self.X[val_idx],   self.y[val_idx]
-        self.X_test,  self.y_test  = self.X[test_idx],  self.y[test_idx]
+        self.X_train, self.X_val, self.X_test = self.X[self.train_idx], self.X[self.val_idx], self.X[self.test_idx]
+        self.y_train, self.y_val, self.y_test = self.y[self.train_idx], self.y[self.val_idx], self.y[self.test_idx]
 
-        # ----------------  pre-train Soft-TS2Vec ----------------
-        self._pretrain_ts2vec()               # helper (defined below)
-
-        # ----------------  extract reps ----------------
-        self.train_repr = self.ts2vec.encode(self.X_train, encoding_window="full_series")
-        self.val_repr   = self.ts2vec.encode(self.X_val,   encoding_window="full_series")
-        self.test_repr  = self.ts2vec.encode(self.X_test,  encoding_window="full_series")
-
-        # ----------------  train classifier ----------------
-        self._train_classifier()              # helper (defined below)
-
-        # ----------------  evaluate ----------------
-        self._evaluate()                      # helper (defined below)
-
-        self.next(self.join_folds)
-
-    # -------------  JOIN -------------
-    @step
-    def join_folds(self, inputs):
-        """
-        Aggregate metrics across all folds.
-        """
-        import numpy as np
-
-        # Collect metrics
-        self.accs  = [i.test_acc  for i in inputs]
-        self.aucs  = [i.test_auc  for i in inputs]
-        self.f1s   = [i.test_f1   for i in inputs]
-        self.prs   = [i.test_pr   for i in inputs]
-
-        # mean ± std
-        self.mean_acc, self.std_acc = np.mean(self.accs), np.std(self.accs)
-        self.mean_auc, self.std_auc = np.mean(self.aucs), np.std(self.aucs)
-        self.mean_f1,  self.std_f1  = np.mean(self.f1s),  np.std(self.f1s)
-        self.mean_pr,  self.std_pr  = np.mean(self.prs),  np.std(self.prs)
-
-        # Log once (parent run)
-        mlflow.set_tracking_uri(self.mlflow_tracking_uri)
-        with mlflow.start_run(run_name="SoftTS2Vec_5fold_CV", nested=False):
-            mlflow.log_metrics({
-                "cv_accuracy_mean": self.mean_acc,
-                "cv_accuracy_std":  self.std_acc,
-                "cv_auc_mean":      self.mean_auc,
-                "cv_auc_std":       self.std_auc,
-                "cv_f1_mean":       self.mean_f1,
-                "cv_f1_std":        self.std_f1,
-                "cv_pr_mean":       self.mean_pr,
-                "cv_pr_std":        self.std_pr,
-            })
-
-        self.next(self.end)
-
-    # -------------  END -------------
-    @step
-    def end(self):
-        print("\n=== 5-Fold CV finished ===")
-        print(f"Accuracy  : {self.mean_acc:.4f} ± {self.std_acc:.4f}")
-        print(f"ROC-AUC   : {self.mean_auc:.4f} ± {self.std_auc:.4f}")
-        print(f"F1-Score  : {self.mean_f1 :.4f} ± {self.std_f1 :.4f}")
-        print("Done!")
-
-    # ──────────────────────────────────────────────────────────
-    #  ↓↓↓  helper methods (kept outside flow steps)  ↓↓↓
-    # ──────────────────────────────────────────────────────────
-    def _pretrain_ts2vec(self):
-        # ── compute (optional) soft label matrix ─────────────────────────
+        # optional soft-label matrix
+        soft_labels = None
         if self.ts2vec_tau_inst > 0:
-            X_flat = self.X_train.squeeze(-1) if self.X_train.ndim == 3 else self.X_train
+            X_flat = self.X_train.squeeze(-1)
             sim = save_sim_mat(X_flat, min_=0, max_=1, multivariate=False, type_=self.ts2vec_dist_type)
             soft_labels = densify(-(1 - sim), self.ts2vec_tau_inst, self.ts2vec_alpha)
-        else:
-            soft_labels = None
 
-        # ── model ────────────────────────────────────────────────────────
         self.ts2vec = TS2Vec_soft(
             input_dims       = self.X_train.shape[2],
             output_dims      = self.ts2vec_output_dims,
@@ -191,77 +128,126 @@ class ECGTS2VecCVFlow(FlowSpec):
             soft_instance    = (self.ts2vec_tau_inst > 0),
             soft_temporal    = (self.ts2vec_tau_temp > 0),
         )
+        
+        with (
+            mlflow.start_run(run_id=self.mlflow_run_id),
+            mlflow.start_run(
+                run_name=f"cross-validation-fold-{self.fold_id}",
+                nested=True,
+            ) as run,
+        ):
+            self.ts2vec.fit(self.X_train, soft_labels, run_dir=f"ts2vec_fold_{self.fold_id}",
+                            n_epochs=self.ts2vec_epochs, verbose=False)
 
-        # ── MLflow: one run per fold (tagged) ────────────────────────────
-        mlflow.set_tracking_uri(self.mlflow_tracking_uri)
-        with mlflow.start_run(run_name=f"fold_{current.index}", nested=True):
-            self.ts2vec.fit(self.X_train,
-                            soft_labels,
-                            run_dir=f"ts2vec_fold_{current.index}",
-                            n_epochs=self.ts2vec_epochs,
-                            verbose=False)
-            mlflow.log_param("fold", current.index)
+        self.next(self.extract_repr)
 
-    def _train_classifier(self):
-        # label-sub-sampling
-        idx   = np.random.permutation(len(self.train_repr))
-        nkeep = max(1, int(len(idx) * self.label_fraction))
-        idx   = idx[:nkeep]
+    @step
+    def extract_repr(self):
+        """Encode train / val / test windows with the frozen encoder."""
+        self.train_repr = self.ts2vec.encode(self.X_train, encoding_window="full_series")
+        self.val_repr   = self.ts2vec.encode(self.X_val,   encoding_window="full_series")
+        self.test_repr  = self.ts2vec.encode(self.X_test,  encoding_window="full_series")
+        self.next(self.train_classifier)
+
+    @step
+    def train_classifier(self):
+        """Supervised fine-tuning on (a fraction of) labelled windows."""
+        idx = np.random.permutation(len(self.train_repr))
+        nkeep = max(1, int(len(idx)*self.label_fraction))
+        idx = idx[:nkeep]
 
         Xtr, ytr = self.train_repr[idx], self.y_train[idx]
         Xval, yval = self.val_repr, self.y_val
 
-        feat_dim = Xtr.shape[-1]
-        clf = LinearClassifier(feat_dim).to(self.device)
-        opt = optim.AdamW(clf.parameters(), lr=self.classifier_lr)
+        self.classifier = LinearClassifier(Xtr.shape[-1]).to(self.device)
+        opt = optim.AdamW(self.classifier.parameters(), lr=self.classifier_lr)
         loss_fn = nn.BCEWithLogitsLoss()
 
-        # loaders
-        tr_loader  = DataLoader(TensorDataset(torch.from_numpy(Xtr).float(),
-                                              torch.from_numpy(ytr).float()),
-                                batch_size=self.classifier_batch_size, shuffle=True)
-        val_loader = DataLoader(TensorDataset(torch.from_numpy(Xval).float(),
-                                              torch.from_numpy(yval).float()),
-                                batch_size=self.classifier_batch_size)
+        train_loader = DataLoader(TensorDataset(torch.from_numpy(Xtr).float(),
+                                                torch.from_numpy(ytr).float()),
+                                  batch_size=self.classifier_batch_size, shuffle=True)
+        val_loader   = DataLoader(TensorDataset(torch.from_numpy(Xval).float(),
+                                                torch.from_numpy(yval).float()),
+                                  batch_size=self.classifier_batch_size)
 
-        # simple training loop
-        for _ in range(self.classifier_epochs):
-            clf.train()
-            for xb, yb in tr_loader:
-                xb, yb = xb.to(self.device), yb.to(self.device)
-                loss = loss_fn(clf(xb).squeeze(), yb)
-                opt.zero_grad(); loss.backward(); opt.step()
+        with (
+            mlflow.start_run(run_id=self.mlflow_run_id),
+            mlflow.start_run(
+                run_name=f"cross-validation-fold-{self.fold_id}",
+                nested=True,
+            ) as run,
+        ):
+            for _ in range(self.classifier_epochs):
+                self.classifier.train()
+                for xb, yb in train_loader:
+                    xb, yb = xb.to(self.device), yb.to(self.device)
+                    loss = loss_fn(self.classifier(xb).squeeze(), yb)
+                    opt.zero_grad(); loss.backward(); opt.step()
+        self.next(self.evaluate_classifier)
 
-        self.classifier = clf
-
-    def _evaluate(self):
+    @step
+    def evaluate_classifier(self):
+        """Compute metrics on the unseen test participants for this fold."""
         from torcheval.metrics import BinaryAUROC, BinaryF1Score, BinaryAveragePrecision
         loader = DataLoader(TensorDataset(torch.from_numpy(self.test_repr).float(),
                                           torch.from_numpy(self.y_test).float()),
                             batch_size=self.classifier_batch_size)
-
         preds, gts = [], []
         self.classifier.eval()
         with torch.no_grad():
             for xb, yb in loader:
                 logits = self.classifier(xb.to(self.device)).squeeze().cpu()
-                preds.append(torch.sigmoid(logits))
-                gts.append(yb)
-        preds = torch.cat(preds)
-        gts   = torch.cat(gts)
+                preds.append(torch.sigmoid(logits)); gts.append(yb)
+        preds = torch.cat(preds); gts = torch.cat(gts)
 
-        self.test_acc = ((preds > 0.5) == gts).float().mean().item()
+        self.test_acc = ((preds>0.5)==gts).float().mean().item()
         self.test_auc = BinaryAUROC()(preds, gts).item()
         self.test_f1  = BinaryF1Score()(preds, gts).item()
         self.test_pr  = BinaryAveragePrecision()(preds, gts).item()
 
-        # log per-fold metrics
+        # log per-fold
         mlflow.log_metrics({
-            "fold_acc": self.test_acc,
-            "fold_auc": self.test_auc,
-            "fold_f1":  self.test_f1,
-            "fold_pr":  self.test_pr,
+            f"fold{self.fold_id}_acc": self.test_acc,
+            f"fold{self.fold_id}_auc": self.test_auc,
+            f"fold{self.fold_id}_f1" : self.test_f1,
+            f"fold{self.fold_id}_pr" : self.test_pr,
         })
+        self.next(self.join_folds)
 
+    # ─────────── join & aggregate ───────────
+    @step
+    def join_folds(self, inputs):
+        import numpy as np
+        self.merge_artifacts(inputs, include=["mlflow_tracking_uri"])   # so we can reuse URI
+
+        self.accs = [i.test_acc for i in inputs]
+        self.aucs = [i.test_auc for i in inputs]
+        self.f1s  = [i.test_f1  for i in inputs]
+        self.prs  = [i.test_pr  for i in inputs]
+
+        self.mean_acc, self.std_acc = np.mean(self.accs), np.std(self.accs)
+        self.mean_auc, self.std_auc = np.mean(self.aucs), np.std(self.aucs)
+        self.mean_f1,  self.std_f1  = np.mean(self.f1s ), np.std(self.f1s )
+        self.mean_pr,  self.std_pr  = np.mean(self.prs ), np.std(self.prs )
+
+        mlflow.set_tracking_uri(self.mlflow_tracking_uri)
+        with mlflow.start_run(run_name="SoftTS2Vec_5fold_CV", nested=False):
+            mlflow.log_metrics({
+                "cv_acc_mean": self.mean_acc, "cv_acc_std": self.std_acc,
+                "cv_auc_mean": self.mean_auc, "cv_auc_std": self.std_auc,
+                "cv_f1_mean" : self.mean_f1 , "cv_f1_std" : self.std_f1 ,
+                "cv_pr_mean" : self.mean_pr , "cv_pr_std" : self.std_pr ,
+            })
+        self.next(self.end)
+
+    @step
+    def end(self):
+        print("\n=== 5-Fold CV finished ===")
+        print(f"Accuracy  : {self.mean_acc:.4f} ± {self.std_acc:.4f}")
+        print(f"ROC-AUC   : {self.mean_auc:.4f} ± {self.std_auc:.4f}")
+        print(f"F1-Score  : {self.mean_f1 :.4f} ± {self.std_f1 :.4f}")
+        print("Done!")
+
+# ─────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     ECGTS2VecCVFlow()
