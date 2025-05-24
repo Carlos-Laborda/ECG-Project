@@ -94,8 +94,7 @@ class ECGTS2VecCVFlow(FlowSpec):
 
     # ─────────── PER-FOLD BRANCH ───────────
     # All following steps run per-fold and pass their artifacts along the branch.
-
-    @resources(memory=16000)
+    @resources(gpu=2, memory=16000)
     @step
     def pretrain_ts2vec(self):
         """Self-supervised pre-training for this fold."""
