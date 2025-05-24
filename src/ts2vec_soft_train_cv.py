@@ -129,6 +129,7 @@ class ECGTS2VecCVFlow(FlowSpec):
             soft_temporal    = (self.ts2vec_tau_temp > 0),
         )
         
+        mlflow.set_tracking_uri(self.mlflow_tracking_uri)
         with (
             mlflow.start_run(run_id=self.mlflow_run_id),
             mlflow.start_run(
