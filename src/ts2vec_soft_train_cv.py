@@ -21,7 +21,7 @@ from torch_utilities import load_processed_data, set_seed
 @project(name="ecg_training_ts2vec_soft")
 class ECGTS2VecCVFlow(FlowSpec):
     # -------------  generic params -------------
-    k_folds                 = Parameter("k_folds",         default=5)
+    k_folds                 = Parameter("k_folds",         default=2)
     seed                    = Parameter("seed",            default=42)
     window_data_path        = Parameter("window_data_path", default="../data/interim/windowed_data.h5")
     mlflow_tracking_uri     = Parameter("mlflow_tracking_uri",
@@ -112,7 +112,17 @@ class ECGTS2VecCVFlow(FlowSpec):
             X_flat = self.X_train.squeeze(-1)
             sim = save_sim_mat(X_flat, min_=0, max_=1, multivariate=False, type_=self.ts2vec_dist_type)
             soft_labels = densify(-(1 - sim), self.ts2vec_tau_inst, self.ts2vec_alpha)
-
+        
+        # Expand the soft‑label matrix to match the splits
+        if self.ts2vec_max_train_length is not None:
+                win_len = self.X_train.shape[1]
+                S = int(np.ceil(win_len / self.ts2vec_max_train_length))
+                if S > 1:                      
+                    soft_labels = np.repeat(
+                        np.repeat(soft_labels, repeats=S, axis=0),
+                        repeats=S, axis=1
+                    )
+                    
         self.ts2vec = TS2Vec_soft(
             input_dims       = self.X_train.shape[2],
             output_dims      = self.ts2vec_output_dims,
