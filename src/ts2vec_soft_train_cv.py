@@ -1,8 +1,3 @@
-# ecg_ts2vec_cv_flow.py
-#
-# 5-fold participant-wise CV for Soft-TS2Vec + linear classifier
-# =============================================================
-
 import os, logging, numpy as np, torch, mlflow, torch.nn as nn, torch.optim as optim
 from torch.utils.data import TensorDataset, DataLoader
 from sklearn.model_selection import GroupKFold, GroupShuffleSplit
@@ -21,7 +16,7 @@ from torch_utilities import load_processed_data, set_seed
 @project(name="ecg_training_ts2vec_soft")
 class ECGTS2VecCVFlow(FlowSpec):
     # -------------  generic params -------------
-    k_folds                 = Parameter("k_folds",         default=2)
+    k_folds                 = Parameter("k_folds",         default=5)
     seed                    = Parameter("seed",            default=42)
     window_data_path        = Parameter("window_data_path", default="../data/interim/windowed_data.h5")
     mlflow_tracking_uri     = Parameter("mlflow_tracking_uri",
@@ -94,7 +89,7 @@ class ECGTS2VecCVFlow(FlowSpec):
 
     # ─────────── PER-FOLD BRANCH ───────────
     # All following steps run per-fold and pass their artifacts along the branch.
-    @resources(gpu=2, memory=16000)
+    @resources(memory=16000)
     @step
     def pretrain_ts2vec(self):
         """Self-supervised pre-training for this fold."""
