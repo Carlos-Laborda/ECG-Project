@@ -81,6 +81,7 @@ class ECGTS2VecFlow(FlowSpec):
     @step
     def start(self):
         """Initialize MLflow and set seed."""
+        set_seed(self.seed)
         mlflow.set_tracking_uri(self.mlflow_tracking_uri)
         logging.info("MLflow tracking server: %s", self.mlflow_tracking_uri)
         try:
@@ -89,7 +90,6 @@ class ECGTS2VecFlow(FlowSpec):
         except Exception as e:
             raise RuntimeError(f"MLflow connection failed: {str(e)}")
 
-        set_seed(self.seed)
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         print(f"Using device: {self.device}")
         self.next(self.preprocess_data)
@@ -114,6 +114,7 @@ class ECGTS2VecFlow(FlowSpec):
     def train_ts2vec(self):
         """Train the Soft TS2Vec model in a self-supervised way."""
         print(f"Training Soft TS2Vec on device: {self.device}")
+        set_seed(self.seed)
 
         # Input dimensionality
         input_dims = self.X_train.shape[2]
