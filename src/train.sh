@@ -63,7 +63,12 @@ export MLFLOW_TRACKING_URI=http://fs0.das6.cs.vu.nl:5005
 #   --ecg_window_path "../../../../var/scratch/cla224/ECG-Project/data/windowed_data.h5" \
 #   --ppg_window_path "../../../../var/scratch/cla224/ECG-Project/data/ppg_windows.h5" \
 
-python ts2vec_soft_train_cv.py run  \
-  --mlflow_tracking_uri "http://fs0.das6.cs.vu.nl:5005" \
-  --window_data_path "../../../../var/scratch/cla224/ECG-Project/data/windowed_data.h5" \
+for SEED in 42 1337 2025; do
+  echo "Running with seed: $SEED"
+  python ts2vec_soft_train.py run \
+    --mlflow_tracking_uri "http://fs0.das6.cs.vu.nl:5005" \
+    --window_data_path "../../../../var/scratch/cla224/ECG-Project/data/windowed_data.h5" \
+    --ts2vec_epochs 1 \
+    --seed $SEED 
+done
   
