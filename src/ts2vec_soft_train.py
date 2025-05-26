@@ -84,6 +84,8 @@ class ECGTS2VecFlow(FlowSpec):
         set_seed(self.seed)
         mlflow.set_tracking_uri(self.mlflow_tracking_uri)
         logging.info("MLflow tracking server: %s", self.mlflow_tracking_uri)
+        # Set a custom MLflow experiment name
+        mlflow.set_experiment("SoftTS2Vec")
         try:
             run = mlflow.start_run(run_name=current.run_id)
             self.mlflow_run_id = run.info.run_id
@@ -193,6 +195,7 @@ class ECGTS2VecFlow(FlowSpec):
                 "ts2vec_depth": self.ts2vec_depth,
                 "ts2vec_max_train_length": self.ts2vec_max_train_length,
                 "ts2vec_temporal_unit": self.ts2vec_temporal_unit,
+                "seed": self.seed,
                 # soft CL params
                 "ts2vec_dist_type": dist_type,
                 "ts2vec_tau_inst": tau_inst,
