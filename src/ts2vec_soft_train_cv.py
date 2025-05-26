@@ -131,6 +131,7 @@ class ECGTS2VecFlow(FlowSpec):
         fp = {
             "model_name": "TS2Vec_soft",
             "seed": self.seed,
+            "ts2vec_epochs": self.ts2vec_epochs,
             "ts2vec_output_dims": self.ts2vec_output_dims,
             "ts2vec_hidden_dims": self.ts2vec_hidden_dims,
             "ts2vec_depth": self.ts2vec_depth,
@@ -237,10 +238,11 @@ class ECGTS2VecFlow(FlowSpec):
                     n_epochs=self.ts2vec_epochs,
                     verbose=True
                 )
-                # save + log artifact
-                model_path = os.path.join(run_dir, "encoder.pth")
-                self.ts2vec_soft.save(model_path)
-                mlflow.log_artifact(model_path, artifact_path="ts2vec_model")
+                # log pytorch model to MLflow
+                mlflow.pytorch.log_model(
+                    pytorch_model=self.ts2vec_soft,
+                    artifact_path="ts2vec_model"
+                )
 
         self.next(self.extract_representations)
 
