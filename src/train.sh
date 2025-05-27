@@ -67,5 +67,5 @@ echo "Launching training with seed: $1"
 python ts2vec_soft_train_cv.py run \
   --mlflow_tracking_uri "http://fs0.das6.cs.vu.nl:5005" \
   --window_data_path "../../../../var/scratch/cla224/ECG-Project/data/windowed_data.h5" \
-  --ts2vec_epochs 1 \
+  --ts2vec_epochs 5 \
   --seed $1
