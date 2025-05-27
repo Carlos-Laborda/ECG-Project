@@ -166,9 +166,29 @@ class ECGTS2VecFlow(FlowSpec):
         # ------------------------------------------------------------------
         if match_run is not None:
             print(f"Re-using encoder from run {match_run}")
-            model_uri = f"runs:/{match_run}/ts2vec_model"
-            self.ts2vec_soft = mlflow.pytorch.load_model(model_uri,
-                                                        map_location=self.device)
+            model_uri = f"runs:/{match_run}/ts2vec_soft_model"
+            loaded_net  = mlflow.pytorch.load_model(model_uri, map_location=self.device)
+
+            # build a *wrapper* so downstream .encode() keeps working
+            self.ts2vec_soft = TS2Vec_soft(
+                input_dims      = self.X_train.shape[2],
+                output_dims     = self.ts2vec_output_dims,
+                hidden_dims     = self.ts2vec_hidden_dims,
+                depth           = self.ts2vec_depth,
+                device          = self.device,
+                lr              = self.ts2vec_lr,          # not used further
+                batch_size      = self.ts2vec_batch_size,  # –/–
+                lambda_         = self.ts2vec_lambda,
+                tau_temp        = self.ts2vec_tau_temp,
+                max_train_length= self.ts2vec_max_train_length,
+                temporal_unit   = self.ts2vec_temporal_unit,
+                soft_instance   = (self.ts2vec_tau_inst > 0),
+                soft_temporal   = (self.ts2vec_tau_temp > 0),
+            )
+
+            # plug the loaded weights in
+            self.ts2vec_soft.net  = loaded_net          # AveragedModel
+            self.ts2vec_soft._net = loaded_net          # good measure
 
         else:
             print("No compatible encoder found – training from scratch")
@@ -240,8 +260,8 @@ class ECGTS2VecFlow(FlowSpec):
                 )
                 # log pytorch model to MLflow
                 mlflow.pytorch.log_model(
-                    pytorch_model=self.ts2vec_soft,
-                    artifact_path="ts2vec_model"
+                    pytorch_model=self.ts2vec_soft.net,
+                    artifact_path="ts2vec_soft_model"
                 )
 
         self.next(self.extract_representations)
