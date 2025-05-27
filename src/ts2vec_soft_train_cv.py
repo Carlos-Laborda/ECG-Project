@@ -176,8 +176,8 @@ class ECGTS2VecFlow(FlowSpec):
                 hidden_dims     = self.ts2vec_hidden_dims,
                 depth           = self.ts2vec_depth,
                 device          = self.device,
-                lr              = self.ts2vec_lr,          # not used further
-                batch_size      = self.ts2vec_batch_size,  # –/–
+                lr              = self.ts2vec_lr,         
+                batch_size      = self.ts2vec_batch_size,  
                 lambda_         = self.ts2vec_lambda,
                 tau_temp        = self.ts2vec_tau_temp,
                 max_train_length= self.ts2vec_max_train_length,
@@ -187,8 +187,8 @@ class ECGTS2VecFlow(FlowSpec):
             )
 
             # plug the loaded weights in
-            self.ts2vec_soft.net  = loaded_net          # AveragedModel
-            self.ts2vec_soft._net = loaded_net          # good measure
+            self.ts2vec_soft.net  = loaded_net         
+            self.ts2vec_soft._net = loaded_net         
 
         else:
             print("No compatible encoder found – training from scratch")
