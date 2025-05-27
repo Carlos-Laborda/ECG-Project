@@ -12,7 +12,7 @@ from metaflow import FlowSpec, step, Parameter, current, project, resources
 # Swap in Soft TS2Vec and utilities
 from ts2vec_soft import TS2Vec_soft, LinearClassifier, save_sim_mat, densify, train_linear_classifier, evaluate_classifier
 
-from torch_utilities import load_processed_data, split_data_by_participant, set_seed
+from torch_utilities import load_processed_data, split_data_by_participant, set_seed, split_indices_by_participant
 
 # -------------------------
 # Metaflow Pipeline for Soft TS2Vec pretraining and classifier fine-tuning
@@ -96,19 +96,48 @@ class ECGTS2VecFlow(FlowSpec):
         print(f"Using device: {self.device}")
         self.next(self.preprocess_data)
 
+    # @step
+    # def preprocess_data(self):
+    #     """Load or generate the windowed data for training."""
+    #     X, y, groups = load_processed_data(
+    #         hdf5_path=self.window_data_path,
+    #         label_map={"baseline": 0, "mental_stress": 1}
+    #     )
+    #     print(f"Windowed data loaded: X.shape={X.shape}, y.shape={y.shape}")   
+    
+    #     (self.X_train, self.y_train), (self.X_val, self.y_val), (self.X_test, self.y_test) = split_data_by_participant(
+    #         X, y, groups
+    #     )
+    #     print(f"Train samples: {len(self.X_train)}")
+    #     self.next(self.train_ts2vec)
+
     @step
     def preprocess_data(self):
-        """Load or generate the windowed data for training."""
+        """
+        Load the full HDF5 once, create participant split **indices**,
+        persist only those indices (+ small meta-data) to the next step.
+        """
         X, y, groups = load_processed_data(
             hdf5_path=self.window_data_path,
-            label_map={"baseline": 0, "mental_stress": 1}
+            label_map={"baseline": 0, "mental_stress": 1},
         )
-        print(f"Windowed data loaded: X.shape={X.shape}, y.shape={y.shape}")   
-    
-        (self.X_train, self.y_train), (self.X_val, self.y_val), (self.X_test, self.y_test) = split_data_by_participant(
-            X, y, groups
-        )
-        print(f"Train samples: {len(self.X_train)}")
+
+        # ---------- split ----------
+        
+        train_idx, val_idx, test_idx = split_indices_by_participant(groups, seed=self.seed)
+
+        # ---------- store tiny artifacts ----------
+        self.train_idx = train_idx            # numpy.int64 array (~260 kB)
+        self.val_idx   = val_idx
+        self.test_idx  = test_idx
+        self.y         = y                    # labels are small (1 byte each)
+        self.n_features = X.shape[2]          # =1
+
+        print(f"Train windows : {len(train_idx)}")
+        print(f"Val   windows : {len(val_idx)}")
+        print(f"Test  windows : {len(test_idx)}")
+
+        # DO NOT keep 'X' (2-3 GB) on self.
         self.next(self.train_ts2vec)
 
     @resources(memory=16000)
@@ -120,6 +149,13 @@ class ECGTS2VecFlow(FlowSpec):
         """
         import tempfile, os, mlflow
         from mlflow.tracking import MlflowClient
+        
+        torch.cuda.empty_cache()
+        torch.cuda.ipc_collect()
+        
+        X, _, _ = load_processed_data(self.window_data_path)
+        X_train = X[self.train_idx].astype(np.float32)      # ~1.23 GB
+        del X  
 
         set_seed(self.seed)
         mlflow.set_tracking_uri(self.mlflow_tracking_uri)
@@ -171,7 +207,7 @@ class ECGTS2VecFlow(FlowSpec):
 
             # build a *wrapper* so downstream .encode() keeps working
             self.ts2vec_soft = TS2Vec_soft(
-                input_dims      = self.X_train.shape[2],
+                input_dims      = self.n_features,
                 output_dims     = self.ts2vec_output_dims,
                 hidden_dims     = self.ts2vec_hidden_dims,
                 depth           = self.ts2vec_depth,
@@ -194,7 +230,7 @@ class ECGTS2VecFlow(FlowSpec):
             print("No compatible encoder found – training from scratch")
             # ---- create encoder ----
             self.ts2vec_soft = TS2Vec_soft(
-                input_dims=self.X_train.shape[2],
+                input_dims=self.n_features,
                 output_dims=self.ts2vec_output_dims,
                 hidden_dims=self.ts2vec_hidden_dims,
                 depth=self.ts2vec_depth,
@@ -213,12 +249,12 @@ class ECGTS2VecFlow(FlowSpec):
             if self.ts2vec_tau_inst > 0:
                 print("Computing similarity matrix for soft instance contrastive learning...")
                 # For univariate series, squeeze last dim
-                if self.X_train.ndim == 3 and self.X_train.shape[2] == 1:
-                    X_flat = self.X_train.squeeze(-1)
+                if X_train.ndim == 3 and self.n_features == 1:
+                    X_flat = X_train.squeeze(-1)
                     multivariate = False
                 else:
                     # Flatten multivariate or select first channel
-                    X_flat = self.X_train.reshape(self.X_train.shape[0], self.X_train.shape[1], -1)
+                    X_flat = X_train.reshape(X_train.shape[0], X_train.shape[1], -1)
                     X_flat = X_flat[..., 0]
                     multivariate = False
                 # compute normalized similarity matrix
@@ -238,7 +274,7 @@ class ECGTS2VecFlow(FlowSpec):
             
             # Expand the soft‑label matrix to match the splits
             if self.ts2vec_tau_inst > 0 and self.ts2vec_max_train_length is not None:
-                S = self.X_train.shape[1] // self.ts2vec_max_train_length
+                S = X_train.shape[1] // self.ts2vec_max_train_length
                 if S > 1:
                     # tile both axes
                     soft_labels = np.repeat(
@@ -253,7 +289,7 @@ class ECGTS2VecFlow(FlowSpec):
 
                 run_dir = tempfile.mkdtemp(prefix="ts2vec_")
                 self.ts2vec_soft.fit(
-                    self.X_train, soft_labels,
+                    X_train, soft_labels,
                     run_dir=run_dir,
                     n_epochs=self.ts2vec_epochs,
                     verbose=True
@@ -270,9 +306,20 @@ class ECGTS2VecFlow(FlowSpec):
     def extract_representations(self):
         """Extract feature representations using the trained TS2Vec encoder."""
         mlflow.set_tracking_uri(self.mlflow_tracking_uri)
-        self.train_repr = self.ts2vec_soft.encode(self.X_train, encoding_window="full_series")
-        self.val_repr = self.ts2vec_soft.encode(self.X_val, encoding_window="full_series")
-        self.test_repr = self.ts2vec_soft.encode(self.X_test, encoding_window="full_series")
+        X, _, _ = load_processed_data(self.window_data_path)
+        X_train = X[self.train_idx].astype(np.float32)
+        X_val   = X[self.val_idx  ].astype(np.float32)
+        X_test  = X[self.test_idx ].astype(np.float32)
+        del X
+        self.train_repr = self.ts2vec_soft.encode(X_train, encoding_window="full_series")
+        self.val_repr   = self.ts2vec_soft.encode(X_val,   encoding_window="full_series")
+        self.test_repr  = self.ts2vec_soft.encode(X_test,  encoding_window="full_series")
+
+        # keep y arrays for the next step 
+        self.y_train = self.y[self.train_idx]
+        self.y_val   = self.y[self.val_idx]
+        self.y_test  = self.y[self.test_idx]
+        print("Representations computed.")
         print(f"Extracted TS2Vec representations: train_repr shape={self.train_repr.shape}")
         self.next(self.train_classifier)
 
