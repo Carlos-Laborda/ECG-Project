@@ -137,6 +137,25 @@ def split_data_by_participant(X, y, groups, train_ratio=0.6, val_ratio=0.2, seed
     
     return (X[train_mask], y[train_mask]), (X[val_mask], y[val_mask]), (X[test_mask], y[test_mask])
 
+def split_indices_by_participant(groups, train_ratio=0.6, val_ratio=0.2, seed=42):
+    """
+    Return index arrays for train / val / test
+    """
+    uniq = np.unique(groups)
+    rng  = np.random.default_rng(seed)
+    rng.shuffle(uniq)
+
+    n_train = int(len(uniq) * train_ratio)
+    n_val   = int(len(uniq) * val_ratio)
+
+    train_p, val_p, test_p = np.split(uniq, [n_train, n_train + n_val])
+
+    train_idx = np.flatnonzero(np.isin(groups, train_p))
+    val_idx   = np.flatnonzero(np.isin(groups, val_p))
+    test_idx  = np.flatnonzero(np.isin(groups, test_p))
+
+    return train_idx, val_idx, test_idx
+
 class ECGDataset(Dataset):
     """
     PyTorch Dataset for ECG data.
