@@ -9,7 +9,6 @@ import mlflow.pytorch
 from torch.utils.data import DataLoader, TensorDataset
 from metaflow import FlowSpec, step, Parameter, current, project, resources
 
-# Swap in Soft TS2Vec and utilities
 from ts2vec_soft import TS2Vec_soft, LinearClassifier, save_sim_mat, densify, train_linear_classifier, evaluate_classifier
 
 from torch_utilities import load_processed_data, split_data_by_participant, set_seed, split_indices_by_participant
@@ -71,7 +70,6 @@ class ECGTS2VecFlow(FlowSpec):
     classifier_epochs = Parameter("classifier_epochs", help="Epochs for classifier training", default=25)
     classifier_lr = Parameter("classifier_lr", help="Learning rate for classifier", default=0.0001)
     classifier_batch_size = Parameter("classifier_batch_size", help="Batch size for classifier", default=32)
-    accuracy_threshold = Parameter("accuracy_threshold", help="Minimum accuracy for model registration", default=0.74)
     label_fraction = Parameter(
         "label_fraction",
         help="Fraction of labeled training data for classifier (0.01-1.0)",
@@ -96,21 +94,6 @@ class ECGTS2VecFlow(FlowSpec):
         print(f"Using device: {self.device}")
         self.next(self.preprocess_data)
 
-    # @step
-    # def preprocess_data(self):
-    #     """Load or generate the windowed data for training."""
-    #     X, y, groups = load_processed_data(
-    #         hdf5_path=self.window_data_path,
-    #         label_map={"baseline": 0, "mental_stress": 1}
-    #     )
-    #     print(f"Windowed data loaded: X.shape={X.shape}, y.shape={y.shape}")   
-    
-    #     (self.X_train, self.y_train), (self.X_val, self.y_val), (self.X_test, self.y_test) = split_data_by_participant(
-    #         X, y, groups
-    #     )
-    #     print(f"Train samples: {len(self.X_train)}")
-    #     self.next(self.train_ts2vec)
-
     @step
     def preprocess_data(self):
         """
@@ -121,23 +104,21 @@ class ECGTS2VecFlow(FlowSpec):
             hdf5_path=self.window_data_path,
             label_map={"baseline": 0, "mental_stress": 1},
         )
-
-        # ---------- split ----------
         
+        #split
         train_idx, val_idx, test_idx = split_indices_by_participant(groups, seed=self.seed)
-
-        # ---------- store tiny artifacts ----------
-        self.train_idx = train_idx            # numpy.int64 array (~260 kB)
+        
+        # store artifacts 
+        self.train_idx = train_idx           
         self.val_idx   = val_idx
         self.test_idx  = test_idx
-        self.y         = y                    # labels are small (1 byte each)
-        self.n_features = X.shape[2]          # =1
+        self.y         = y                   
+        self.n_features = X.shape[2]          
 
         print(f"Train windows : {len(train_idx)}")
         print(f"Val   windows : {len(val_idx)}")
         print(f"Test  windows : {len(test_idx)}")
 
-        # DO NOT keep 'X' (2-3 GB) on self.
         self.next(self.train_ts2vec)
 
     @resources(memory=16000)
@@ -145,7 +126,7 @@ class ECGTS2VecFlow(FlowSpec):
     def train_ts2vec(self):
         """
         If a TS2Vec encoder with identical hyper-parameters is already stored in
-        MLflow (SoftTS2Vec experiment), load it. Otherwise train and log it.
+        MLflow, load it. Otherwise train and log it.
         """
         import tempfile, os, mlflow
         from mlflow.tracking import MlflowClient
@@ -154,16 +135,14 @@ class ECGTS2VecFlow(FlowSpec):
         torch.cuda.ipc_collect()
         
         X, _, _ = load_processed_data(self.window_data_path)
-        X_train = X[self.train_idx].astype(np.float32)      # ~1.23 GB
+        X_train = X[self.train_idx].astype(np.float32)
         del X  
 
         set_seed(self.seed)
         mlflow.set_tracking_uri(self.mlflow_tracking_uri)
-        mlflow.set_experiment("SoftTS2Vec")          # same as in start()
+        mlflow.set_experiment("SoftTS2Vec")       
 
-        # ------------------------------------------------------------------
-        # Build the fingerprint that defines *one unique encoder*
-        # ------------------------------------------------------------------
+        # Build the fingerprint that defines one unique encoder
         fp = {
             "model_name": "TS2Vec_soft",
             "seed": self.seed,
@@ -181,9 +160,7 @@ class ECGTS2VecFlow(FlowSpec):
         # convert everything to str for MLflow query
         fp_str = {k: str(v) for k, v in fp.items()}
 
-        # ------------------------------------------------------------------
         # Search MLflow
-        # ------------------------------------------------------------------
         client = MlflowClient()
         exp = client.get_experiment_by_name("SoftTS2Vec")
         match_run = None
@@ -197,15 +174,13 @@ class ECGTS2VecFlow(FlowSpec):
             if not hits.empty:
                 match_run = hits.iloc[0]["run_id"]
 
-        # ------------------------------------------------------------------
         # Load or train
-        # ------------------------------------------------------------------
         if match_run is not None:
             print(f"Re-using encoder from run {match_run}")
             model_uri = f"runs:/{match_run}/ts2vec_soft_model"
             loaded_net  = mlflow.pytorch.load_model(model_uri, map_location=self.device)
 
-            # build a *wrapper* so downstream .encode() keeps working
+            # build wrapper
             self.ts2vec_soft = TS2Vec_soft(
                 input_dims      = self.n_features,
                 output_dims     = self.ts2vec_output_dims,
@@ -222,13 +197,12 @@ class ECGTS2VecFlow(FlowSpec):
                 soft_temporal   = (self.ts2vec_tau_temp > 0),
             )
 
-            # plug the loaded weights in
             self.ts2vec_soft.net  = loaded_net         
             self.ts2vec_soft._net = loaded_net         
 
         else:
-            print("No compatible encoder found – training from scratch")
-            # ---- create encoder ----
+            print("No compatible encoder found so training from scratch")
+            # create encoder
             self.ts2vec_soft = TS2Vec_soft(
                 input_dims=self.n_features,
                 output_dims=self.ts2vec_output_dims,
@@ -359,6 +333,7 @@ class ECGTS2VecFlow(FlowSpec):
         mlflow.set_tracking_uri(self.mlflow_tracking_uri)
         with mlflow.start_run(run_id=self.mlflow_run_id):
             params = {
+                "classifier_model": "LinearClassifier",
                 "classifier_lr": self.classifier_lr,
                 "classifier_epochs": self.classifier_epochs,
                 "classifier_batch_size": self.classifier_batch_size,
@@ -396,21 +371,6 @@ class ECGTS2VecFlow(FlowSpec):
                 device=self.device
             )
             
-        self.next(self.register)
-
-    @step
-    def register(self):
-        mlflow.set_tracking_uri(self.mlflow_tracking_uri)
-        if self.test_accuracy >= self.accuracy_threshold:
-            with mlflow.start_run(run_id=current.run_id):
-                mlflow.pytorch.log_model(
-                    self.classifier,
-                    artifact_path="classifier_model",
-                    registered_model_name="ts2vec_classifier_soft"
-                )
-            self.registered = True
-        else:
-            self.registered = False
         self.next(self.end)
 
     @step
