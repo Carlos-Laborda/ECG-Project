@@ -116,7 +116,20 @@ class ECGTS2VecFlow(FlowSpec):
         del X  
         
         # MLflow lookup
-        fp = build_fingerprint({**self.__dict__, "model_name": "TS2Vec_soft"})
+        fp = build_fingerprint({
+            "model_name": "TS2Vec_soft",
+            "seed": self.seed,
+            "ts2vec_epochs": self.ts2vec_epochs,
+            "ts2vec_output_dims": self.ts2vec_output_dims,
+            "ts2vec_hidden_dims": self.ts2vec_hidden_dims,
+            "ts2vec_depth": self.ts2vec_depth,
+            "ts2vec_dist_type": self.ts2vec_dist_type,
+            "ts2vec_tau_inst": self.ts2vec_tau_inst,
+            "ts2vec_tau_temp": self.ts2vec_tau_temp,
+            "ts2vec_alpha": self.ts2vec_alpha,
+            "ts2vec_lambda": self.ts2vec_lambda,
+            "ts2vec_max_train_length": self.ts2vec_max_train_length,
+        })
         run_id = search_encoder_fp(fp, experiment_name="SoftTS2Vec",
                                    tracking_uri=self.mlflow_tracking_uri)
 
