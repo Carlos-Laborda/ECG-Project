@@ -7,7 +7,8 @@ from torch.utils.data import TensorDataset, DataLoader, Dataset
 from torchmetrics.classification import BinaryAUROC, BinaryAveragePrecision, BinaryF1Score
 from scipy.spatial.distance import euclidean
 from tslearn.metrics import dtw, dtw_path,gak
-# from fastdtw import fastdtw
+import tempfile, os, json
+from typing import Tuple, Dict, Any, List
 import numpy as np
 import pandas as pd
 import math
@@ -17,6 +18,7 @@ from datetime import datetime
 import pickle
 import mlflow
 import h5py
+from mlflow.tracking import MlflowClient
 
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.metrics.pairwise import cosine_similarity, euclidean_distances
@@ -155,6 +157,52 @@ class custom_dataset(Dataset):
   def __getitem__(self, idx): 
     X = torch.FloatTensor(self.X[idx])
     return X, idx
+
+def build_fingerprint(cfg: Dict[str, Any]) -> Dict[str, str]:
+    """
+    Return an *immutable* fingerprint (all values cast to str) that uniquely
+    identifies one TS2Vec encoder configuration.
+    """
+    keys = (
+        "model_name", "seed",
+        "ts2vec_epochs", "ts2vec_output_dims", "ts2vec_hidden_dims", "ts2vec_depth",
+        "ts2vec_dist_type", "ts2vec_tau_inst", "ts2vec_tau_temp",
+        "ts2vec_alpha", "ts2vec_lambda", "ts2vec_max_train_length",
+    )
+    return {k: str(cfg[k]) for k in keys}
+
+def search_encoder_fp(
+    fp: Dict[str, str],
+    experiment_name: str,
+    tracking_uri: str,
+    ) -> str | None:
+    """
+    Look for a finished MLflow run whose params match exactly the fingerprint.
+    Returns the run_id or None.
+    """
+    mlflow.set_tracking_uri(tracking_uri)
+    client   = MlflowClient()
+    exp      = client.get_experiment_by_name(experiment_name)
+    if exp is None:
+        return None
+
+    # build filter string
+    clauses = [ "attributes.status = 'FINISHED'" ]
+    clauses += [ f"params.{k} = '{v}'" for k, v in fp.items() ]
+    query    = " and ".join(clauses)
+
+    hits = mlflow.search_runs([exp.experiment_id], filter_string=query, max_results=1)
+    return None if hits.empty else hits.iloc[0]["run_id"]
+
+def build_linear_loaders(
+    X_repr: np.ndarray, y: np.ndarray,
+    batch_size: int, device: str, shuffle: bool = True,
+) -> DataLoader:
+    ds = TensorDataset(
+        torch.from_numpy(X_repr).float(),
+        torch.from_numpy(y).float()
+    )
+    return DataLoader(ds, batch_size=batch_size, shuffle=shuffle)
 
 # --------------------------------------------------------
 # ppg_window_loader.py
@@ -1202,6 +1250,24 @@ def convert_hard_matrix(soft_matrix, pos_ratio):
     num_pos = int((N-1) * pos_ratio)
     hard_matrix = topK_one_else_zero(soft_matrix, num_pos)
     return hard_matrix
+
+def compute_soft_labels(
+    X: np.ndarray, tau_inst: float, alpha: float, dist_type: str, max_len: int | None) -> np.ndarray | None:
+    """
+    Compute (and densify) the instance-level soft label matrix once.
+    """
+    # always univariate for distance -- take ch0
+    X_flat = X.squeeze(-1) if X.shape[2] == 1 else X.reshape(X.shape[0], X.shape[1], -1)[..., 0]
+
+    sim  = save_sim_mat(X_flat, min_=0, max_=1, multivariate=False, type_=dist_type)
+    soft = densify(-(1 - sim), tau_inst, alpha)
+
+    # when max_len is set we might have tiled the data -- tile labels too
+    if max_len is not None:
+        S = X.shape[1] // max_len
+        if S > 1:
+            soft = np.repeat(np.repeat(soft, repeats=S, axis=0), repeats=S, axis=1)
+    return soft
 
 # ---------------------------------------------------------
 # Classifier models
