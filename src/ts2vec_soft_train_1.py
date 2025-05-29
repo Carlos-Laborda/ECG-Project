@@ -191,8 +191,8 @@ class ECGTS2VecFlow(FlowSpec):
         mlflow.set_tracking_uri(self.mlflow_tracking_uri)
         X, _, _ = load_processed_data(self.window_data_path)
         self.train_repr = self.ts2vec_soft.encode(X[self.train_idx].astype(np.float32), encoding_window="full_series")
-        self.val_repr   = self.ts2vec_soft.encode(X[self.val_idx  ].astype(np.float32), encoding_window="full_series")
-        self.test_repr  = self.ts2vec_soft.encode(X[self.test_idx ].astype(np.float32), encoding_window="full_series")
+        self.val_repr = self.ts2vec_soft.encode(X[self.val_idx].astype(np.float32), encoding_window="full_series")
+        self.test_repr = self.ts2vec_soft.encode(X[self.test_idx].astype(np.float32), encoding_window="full_series")
 
         # keep y arrays for the next step 
         self.y_train = self.y[self.train_idx]
