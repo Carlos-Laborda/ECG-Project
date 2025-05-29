@@ -9,17 +9,13 @@ import mlflow.pytorch
 from torch.utils.data import DataLoader, TensorDataset
 from metaflow import FlowSpec, step, Parameter, current, project, resources
 import tempfile, os
-from mlflow.tracking import MlflowClient
-
 from ts2vec_soft import (TS2Vec_soft, LinearClassifier, save_sim_mat, densify, train_linear_classifier, evaluate_classifier,
                         build_fingerprint, search_encoder_fp, compute_soft_labels, build_linear_loaders)
 
-
 from torch_utilities import load_processed_data, set_seed, split_indices_by_participant
 
-# -------------------------
+
 # Metaflow Pipeline for Soft TS2Vec pretraining and classifier fine-tuning
-# -------------------------
 @project(name="ecg_training_ts2vec_soft")
 class ECGTS2VecFlow(FlowSpec):
     # MLflow and data parameters
@@ -133,8 +129,8 @@ class ECGTS2VecFlow(FlowSpec):
         run_id = search_encoder_fp(fp, experiment_name="SoftTS2Vec",
                                    tracking_uri=self.mlflow_tracking_uri)
 
-        # load
-        if run_id:                                               
+        if run_id:
+            # Load from MLflow                                               
             print(f"encoder found: re-using run {run_id}")
             uri = f"runs:/{run_id}/ts2vec_soft_model"
             net = mlflow.pytorch.load_model(uri, map_location=self.device)
@@ -231,6 +227,7 @@ class ECGTS2VecFlow(FlowSpec):
         with mlflow.start_run(run_id=self.mlflow_run_id):
             params = {
                 "classifier_model": "LinearClassifier",
+                "seed": self.seed,
                 "classifier_lr": self.classifier_lr,
                 "classifier_epochs": self.classifier_epochs,
                 "classifier_batch_size": self.classifier_batch_size,
@@ -238,7 +235,7 @@ class ECGTS2VecFlow(FlowSpec):
             }
             mlflow.log_params(params)
             train_linear_classifier(self.classifier, tr_loader, val_loader,
-                                    loss_fn, opt, self.classifier_epochs, self.device)
+                                    opt, loss_fn, self.classifier_epochs, self.device)
 
         print("Classifier training complete.")
         self.next(self.evaluate)
