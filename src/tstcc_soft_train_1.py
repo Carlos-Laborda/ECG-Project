@@ -322,6 +322,7 @@ class ECGTSTCCFlow(FlowSpec):
     def end(self):
         print("=== TS-TCC pipeline complete ===")
         print(f"Test accuracy: {self.test_accuracy:.4f}")
+        mlflow.end_run() 
         print("Done!")
 
 if __name__ == "__main__":
