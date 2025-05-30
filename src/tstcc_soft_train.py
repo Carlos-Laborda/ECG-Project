@@ -20,13 +20,11 @@ from tstcc_soft import data_generator_from_arrays, Trainer_wo_DTW, tstcc_soft, T
 @project(name="ecg_training_tstcc_soft")
 class ECGTSTCCFlow(FlowSpec):
 
-    # MLflow & data
+    # MLflow and data parameters
     mlflow_tracking_uri = Parameter("mlflow_tracking_uri",
-        default=os.getenv("MLFLOW_TRACKING_URI", "https://127.0.0.1:5000"))
+                                    default=os.getenv("MLFLOW_TRACKING_URI", "https://127.0.0.1:5000"))
     window_data_path = Parameter("window_data_path",
-        default="../data/interim/windowed_data.h5")
-
-    # general
+                                 default="../data/interim/windowed_data.h5")
     seed = Parameter("seed", default=42)
 
     # TS-TCC pretraining
@@ -43,20 +41,19 @@ class ECGTSTCCFlow(FlowSpec):
     cc_use_cosine = Parameter("cc_use_cosine", default=True)
     
     # soft version
-    lambda_aux      = Parameter("lambda_aux",       default=0.5)
-    soft_instance   = Parameter("soft_instance",    default=True)
-    soft_temporal   = Parameter("soft_temporal",    default=True)
-    tau_temp        = Parameter("tau_temp",         default=1)
-    tau_inst        = Parameter("tau_inst",         default=1)
-    dist_type       = Parameter("dist_type",        default="euc")
-    lambda_         = Parameter("lambda_",          default=0.5)
+    lambda_aux = Parameter("lambda_aux", default=0.5)
+    soft_instance = Parameter("soft_instance", default=True)
+    soft_temporal = Parameter("soft_temporal", default=True)
+    tau_temp = Parameter("tau_temp", default=1)
+    tau_inst = Parameter("tau_inst", default=1)
+    dist_type = Parameter("dist_type", default="euc")
+    lambda_ = Parameter("lambda_", default=0.5)
 
     # classifier fine-tuning
     classifier_epochs = Parameter("classifier_epochs", default=25)
     classifier_lr = Parameter("classifier_lr", default=1e-4)
     classifier_batch_size = Parameter("classifier_batch_size", default=32)
     label_fraction = Parameter("label_fraction", default=1.0)
-    accuracy_threshold = Parameter("accuracy_threshold", default=0.74)
 
     @step
     def start(self):
@@ -273,21 +270,6 @@ class ECGTSTCCFlow(FlowSpec):
                 device = self.device
             )
 
-        self.next(self.register)
-
-    @step
-    def register(self):
-        mlflow.set_tracking_uri(self.mlflow_tracking_uri)
-        if self.test_accuracy >= self.accuracy_threshold:
-            with mlflow.start_run(run_id=current.run_id):
-                mlflow.pytorch.log_model(
-                    self.classifier,
-                    artifact_path="classifier_model",
-                    registered_model_name="ts_tcc_classifier"
-                )
-            self.registered = True
-        else:
-            self.registered = False
         self.next(self.end)
 
     @step
