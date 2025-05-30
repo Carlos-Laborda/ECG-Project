@@ -15,10 +15,11 @@ from sklearn.metrics import classification_report, cohen_kappa_score, confusion_
 from torchmetrics.classification import BinaryAUROC, BinaryAveragePrecision, BinaryF1Score
 from shutil import copy
 from einops import rearrange, repeat
-from typing import Union, Sequence
+from typing import Union, Sequence, Tuple, Dict, Any, List
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.metrics.pairwise import cosine_similarity, euclidean_distances
 from tslearn.metrics import dtw, dtw_path,gak
+from mlflow.tracking import MlflowClient
 
 # ----------------------------------------------------------------------
 # augmentations.py
@@ -283,6 +284,16 @@ def data_generator_from_arrays(
     )
 
     return train_loader, valid_loader, test_loader
+
+def build_linear_loaders(
+    X_repr: np.ndarray, y: np.ndarray,
+    batch_size: int, device: str, shuffle: bool = True,
+) -> DataLoader:
+    ds = TensorDataset(
+        torch.from_numpy(X_repr).float(),
+        torch.from_numpy(y).float()
+    )
+    return DataLoader(ds, batch_size=batch_size, shuffle=shuffle)
 
 # ----------------------------------------------------------------------
 # loss.py
@@ -1125,6 +1136,45 @@ def copy_Files(destination, data_type):
     copy(f"models/model.py", os.path.join(destination_dir, f"model.py"))
     copy("models/loss.py", os.path.join(destination_dir, "loss.py"))
     copy("models/TC.py", os.path.join(destination_dir, "TC.py"))
+    
+def build_tstcc_fingerprint(cfg: dict[str, any]) -> dict[str, str]:
+    """
+    Build immutable fingerprint (all values str) that uniquely
+    identifies one TS-TCC encoder configuration.
+    """
+    keys = (
+        "model_name", "seed",
+        "tcc_epochs", "tcc_lr", "tcc_batch_size",
+        "tc_timesteps", "tc_hidden_dim",
+        "cc_temperature", "cc_use_cosine",
+        "lambda_aux", "soft_instance", "soft_temporal",
+        "tau_temp", "tau_inst", "dist_type", "lambda_",
+    )
+    return {k: str(cfg[k]) for k in keys}
+
+
+def search_encoder_fp(
+    fp: Dict[str, str],
+    experiment_name: str,
+    tracking_uri: str,
+    ) -> str | None:
+    """
+    Look for a finished MLflow run whose params match exactly the fingerprint.
+    Returns the run_id or None.
+    """
+    mlflow.set_tracking_uri(tracking_uri)
+    client   = MlflowClient()
+    exp      = client.get_experiment_by_name(experiment_name)
+    if exp is None:
+        return None
+
+    # build filter string
+    clauses = [ "attributes.status = 'FINISHED'" ]
+    clauses += [ f"params.{k} = '{v}'" for k, v in fp.items() ]
+    query    = " and ".join(clauses)
+
+    hits = mlflow.search_runs([exp.experiment_id], filter_string=query, max_results=1)
+    return None if hits.empty else hits.iloc[0]["run_id"]
 
 # ----------------------------------------------------------------------
 # trainer_utils.py
