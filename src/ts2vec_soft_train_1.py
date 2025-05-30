@@ -259,6 +259,7 @@ class ECGTS2VecFlow(FlowSpec):
     def end(self):
         print("=== Soft TS2Vec Training and Classifier Pipeline Complete ===")
         print(f"Final Test Accuracy: {self.test_accuracy:.4f}")
+        mlflow.end_run() 
         print("Done!")
 
 if __name__ == "__main__":
