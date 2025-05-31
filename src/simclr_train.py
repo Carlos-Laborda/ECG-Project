@@ -1,23 +1,23 @@
 import os, mlflow, torch, numpy as np, torch.nn as nn, torch.optim as optim
+import tempfile
 import mlflow.pytorch
 from torch.utils.data import TensorDataset, DataLoader
 from metaflow import FlowSpec, step, Parameter, current, project, resources
-from torch_utilities import (load_processed_data, split_data_by_participant,
+from torch_utilities import (load_processed_data, split_indices_by_participant,
                              set_seed)
 
 from simclr import (get_simclr_model, NTXentLoss, simclr_data_loaders, pretrain_one_epoch,
                     encode_representations, LinearClassifier, train_linear_classifier,
-                    evaluate_classifier, show_shape)
+                    evaluate_classifier, show_shape, build_simclr_fingerprint, search_encoder_fp)
 
 @project(name="ecg_training_simclr")
 class ECGSimCLRFlow(FlowSpec):
 
-    # pipeline parameters
+    # MLflow and data parameters
     mlflow_tracking_uri = Parameter("mlflow_tracking_uri",
-                                    default=os.getenv("MLFLOW_TRACKING_URI",
-                                                      "https://127.0.0.1:5000"))
+                                    default=os.getenv("MLFLOW_TRACKING_URI", "https://127.0.0.1:5000"))
     window_data_path = Parameter("window_data_path",
-                                    default="../data/interim/windowed_data.h5")
+                                 default="../data/interim/windowed_data.h5")
     seed = Parameter("seed", default=42)
 
     # SimCLR pre‑training
@@ -28,130 +28,166 @@ class ECGSimCLRFlow(FlowSpec):
 
     # linear classifier
     clf_epochs = Parameter("clf_epochs", default=25)
-    clf_lr = Parameter("clf_lr",       default=1e-4)
+    clf_lr = Parameter("clf_lr", default=1e-4)
     clf_batch_size = Parameter("clf_batch_size", default=32)
     label_fraction = Parameter("label_fraction", default=1.0)
-    accuracy_threshold = Parameter("accuracy_threshold", default=0.74)
 
     @step
     def start(self):
+        """Initialize MLflow and set seed."""
+        set_seed(self.seed)
         mlflow.set_tracking_uri(self.mlflow_tracking_uri)
+        # Set a custom MLflow experiment name
+        mlflow.set_experiment("SimCLR")
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
         try:
             run = mlflow.start_run(run_name=current.run_id)
             self.mlflow_run_id = run.info.run_id
         except Exception as e:
-            raise RuntimeError(f"MLflow connection failed: {e}")
-        set_seed(self.seed)
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+            raise RuntimeError(f"MLflow connection failed: {str(e)}")
+
         print(f"Using device: {self.device}")
         self.next(self.preprocess_data)
 
     @step
     def preprocess_data(self):
+        """
+        Load windowed ECG once, keep only indices for later steps.
+        """
         X, y, groups = load_processed_data(
-            hdf5_path=self.window_data_path,
-            label_map={"baseline": 0, "mental_stress": 1}
+            self.window_data_path,
+            label_map={"baseline": 0, "mental_stress": 1},
         )
-        print(f"Windowed data loaded: X.shape={X.shape}, y.shape={y.shape}")
-        (self.X_train, self.y_train), (self.X_val, self.y_val), (self.X_test, self.y_test) = \
-            split_data_by_participant(X, y, groups)
-        print(f"Train samples: {len(self.X_train)}")
-        print(f"[DBG] preprocess_data  train/val/test shapes:",
-              self.X_train.shape, self.X_val.shape, self.X_test.shape)
+
+        tr, va, te = split_indices_by_participant(groups, seed=self.seed)
+        self.train_idx, self.val_idx, self.test_idx = tr, va, te
+        self.y = y.astype(np.float32)
+        self.win_len = X.shape[1]     
+
+        print(f"windows: train {len(tr)}, val {len(va)}, test {len(te)}")
         self.next(self.pretrain_simclr)
 
     @resources(memory=16000)
     @step
     def pretrain_simclr(self):
-        model = get_simclr_model(window=self.X_train.shape[1],
-                                 device=self.device)
-        loss_fn = NTXentLoss(self.batch_size, self.temperature)
-        opt     = optim.AdamW(model.parameters(), lr=self.lr, weight_decay=1e-4)
-        train_dl, val_dl = simclr_data_loaders(self.X_train, self.X_val,
-                                               self.batch_size)
-        mlflow.set_tracking_uri(self.mlflow_tracking_uri)
-        with mlflow.start_run(run_id=self.mlflow_run_id):
-            params = {
-                "model_name": model.__class__.__name__,
-                "epochs": self.epochs, "lr": self.lr,
-                "batch_size": self.batch_size,
-                "temperature": self.temperature}
-            mlflow.log_params(params)
+        """
+        Pre-train SimCLR. If an identical encoder already exists in MLflow,
+        load and reuse it; otherwise train from scratch and log it.
+        """
+        torch.cuda.empty_cache(), torch.cuda.ipc_collect()
+        set_seed(self.seed)
+        mlflow.set_experiment("SimCLR")
+        
+        # Build fingerprint and MLflow lookup
+        fp = build_simclr_fingerprint({
+            "model_name": "SimCLR",
+            "seed":        self.seed,
+            "epochs":      self.epochs,
+            "lr":          self.lr,
+            "batch_size":  self.batch_size,
+            "temperature": self.temperature,
+            "window_len":  self.win_len,
+        })
+        run_id = search_encoder_fp(fp, "SimCLR", self.mlflow_tracking_uri)
+        
+        self.model = get_simclr_model(window=self.win_len, device=self.device)
+        
+        if run_id:
+            # Re-use existing encoder
+            print(f"encoder found: re-using run {run_id}")
+            uri = f"runs:/{run_id}/ssl_model"
+            ckpt_dir = mlflow.artifacts.download_artifacts(uri)
+            ckpt_path = os.path.join(ckpt_dir, "simclr_encoder.pt")
+            self.model.load_state_dict(torch.load(ckpt_path, map_location=self.device))
+        
+        else:
+            # train from scratch
+            print("no cached encoder: training …")
+            X, _, _ = load_processed_data(self.window_data_path)
+            X_tr = X[self.train_idx].astype(np.float32)
+            X_va = X[self.val_idx  ].astype(np.float32)
+            del X
 
-            for ep in range(1, self.epochs+1):
-                tr_loss = pretrain_one_epoch(
-                    model, train_dl, loss_fn, opt, self.device)
-                mlflow.log_metric("ssl_train_loss", tr_loss, step=ep)
-                if ep % 50 == 0 or ep==1:
-                    print(f"Epoch {ep}/{self.epochs}: loss={tr_loss:.4f}")
+            loss_fn = NTXentLoss(self.batch_size, self.temperature)
+            opt = optim.AdamW(self.model.parameters(),
+                                   lr=self.lr, weight_decay=1e-4)
+            tr_dl, _ = simclr_data_loaders(X_tr, X_va, self.batch_size)
 
-            # save ssl checkpoint
-            ckpt = f"simclr_encoder_{current.run_id}.pt"
-            torch.save(model.state_dict(), ckpt)
-            mlflow.log_artifact(ckpt, "ssl_model")
-            self.ssl_model_state = ckpt
-            self.simclr_model = model  
+            mlflow.set_tracking_uri(self.mlflow_tracking_uri)
+            with mlflow.start_run(run_id=self.mlflow_run_id):
+                mlflow.log_params(fp)
+                for ep in range(1, self.epochs + 1):
+                    tr_loss = pretrain_one_epoch(
+                        self.model, tr_dl, loss_fn, opt, self.device)
+                    mlflow.log_metric("ssl_train_loss", tr_loss, step=ep)
+                    if ep == 1 or ep % 25 == 0:
+                        print(f"Epoch {ep}/{self.epochs}: loss={tr_loss:.4f}")
+
+                # save encoder weights
+                ckpt = tempfile.mktemp(prefix="simclr_", suffix=".pt")
+                torch.save(self.model.state_dict(), ckpt)
+                mlflow.log_artifact(ckpt, artifact_path="ssl_model")
+                
         self.next(self.extract_representations)
 
     @step
     def extract_representations(self):
-        # freeze encoder for linear evaluation
+        """Extract feature representations using the trained SimCLR encoder."""
         mlflow.set_tracking_uri(self.mlflow_tracking_uri)
+        X, _, _ = load_processed_data(self.window_data_path)
+        
         with torch.no_grad():
             self.train_repr = encode_representations(
-                self.simclr_model, self.X_train,
+                self.model, X[self.train_idx].astype(np.float32),
                 self.batch_size, self.device)
             self.val_repr   = encode_representations(
-                self.simclr_model, self.X_val,
+                self.model, X[self.val_idx].astype(np.float32),
                 self.batch_size, self.device)
             self.test_repr  = encode_representations(
-                self.simclr_model, self.X_test,
+                self.model, X[self.test_idx].astype(np.float32),
                 self.batch_size, self.device)
-        show_shape("repr shapes", (self.train_repr,
-                                   self.val_repr, self.test_repr))
+
+        show_shape("repr", (self.train_repr, self.val_repr, self.test_repr))
         self.next(self.train_classifier)
 
     @resources(memory=16000)
     @step
     def train_classifier(self):
+        """Train a classifier with (reduced) labeled training data on the SimCLR representations."""
         set_seed(self.seed)
-        print(f"Using {self.label_fraction * 100:.1f}% of labeled training data.")
-
+        
         # subsample labelled training windows
-        idx = np.arange(len(self.train_repr))
-        np.random.shuffle(idx)
-        keep = max(1, int(len(idx)*self.label_fraction))
-        idx  = idx[:keep]
+        idx = np.random.permutation(len(self.train_repr))
+        keep = max(1, int(len(idx) * self.label_fraction))
+        idx = idx[:keep]
 
-        Xtr, ytr = self.train_repr[idx], self.y_train[idx]
-        feat_dim = Xtr.shape[1]
+        Xtr, ytr = self.train_repr[idx], self.y[self.train_idx][idx]
 
-        clf = LinearClassifier(feat_dim).to(self.device)
-        loss_fn  = nn.BCEWithLogitsLoss()
-        opt      = optim.AdamW(clf.parameters(), lr=self.clf_lr)
+        clf = LinearClassifier(Xtr.shape[1]).to(self.device)
+        loss_fn = nn.BCEWithLogitsLoss()
+        opt = optim.AdamW(clf.parameters(), lr=self.clf_lr)
 
-        train_dl = DataLoader(
+        tr_dl = DataLoader(
             TensorDataset(torch.from_numpy(Xtr).float(),
                           torch.from_numpy(ytr).float()),
             batch_size=self.clf_batch_size, shuffle=True)
-
-        val_dl   = DataLoader(
+        va_dl = DataLoader(
             TensorDataset(torch.from_numpy(self.val_repr).float(),
-                          torch.from_numpy(self.y_val).float()),
+                          torch.from_numpy(self.y[self.val_idx]).float()),
             batch_size=self.clf_batch_size, shuffle=False)
-        
+
         mlflow.set_tracking_uri(self.mlflow_tracking_uri)
         with mlflow.start_run(run_id=self.mlflow_run_id):
-            params = {
+            mlflow.log_params({
+                "classifier_model": "LinearClassifier",
+                "seed": self.seed,
                 "classifier_lr": self.clf_lr,
                 "classifier_epochs": self.clf_epochs,
                 "classifier_batch_size": self.clf_batch_size,
-                "label_fraction": self.label_fraction
-            }
-            mlflow.log_params(params)
-    
+                "label_fraction": self.label_fraction,
+            })
             clf, *_ = train_linear_classifier(
-                clf, train_dl, val_dl, opt, loss_fn,
+                clf, tr_dl, va_dl, opt, loss_fn,
                 self.clf_epochs, self.device)
             self.classifier = clf
         
@@ -160,32 +196,23 @@ class ECGSimCLRFlow(FlowSpec):
 
     @step
     def evaluate(self):
-        test_dl = DataLoader(
+        """Evaluate the classifier on the held-out test windows."""
+        te_dl = DataLoader(
             TensorDataset(torch.from_numpy(self.test_repr).float(),
-                          torch.from_numpy(self.y_test).float()),
+                          torch.from_numpy(self.y[self.test_idx]).float()),
             batch_size=self.clf_batch_size, shuffle=False)
+        
         mlflow.set_tracking_uri(self.mlflow_tracking_uri)
         with mlflow.start_run(run_id=self.mlflow_run_id):
             self.test_acc, *_ = evaluate_classifier(
-                self.classifier, test_dl, self.device)
-        self.next(self.register)
-
-    @step
-    def register(self):
-        mlflow.set_tracking_uri(self.mlflow_tracking_uri)
-        if self.test_acc >= self.accuracy_threshold:
-            with mlflow.start_run(run_id=current.run_id):
-                mlflow.pytorch.log_model(
-                    self.classifier,
-                    artifact_path="classifier_model",
-                    registered_model_name="simclr_classifier")
-            self.registered = True
-        else: self.registered = False
+                self.classifier, te_dl, self.device)
         self.next(self.end)
 
     @step
     def end(self):
         print(f"=== SimCLR pipeline done – test accuracy {self.test_acc:.4f} ===")
-
+        mlflow.end_run() 
+        print("Done!")
+        
 if __name__ == "__main__":
     ECGSimCLRFlow()
