@@ -5,13 +5,14 @@ import numpy as np
 import math
 import cv2
 import mlflow
+from mlflow.tracking import MlflowClient
 from torch.utils.data import Dataset, DataLoader
 
 from torchmetrics.classification import BinaryAUROC, BinaryAveragePrecision, BinaryF1Score
-from typing import Union, Sequence
+from typing import Union, Sequence, Tuple, Dict, Any, List
 
 # ----------------------------------------------------------------------
-# helpers (put right after the imports in simclr.py)
+# helpers
 # ----------------------------------------------------------------------
 def to_1d(x: np.ndarray) -> np.ndarray:
     """Remove channel/extra dims so that augmentations see (L,) arrays."""
@@ -27,6 +28,35 @@ def same_length(arr: np.ndarray, target_len: int) -> np.ndarray:
 def safe_contiguous(x: np.ndarray) -> np.ndarray:
     """Ensure positive stride & contiguous memory."""
     return np.ascontiguousarray(x)
+
+def build_simclr_fingerprint(cfg: dict[str, object]) -> dict[str, str]:
+    """Return an *immutable* (str-typed) dict uniquely identifying
+       one SimCLR encoder configuration."""
+    keys = (
+        "model_name", "seed",
+        "epochs", "lr", "batch_size", "temperature",
+        "window_len",        # ← add sequence length to avoid clashes
+    )
+    return {k: str(cfg[k]) for k in keys}
+
+def search_encoder_fp(fp: dict[str, str], experiment_name: str,
+                      tracking_uri: str) -> str | None:
+    """
+    Look for a FINISHED MLflow run whose params match *exactly* the fingerprint.
+    Returns the run_id (str) or None if not found.
+    """
+    mlflow.set_tracking_uri(tracking_uri)
+    client = MlflowClient()
+    exp    = client.get_experiment_by_name(experiment_name)
+    if exp is None:
+        return None
+
+    clauses = ["attributes.status = 'FINISHED'"]
+    clauses += [f"params.{k} = '{v}'" for k, v in fp.items()]
+    query    = " and ".join(clauses)
+    hits = mlflow.search_runs([exp.experiment_id], filter_string=query,
+                              max_results=1)
+    return None if hits.empty else hits.iloc[0]["run_id"]
 
 # ----------------------------------------------------------------------
 # Augmentations (following paper’s guidelines (15, 0.9, 20, 9, 1.05))
