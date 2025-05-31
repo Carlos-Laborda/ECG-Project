@@ -8,37 +8,39 @@ import torch.optim as optim
 import torch.nn.functional as F
 import mlflow
 import mlflow.pytorch
+import tempfile
 
 from torch.utils.data import DataLoader, TensorDataset
 from metaflow import FlowSpec, step, Parameter, current, project, resources
 
-from torch_utilities import load_processed_data, split_data_by_participant, set_seed
+from torch_utilities import load_processed_data, split_indices_by_participant, set_seed
 
-from tstcc import data_generator_from_arrays, Trainer, base_Model, TC, NTXentLoss, Config as ECGConfig, LinearClassifier, train_linear_classifier, evaluate_classifier, encode_representations, show_shape
+from tstcc import data_generator_from_arrays, Trainer, base_Model, TC, Config as ECGConfig, LinearClassifier, \
+    train_linear_classifier, evaluate_classifier, encode_representations, show_shape, build_tstcc_fingerprint, search_encoder_fp, \
+        build_linear_loaders
+        
 
 @project(name="ecg_training_tstcc")
 class ECGTSTCCFlow(FlowSpec):
 
-    # MLflow & data
+    # MLflow and data parameters
     mlflow_tracking_uri = Parameter("mlflow_tracking_uri",
-        default=os.getenv("MLFLOW_TRACKING_URI", "https://127.0.0.1:5000"))
+                                    default=os.getenv("MLFLOW_TRACKING_URI", "https://127.0.0.1:5000"))
     window_data_path = Parameter("window_data_path",
-        default="../data/interim/windowed_data.h5")
-
-    # general
+                                 default="../data/interim/windowed_data.h5")
     seed = Parameter("seed", default=42)
 
     # TS-TCC pretraining
     tcc_epochs = Parameter("tcc_epochs", default=40)
     tcc_lr = Parameter("tcc_lr", default=3e-4)
-    tcc_batch_size = Parameter("tcc_batch_size", default=64)
+    tcc_batch_size = Parameter("tcc_batch_size", default=128)
 
     # temporal contrasting
-    tc_timesteps = Parameter("tc_timesteps", default=50)
-    tc_hidden_dim = Parameter("tc_hidden_dim", default=100)
+    tc_timesteps = Parameter("tc_timesteps", default=70)
+    tc_hidden_dim = Parameter("tc_hidden_dim", default=128)
 
     # contextual contrasting
-    cc_temperature = Parameter("cc_temperature", default=0.2)
+    cc_temperature = Parameter("cc_temperature", default=0.07)
     cc_use_cosine = Parameter("cc_use_cosine", default=True)
 
     # classifier fine-tuning
@@ -46,132 +48,189 @@ class ECGTSTCCFlow(FlowSpec):
     classifier_lr = Parameter("classifier_lr", default=1e-4)
     classifier_batch_size = Parameter("classifier_batch_size", default=32)
     label_fraction = Parameter("label_fraction", default=1.0)
-    accuracy_threshold = Parameter("accuracy_threshold", default=0.74)
 
     @step
     def start(self):
+        """Initialize MLflow and set seed."""
+        set_seed(self.seed)
         mlflow.set_tracking_uri(self.mlflow_tracking_uri)
+        # Set a custom MLflow experiment name
+        mlflow.set_experiment("TSTCC")
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
         try:
             run = mlflow.start_run(run_name=current.run_id)
             self.mlflow_run_id = run.info.run_id
         except Exception as e:
-            raise RuntimeError(f"MLflow connection failed: {e}")
-        set_seed(self.seed)
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+            raise RuntimeError(f"MLflow connection failed: {str(e)}")
+
+        logging.info(f"MLflow experiment 'SoftTSTCC' (run: {self.mlflow_run_id})")
         print(f"Using device: {self.device}")
         self.next(self.preprocess_data)
 
     @step
     def preprocess_data(self):
-        X, y, groups = load_processed_data(
-            hdf5_path=self.window_data_path,
-            label_map={"baseline": 0, "mental_stress": 1}
-        )
-        print(f"Windowed data loaded: X.shape={X.shape}, y.shape={y.shape}")
-        (self.X_train, self.y_train), (self.X_val, self.y_val), (self.X_test, self.y_test) = \
-            split_data_by_participant(X, y, groups)
-        print(f"Train samples: {len(self.X_train)}")
-        print(f"[DBG] preprocess_data  train/val/test shapes:",
-              self.X_train.shape, self.X_val.shape, self.X_test.shape)
+        """
+        Load the windowed processed data, create participant split indices,
+        persist only those indices to the next step.
+        """
+        X, y, groups = load_processed_data(self.window_data_path,
+                                           label_map={"baseline": 0, "mental_stress": 1})
+        
+        # split
+        train_idx, val_idx, test_idx = split_indices_by_participant(groups, seed=self.seed)
+        
+        # store artifacts 
+        self.train_idx, self.val_idx, self.test_idx = train_idx, val_idx, test_idx
+        self.y = y.astype(np.float32)                   
+        self.n_features = X.shape[2]          
+
+        print(f"windows: train {len(train_idx)}, val {len(val_idx)}, test {len(test_idx)}")
         self.next(self.train_tstcc)
 
     @resources(memory=16000)
     @step
     def train_tstcc(self):
-        print(f"Training TS-TCC on {self.device}")
-        
-        # Hyperparameters
-        self.configs = ECGConfig()
-        self.configs.num_epoch   = self.tcc_epochs    
-        self.configs.batch_size  = self.tcc_batch_size
-        self.configs.Context_Cont.temperature           = self.cc_temperature
-        self.configs.Context_Cont.use_cosine_similarity = self.cc_use_cosine
-        self.configs.TC.timesteps = self.tc_timesteps   
-        self.configs.TC.hidden_dim = self.tc_hidden_dim
+        """
+        Pre-train TS-TCC.  
+        If an identical encoder is already logged in MLflow, re-use it;
+        otherwise train from scratch and log the checkpoint.
+        """
+        torch.cuda.empty_cache(), torch.cuda.ipc_collect()
+        set_seed(self.seed)
+        mlflow.set_experiment("TSTCC")
 
-        # Data loaders
-        train_dl, val_dl, test_dl = data_generator_from_arrays(
-            self.X_train, self.y_train, 
-            self.X_val, self.y_val, 
-            self.X_test, self.y_test,
-            self.configs,
-            training_mode="self_supervised"
-        )
+        X, _, _ = load_processed_data(self.window_data_path)
+        X_train = X[self.train_idx].astype(np.float32)
+        X_val = X[self.val_idx].astype(np.float32)
+        X_test = X[self.test_idx].astype(np.float32)
+        del X
 
-        # models
-        self.model = base_Model(self.configs).to(self.device)
-        self.temporal_contr_model = TC(self.configs, self.device).to(self.device)
+        # Build fingerprint
+        fp = build_tstcc_fingerprint({
+            "model_name": "TSTCC",
+            "seed": self.seed,
+            "tcc_epochs": self.tcc_epochs,
+            "tcc_lr": self.tcc_lr,
+            "tcc_batch_size": self.tcc_batch_size,
+            "tc_timesteps": self.tc_timesteps,
+            "tc_hidden_dim": self.tc_hidden_dim,
+            "cc_temperature": self.cc_temperature,
+            "cc_use_cosine": self.cc_use_cosine,
+        })
+        run_id = search_encoder_fp(fp,
+                                experiment_name="TSTCC",
+                                tracking_uri=self.mlflow_tracking_uri)
 
-        # optimizers
-        model_opt = optim.AdamW(self.model.parameters(), lr=self.tcc_lr, weight_decay=3e-4)
-        tc_opt    = optim.AdamW(self.temporal_contr_model.parameters(), lr=self.tcc_lr, weight_decay=3e-4)
+        if run_id:
+            # Re-use existing encoder
+            print(f"encoder found: re-using run {run_id}")
+            uri = f"runs:/{run_id}/tstcc_model"
+            ckpt_dir = mlflow.artifacts.download_artifacts(uri)
+            ckpt_path = os.path.join(ckpt_dir, "tstcc.pt")
 
-        mlflow.set_tracking_uri(self.mlflow_tracking_uri)
-        with mlflow.start_run(run_id=self.mlflow_run_id):
-        # MLflow params
-            params = {
-                "model_name": self.model.__class__.__name__,
-                "tcc_epochs": self.tcc_epochs,
-                "tcc_lr": self.tcc_lr,
-                "tcc_batch_size": self.tcc_batch_size,
-                "tc_timesteps": self.tc_timesteps,
-                "tc_hidden_dim": self.tc_hidden_dim,
-                "cc_temperature": self.cc_temperature,
-                "cc_use_cosine": self.cc_use_cosine
-            }
-            mlflow.log_params(params)
+            # build fresh model objects with identical configs
+            self.configs = ECGConfig()
+            self.configs.num_epoch  = self.tcc_epochs
+            self.configs.batch_size = self.tcc_batch_size
+            self.configs.TC.timesteps = self.tc_timesteps
+            self.configs.TC.hidden_dim = self.tc_hidden_dim
+            self.configs.Context_Cont.temperature = self.cc_temperature
+            self.configs.Context_Cont.use_cosine_similarity = self.cc_use_cosine
 
-            # run training
-            run_dir = f"tstcc_{self.mlflow_run_id}"
-            os.makedirs(run_dir, exist_ok=True)
-            Trainer(
-                model=self.model,
-                temporal_contr_model=self.temporal_contr_model,
-                model_optimizer=model_opt,
-                temp_cont_optimizer=tc_opt,
-                train_dl=train_dl, valid_dl=val_dl, test_dl=test_dl,
-                device=self.device,
-                #logger=logger,
-                config=self.configs,
-                experiment_log_dir=run_dir,
-                training_mode="self_supervised"
+            self.model = base_Model(self.configs).to(self.device)
+            self.temporal_contr_model = TC(self.configs, self.device).to(self.device)
+
+            state = torch.load(ckpt_path, map_location=self.device)
+            self.model.load_state_dict(state["encoder"])
+            self.temporal_contr_model.load_state_dict(state["tc_head"])
+
+        else:
+            # train from scratch
+            print("no cached encoder: training from scratch")
+
+            # build Config object
+            self.configs = ECGConfig()
+            self.configs.num_epoch = self.tcc_epochs
+            self.configs.batch_size = self.tcc_batch_size
+            self.configs.TC.timesteps = self.tc_timesteps
+            self.configs.TC.hidden_dim = self.tc_hidden_dim
+            self.configs.Context_Cont.temperature = self.cc_temperature
+            self.configs.Context_Cont.use_cosine_similarity = self.cc_use_cosine
+
+            # data loaders
+            train_dl, val_dl, test_dl = data_generator_from_arrays(
+                X_train, self.y[self.train_idx],
+                X_val,  self.y[self.val_idx],
+                X_test, self.y[self.test_idx],
+                self.configs, training_mode="self_supervised"
             )
 
-            # save checkpoint
-            ckpt = os.path.join(run_dir, f"tstcc_{self.mlflow_run_id}.pt")
-            torch.save({
-                'model': self.model.state_dict(),
-                'tc': self.temporal_contr_model.state_dict()
-            }, ckpt)
-            mlflow.log_artifact(ckpt, artifact_path="tstcc_model")
+            # models + optimisers
+            self.model = base_Model(self.configs).to(self.device)
+            self.temporal_contr_model = TC(self.configs, self.device).to(self.device)
+            model_opt = optim.AdamW(self.model.parameters(), lr=self.tcc_lr, weight_decay=3e-4)
+            tc_opt = optim.AdamW(self.temporal_contr_model.parameters(), lr=self.tcc_lr, weight_decay=3e-4)
 
-            self.tstcc_run_dir = run_dir
+            # MLflow run scope
+            mlflow.set_tracking_uri(self.mlflow_tracking_uri)
+            with mlflow.start_run(run_id=self.mlflow_run_id):
+                mlflow.log_params(fp)
+
+                run_dir = tempfile.mkdtemp(prefix="tstcc_")
+                Trainer(
+                    model=self.model,
+                    temporal_contr_model=self.temporal_contr_model,
+                    model_optimizer=model_opt,
+                    temp_cont_optimizer=tc_opt,
+                    train_dl=train_dl, valid_dl=val_dl, test_dl=test_dl,
+                    device=self.device, config=self.configs,
+                    experiment_log_dir=run_dir,
+                    training_mode="self_supervised",
+                )
+
+                # store checkpoint
+                ckpt = os.path.join(run_dir, "tstcc.pt")
+                torch.save(
+                    {
+                        "encoder": self.model.state_dict(),
+                        "tc_head": self.temporal_contr_model.state_dict(),
+                    },
+                    ckpt,
+                )
+                mlflow.log_artifact(ckpt, artifact_path="tstcc_model")
+                
         self.next(self.extract_representations)
 
     @step
     def extract_representations(self):
-        print("Extracting TS-TCC representations …")
+        """Extract feature representations using the trained TS-TCC encoder."""
         mlflow.set_tracking_uri(self.mlflow_tracking_uri)
+        set_seed(self.seed)
+        X, _, _ = load_processed_data(self.window_data_path)
         self.model.eval()
         self.temporal_contr_model.eval()
         
         self.train_repr, _ = encode_representations(
-            self.X_train, self.y_train,
+            X[self.train_idx], self.y[self.train_idx],
             self.model, self.temporal_contr_model,
             self.tcc_batch_size, self.device
         )
         
         self.val_repr, _ = encode_representations(
-            self.X_val, self.y_val,
+            X[self.val_idx], self.y[self.val_idx],
             self.model, self.temporal_contr_model,
             self.tcc_batch_size, self.device
         )
         
         self.test_repr, _ = encode_representations(
-            self.X_test, self.y_test,
+            X[self.test_idx], self.y[self.test_idx],
             self.model, self.temporal_contr_model,
             self.tcc_batch_size, self.device
         )
+        # keep y arrays for the next step 
+        self.y_train = self.y[self.train_idx]
+        self.y_val = self.y[self.val_idx]
+        self.y_test = self.y[self.test_idx]
 
         print(f"train_repr shape = {self.train_repr.shape}")
         show_shape("val_repr / test_repr",
@@ -181,94 +240,60 @@ class ECGTSTCCFlow(FlowSpec):
     @resources(memory=16000)
     @step
     def train_classifier(self):
+        """Train a classifier with (reduced) labeled training data on the TS-TCC representations."""
         set_seed(self.seed)
-        print(f"Training classifier on {self.device}")
-        print(f"Using {self.label_fraction * 100:.1f}% of labeled training data.")
 
-        # subsample labelled windows
-        indices = np.arange(len(self.train_repr))
-        np.random.shuffle(indices)
-        keep = max(1, int(len(indices) * self.label_fraction))
-        subset_idx = indices[:keep]
+        # subsample labeled training data
+        idx = np.random.permutation(len(self.train_repr))
+        n_sub = max(1, int(len(idx) * self.label_fraction))
+        tr_idx = idx[:n_sub]
 
-        X_train_sub = self.train_repr[subset_idx]
-        y_train_sub = self.y_train[subset_idx]
+        tr_loader = build_linear_loaders(self.train_repr[tr_idx], self.y_train[tr_idx],
+                                         self.classifier_batch_size, self.device)
+        val_loader= build_linear_loaders(self.val_repr, self.y_val,
+                                         self.classifier_batch_size, self.device, shuffle=False)
 
-        # build model and optimiser 
-        feat_dim = X_train_sub.shape[-1]
-        self.classifier = LinearClassifier(input_dim=feat_dim).to(self.device)
-        loss_fn = nn.BCEWithLogitsLoss()
-        optimizer = optim.AdamW(self.classifier.parameters(), lr=self.classifier_lr)
+        self.classifier = LinearClassifier(self.train_repr.shape[-1]).to(self.device)
+        opt = torch.optim.AdamW(self.classifier.parameters(), lr=self.classifier_lr)
+        loss_fn = torch.nn.BCEWithLogitsLoss()
 
-        # DataLoaders
-        train_ds = TensorDataset(torch.from_numpy(X_train_sub).float(),
-                                torch.from_numpy(y_train_sub).float())
-        val_ds = TensorDataset(torch.from_numpy(self.val_repr).float(),
-                                torch.from_numpy(self.y_val).float())
-
-        train_dl = DataLoader(train_ds, batch_size=self.classifier_batch_size, shuffle=True)
-        val_dl = DataLoader(val_ds,   batch_size=self.classifier_batch_size, shuffle=False)
-
-        # MLflow logging and training
         mlflow.set_tracking_uri(self.mlflow_tracking_uri)
         with mlflow.start_run(run_id=self.mlflow_run_id):
             params = {
+                "classifier_model": "LinearClassifier",
+                "seed": self.seed,
                 "classifier_lr": self.classifier_lr,
                 "classifier_epochs": self.classifier_epochs,
                 "classifier_batch_size": self.classifier_batch_size,
                 "label_fraction": self.label_fraction
             }
             mlflow.log_params(params)
-            
-            self.classifier, val_accs, val_aurocs, val_pr_aucs, val_f1s = train_linear_classifier(
-                model = self.classifier,
-                train_loader = train_dl,
-                val_loader = val_dl,
-                loss_fn = loss_fn,
-                optimizer = optimizer,
-                epochs = self.classifier_epochs,
-                device = self.device
-            )
-        
+            train_linear_classifier(self.classifier, tr_loader, val_loader,
+                                    opt, loss_fn, self.classifier_epochs, self.device)
+
         print("Classifier training complete.")
         self.next(self.evaluate)
 
     @step
     def evaluate(self):
-        """Evaluate the linear classifier on the held-out test windows."""
+        """Evaluate the classifier on the held-out test windows."""
         mlflow.set_tracking_uri(self.mlflow_tracking_uri)
-        test_ds = TensorDataset(torch.from_numpy(self.test_repr).float(),
-                                torch.from_numpy(self.y_test).float())
-        test_dl = DataLoader(test_ds, batch_size=self.classifier_batch_size, shuffle=False)
+        test_loader = build_linear_loaders(self.test_repr, self.y_test,
+                                           self.classifier_batch_size, self.device, shuffle=False)
 
         with mlflow.start_run(run_id=self.mlflow_run_id):
             self.test_accuracy, test_auroc, test_pr_auc, test_f1 = evaluate_classifier(
-                model = self.classifier,
-                test_loader = test_dl,
-                device = self.device
+                model=self.classifier,
+                test_loader=test_loader,
+                device=self.device
             )
-
-        self.next(self.register)
-
-    @step
-    def register(self):
-        mlflow.set_tracking_uri(self.mlflow_tracking_uri)
-        if self.test_accuracy >= self.accuracy_threshold:
-            with mlflow.start_run(run_id=current.run_id):
-                mlflow.pytorch.log_model(
-                    self.classifier,
-                    artifact_path="classifier_model",
-                    registered_model_name="ts_tcc_classifier"
-                )
-            self.registered = True
-        else:
-            self.registered = False
         self.next(self.end)
 
     @step
     def end(self):
         print("=== TS-TCC pipeline complete ===")
         print(f"Test accuracy: {self.test_accuracy:.4f}")
+        mlflow.end_run()
         print("Done!")
 
 if __name__ == "__main__":
