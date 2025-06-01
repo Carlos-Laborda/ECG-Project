@@ -11,16 +11,16 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
-from torcheval.metrics import BinaryAUROC
 from torchinfo import summary
-from sklearn.metrics import roc_curve, auc
-
+from sklearn.metrics import precision_recall_curve, auc, f1_score, roc_curve
+from torcheval.metrics import BinaryAUROC, BinaryAveragePrecision, BinaryF1Score
 
 # MLflow imports
 import mlflow
 import mlflow.pytorch
 from mlflow.types import Schema, TensorSpec
 from mlflow.models import ModelSignature
+from mlflow.tracking import MlflowClient
 
 # def load_processed_data(hdf5_path, label_map=None):
 #     """
@@ -61,6 +61,33 @@ from mlflow.models import ModelSignature
 #     # Expand dims for CNN: (N, window_length, 1)
 #     X = np.expand_dims(X, axis=-1)
 #     return X, y, groups
+
+# MLflow helpers
+def build_supervised_fingerprint(cfg: dict[str, object]) -> dict[str, str]:
+    """
+    Create an immutable dictionary (all str) uniquely describing one training.
+    """
+    keys = (
+        "model_name", "seed", "lr", "batch_size", "num_epochs",
+        "patience", "scheduler_mode", "scheduler_factor",
+        "scheduler_patience", "scheduler_min_lr", 
+    )
+    return {k: str(cfg[k]) for k in keys}
+
+def search_encoder_fp(fp: dict[str, str], experiment_name: str,
+                      tracking_uri: str) -> str | None:
+    """Return run_id of an MLflow run whose params exactly match 'fp'."""
+    mlflow.set_tracking_uri(tracking_uri)
+    client = MlflowClient()
+    exp    = client.get_experiment_by_name(experiment_name)
+    if exp is None:
+        return None
+    clauses = ["attributes.status = 'FINISHED'"]
+    clauses += [f"params.{k} = '{v}'" for k, v in fp.items()]
+    hits = mlflow.search_runs([exp.experiment_id],
+                              filter_string=" and ".join(clauses),
+                              max_results=1)
+    return None if hits.empty else hits.iloc[0]["run_id"]
 
 def load_processed_data(hdf5_path, label_map=None):
     """
@@ -697,6 +724,8 @@ def train(model, train_loader, optimizer, loss_fn, device, epoch, log_interval=1
     
     # Initialize metrics
     auroc_metric = BinaryAUROC()
+    pr_metric = BinaryAveragePrecision()
+    f1_metric = BinaryF1Score()
     
     for batch_idx, (data, target) in enumerate(train_loader):
         # Data preprocessing
@@ -708,8 +737,10 @@ def train(model, train_loader, optimizer, loss_fn, device, epoch, log_interval=1
         output = model(data)
         output = output.view(-1)
         
-        # Update AUROC metric
+        # Update metrics
         auroc_metric.update(output.detach().cpu(), target.cpu().int())
+        pr_metric.update(output.detach().cpu(), target.cpu().int())
+        f1_metric.update((output > 0.5).float().cpu(), target.cpu().int())
         
         # Calculate loss and backpropagate
         loss = loss_fn(output, target)
@@ -732,13 +763,18 @@ def train(model, train_loader, optimizer, loss_fn, device, epoch, log_interval=1
     epoch_loss = running_loss / total_samples
     epoch_acc = correct / total_samples
     auc_roc = auroc_metric.compute().item()
+    pr_auc = pr_metric.compute().item()
+    f1 = f1_metric.compute().item()
+    
     mlflow.log_metrics({
         "train_loss": epoch_loss,
         "train_accuracy": epoch_acc,
-        "train_auc_roc": auc_roc
+        "train_auc_roc": auc_roc,
+        "train_pr_auc": pr_auc,
+        "train_f1": f1
     }, step=epoch)
     
-    return epoch_loss, epoch_acc, auc_roc
+    return epoch_loss, epoch_acc, auc_roc, pr_auc, f1
 
 def test(model, data_loader, loss_fn, device, phase='val', epoch=None):
     """Evaluate model and log metrics. Phase can be 'val' or 'test'"""
@@ -749,6 +785,8 @@ def test(model, data_loader, loss_fn, device, phase='val', epoch=None):
     
     # Initialize metrics
     auroc_metric = BinaryAUROC()
+    pr_metric = BinaryAveragePrecision()
+    f1_metric = BinaryF1Score()
     
     # Lists to store all predictions and labels for ROC curve
     all_preds = []
@@ -765,8 +803,10 @@ def test(model, data_loader, loss_fn, device, phase='val', epoch=None):
             output = model(data)
             output = output.view(-1)
             
-            # Update AUROC metric
+            # Update metrics
             auroc_metric.update(output.cpu(), target.cpu().int())
+            pr_metric.update(output.cpu(), target.cpu().int())
+            f1_metric.update((output > 0.5).float().cpu(), target.cpu().int())
             
             # Store predictions and labels for ROC curve
             if is_test_phase:
@@ -786,38 +826,42 @@ def test(model, data_loader, loss_fn, device, phase='val', epoch=None):
     avg_loss = running_loss / total_samples
     accuracy = correct / total_samples
     auc_roc = auroc_metric.compute().item()
+    pr_auc = pr_metric.compute().item()
+    f1 = f1_metric.compute().item()
     
-    # Convert lists to numpy arrays
-    if is_test_phase:
-        all_preds = np.array(all_preds)
-        all_labels = np.array(all_labels)
+    # # Convert lists to numpy arrays
+    # if is_test_phase:
+    #     all_preds = np.array(all_preds)
+    #     all_labels = np.array(all_labels)
     
-        # Calculate ROC curve points
-        fpr, tpr, thresholds = roc_curve(all_labels, all_preds)
+    #     # Calculate ROC curve points
+    #     fpr, tpr, thresholds = roc_curve(all_labels, all_preds)
         
-        # Log ROC curve data as JSON artifact
-        roc_data = {
-            "fpr": fpr.tolist(),
-            "tpr": tpr.tolist(),
-            "thresholds": thresholds.tolist(),
-            "auc": auc_roc
-        }
+    #     # Log ROC curve data as JSON artifact
+    #     roc_data = {
+    #         "fpr": fpr.tolist(),
+    #         "tpr": tpr.tolist(),
+    #         "thresholds": thresholds.tolist(),
+    #         "auc": auc_roc
+    #     }
         
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.json') as f:
-            json.dump(roc_data, f)
-            f.flush()
+    #     with tempfile.NamedTemporaryFile(mode='w', suffix='.json') as f:
+    #         json.dump(roc_data, f)
+    #         f.flush()
             
-            # Log the file with a name based on phase and epoch
-            if epoch is not None:
-                mlflow.log_artifact(f.name, f"{phase}_roc_data_epoch_{epoch}.json")
-            else:
-                mlflow.log_artifact(f.name, f"{phase}_roc_data.json")
+    #         # Log the file with a name based on phase and epoch
+    #         if epoch is not None:
+    #             mlflow.log_artifact(f.name, f"{phase}_roc_data_epoch_{epoch}.json")
+    #         else:
+    #             mlflow.log_artifact(f.name, f"{phase}_roc_data.json")
     
     # Log metrics with appropriate names based on phase
     metrics = {
         f"{phase}_loss": avg_loss,
         f"{phase}_accuracy": accuracy,
-        f"{phase}_auc_roc": auc_roc
+        f"{phase}_auc_roc": auc_roc,
+        f"{phase}_pr_auc": pr_auc,
+        f"{phase}_f1": f1
     }
     
     # For validation, include epoch for tracking
@@ -826,10 +870,11 @@ def test(model, data_loader, loss_fn, device, phase='val', epoch=None):
     else:
         mlflow.log_metrics(metrics)
     
-    print(f"{phase.capitalize()} set: Average loss: {avg_loss:.4f}, "
-          f"Accuracy: {accuracy*100:.2f}%, AUC-ROC: {auc_roc:.4f}")
+        print(f"{phase.capitalize()} set: Average loss: {avg_loss:.4f}, Accuracy: {accuracy*100:.2f}%, \
+              AUC-ROC: {auc_roc:.4f}, PR-AUC: {pr_auc:.4f}, F1: {f1:.4f}")
+
     
-    return avg_loss, accuracy, auc_roc
+    return avg_loss, accuracy, auc_roc, pr_auc, f1
 
 class EarlyStopping:
     """
