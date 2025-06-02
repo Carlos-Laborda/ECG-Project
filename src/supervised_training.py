@@ -40,13 +40,13 @@ class ECGSupervisedFlow(FlowSpec):
 
     # training hyper-parameters
     lr = Parameter("lr", default=1e-4)
-    batch_size = Parameter("batch_size", default=16)
+    batch_size = Parameter("batch_size", default=32)
     num_epochs = Parameter("num_epochs", default=25)
     patience = Parameter("patience",default=5)
     scheduler_mode = Parameter("scheduler_mode", default="min")
-    scheduler_factor = Parameter("scheduler_factor", default=0.5)
+    scheduler_factor = Parameter("scheduler_factor", default=0.1)
     scheduler_patience = Parameter("scheduler_patience", default=2)
-    scheduler_min_lr = Parameter("scheduler_min_lr", default=1e-9)
+    scheduler_min_lr = Parameter("scheduler_min_lr", default=1e-11)
 
     # Metaflow steps
     @step
@@ -85,7 +85,7 @@ class ECGSupervisedFlow(FlowSpec):
         self.n_features = X.shape[2]
         self.y = y.astype(np.float32)
 
-        tr_idx, val_idx, te_idx = split_indices_by_participant(groups, seed=self.seed)
+        tr_idx, val_idx, te_idx = split_indices_by_participant(groups, seed=0)
         self.train_idx, self.val_idx, self.test_idx = tr_idx, val_idx, te_idx
         print(f"windows: train {len(tr_idx)}, val {len(val_idx)}, test {len(te_idx)}")
         self.next(self.train_model)
@@ -143,7 +143,7 @@ class ECGSupervisedFlow(FlowSpec):
             else:
                 raise ValueError(f"Unknown model_type '{self.model_type}'")
 
-            loss_fn = nn.BCELoss()
+            loss_fn = nn.BCEWithLogitsLoss()
             optimizer = optim.Adam(self.model.parameters(), lr=self.lr)
             scheduler = optim.lr_scheduler.ReduceLROnPlateau(
                 optimizer, mode=self.scheduler_mode, factor= self.scheduler_factor,
@@ -155,7 +155,7 @@ class ECGSupervisedFlow(FlowSpec):
             with mlflow.start_run(run_id=self.mlflow_run_id):
                 mlflow.log_params(self.fp | {
                     "optimizer": "Adam",
-                    "loss_fn":   "BCELoss",
+                    "loss_fn":   "BCEWithLogitsLoss",
                 })
 
                 # Training loop with validation
@@ -197,12 +197,12 @@ class ECGSupervisedFlow(FlowSpec):
         self.test_loader = DataLoader(te_ds, self.batch_size, shuffle=False,
                                           num_workers=num_workers, pin_memory=True)
         
-        loss_fn = nn.BCELoss()
+        loss_fn = nn.BCEWithLogitsLoss()
         mlflow.set_tracking_uri(self.mlflow_tracking_uri)
         with mlflow.start_run(run_id=self.mlflow_run_id):
             mlflow.log_params(self.fp | {
                     "optimizer": "Adam",
-                    "loss_fn":   "BCELoss",
+                    "loss_fn":   "BCEWithLogitsLoss",
                 })
             test_loss, self.test_accuracy, test_auc, test_pr_auc, test_f1  = test(
                 self.model, self.test_loader, loss_fn,
