@@ -39,14 +39,14 @@ class ECGSupervisedFlow(FlowSpec):
     )
 
     # training hyper-parameters
-    lr = Parameter("lr", default=1e-5)
-    batch_size = Parameter("batch_size", default=32)
+    lr = Parameter("lr", default=1e-4)
+    batch_size = Parameter("batch_size", default=16)
     num_epochs = Parameter("num_epochs", default=25)
-    patience = Parameter("patience",default=3)
+    patience = Parameter("patience",default=5)
     scheduler_mode = Parameter("scheduler_mode", default="min")
-    scheduler_factor = Parameter("scheduler_factor", default=0.1)
+    scheduler_factor = Parameter("scheduler_factor", default=0.5)
     scheduler_patience = Parameter("scheduler_patience", default=2)
-    scheduler_min_lr = Parameter("scheduler_min_lr", default=1e-8)
+    scheduler_min_lr = Parameter("scheduler_min_lr", default=1e-9)
 
     # Metaflow steps
     @step
@@ -96,10 +96,11 @@ class ECGSupervisedFlow(FlowSpec):
         """
         Train (or load if same fingerprint) the supervised model specified by 'model_type'.
         """
+        set_seed(self.seed)
         X, _, _ = load_processed_data(self.window_data_path)
 
         # build fingerprint and MLflow lookup
-        fp = build_supervised_fingerprint({
+        self.fp = build_supervised_fingerprint({
             "model_name": self.model_type.lower(),
             "seed": self.seed,
             "lr": self.lr,
@@ -111,7 +112,7 @@ class ECGSupervisedFlow(FlowSpec):
             "scheduler_patience": self.scheduler_patience,
             "scheduler_min_lr": self.scheduler_min_lr,
         })
-        run_id = search_encoder_fp(fp, self.experiment_name, self.mlflow_tracking_uri)
+        run_id = search_encoder_fp(self.fp, self.experiment_name, self.mlflow_tracking_uri)
 
         if run_id is not None:
             # Re-use existing model
@@ -136,7 +137,7 @@ class ECGSupervisedFlow(FlowSpec):
             if self.model_type.lower() == "cnn":
                 self.model = Improved1DCNN_v2().to(self.device)
             elif self.model_type.lower() == "tcn":
-                self.model = TCNClassifier(self.n_features).to(self.device)
+                self.model = TCNClassifier().to(self.device)
             elif self.model_type.lower() == "transformer":
                 self.model = TransformerECGClassifier().to(self.device)
             else:
@@ -145,14 +146,14 @@ class ECGSupervisedFlow(FlowSpec):
             loss_fn = nn.BCELoss()
             optimizer = optim.Adam(self.model.parameters(), lr=self.lr)
             scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-                optimizer, mode=self.scheduler_min_lr, factor= self.scheduler_factor,
+                optimizer, mode=self.scheduler_mode, factor= self.scheduler_factor,
                 patience=self.scheduler_patience, min_lr=self.scheduler_min_lr, verbose=False
             )
             es = EarlyStopping(self.patience)
 
             mlflow.set_tracking_uri(self.mlflow_tracking_uri)
             with mlflow.start_run(run_id=self.mlflow_run_id):
-                mlflow.log_params(fp | {
+                mlflow.log_params(self.fp | {
                     "optimizer": "Adam",
                     "loss_fn":   "BCELoss",
                 })
@@ -168,7 +169,7 @@ class ECGSupervisedFlow(FlowSpec):
                     )
                     
                     # Validate and log metrics
-                    val_loss, val_acc, val_auc, val_pr_auc, train_f1 = test(
+                    val_loss, val_acc, val_auc, val_pr_auc, val_f1 = test(
                         self.model, va_loader, loss_fn,
                         self.device, phase='val', epoch=ep
                     )
@@ -199,6 +200,10 @@ class ECGSupervisedFlow(FlowSpec):
         loss_fn = nn.BCELoss()
         mlflow.set_tracking_uri(self.mlflow_tracking_uri)
         with mlflow.start_run(run_id=self.mlflow_run_id):
+            mlflow.log_params(self.fp | {
+                    "optimizer": "Adam",
+                    "loss_fn":   "BCELoss",
+                })
             test_loss, self.test_accuracy, test_auc, test_pr_auc, test_f1  = test(
                 self.model, self.test_loader, loss_fn,
                 self.device, phase='test'
