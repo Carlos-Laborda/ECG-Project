@@ -202,7 +202,7 @@ class ECGDataset(Dataset):
             sample = self.transform(sample)
         # Convert to torch.Tensor
         sample = torch.tensor(sample, dtype=torch.float32)
-        label = torch.tensor(label, dtype=torch.long)
+        label = torch.tensor(label, dtype=torch.float32)
         return sample, label
 
 
