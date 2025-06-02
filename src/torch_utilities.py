@@ -13,7 +13,7 @@ import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
 from torchinfo import summary
 from sklearn.metrics import precision_recall_curve, auc, f1_score, roc_curve
-from torcheval.metrics import BinaryAUROC, BinaryAveragePrecision, BinaryF1Score
+from torchmetrics.classification import BinaryAUROC, BinaryAveragePrecision, BinaryF1Score
 
 # MLflow imports
 import mlflow
