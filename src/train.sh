@@ -20,13 +20,17 @@ source activate /var/scratch/cla224/ECG_env
 export MLFLOW_TRACKING_URI=http://fs0.das6.cs.vu.nl:5005
 
 # --- Run Fully Supervised Model script ---
-# python torch_pipeline.py run \
-#   --mlflow_tracking_uri "http://fs0.das6.cs.vu.nl:5005" \
-#   --window_data_path "../../../../var/scratch/cla224/ECG-Project/data/windowed_data.h5" \
-#   --patience 20 \
-#   --lr 0.00001 \
-#   --batch_size 32 \
-#   --num_epochs 20
+# echo "Launching training with seed: $1"
+python supervised_training.py run \
+  --mlflow_tracking_uri "http://fs0.das6.cs.vu.nl:5005" \
+  --window_data_path "../../../../var/scratch/cla224/ECG-Project/data/windowed_data.h5" \
+  --model_type "transformer" \
+  --seed $1 \
+  --lr 1e-5 \
+  --patience 20 \
+  # --scheduler_factor 0.1 \
+
+  
 
 # echo "Launching training with seed: $1"
 # python tstcc_train.py run \
@@ -56,9 +60,9 @@ export MLFLOW_TRACKING_URI=http://fs0.das6.cs.vu.nl:5005
 #   --ecg_window_path "../../../../var/scratch/cla224/ECG-Project/data/windowed_data.h5" \
 #   --ppg_window_path "../../../../var/scratch/cla224/ECG-Project/data/ppg_windows.h5" \
 
-echo "Launching training with seed: $1"
-python ts2vec_train.py run \
-  --mlflow_tracking_uri "http://fs0.das6.cs.vu.nl:5005" \
-  --window_data_path "../../../../var/scratch/cla224/ECG-Project/data/windowed_data.h5" \
-  --ts2vec_epochs 5 \
-  --seed $1
+# echo "Launching training with seed: $1"
+# python ts2vec_train.py run \
+#   --mlflow_tracking_uri "http://fs0.das6.cs.vu.nl:5005" \
+#   --window_data_path "../../../../var/scratch/cla224/ECG-Project/data/windowed_data.h5" \
+#   --ts2vec_epochs 5 \
+#   --seed $1
