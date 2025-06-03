@@ -409,7 +409,8 @@ class Improved1DCNN_v2(nn.Module):
         x = self.dropout3(x)
         x = F.gelu(self.fc2(x))
         x = self.dropout4(x)
-        x = torch.sigmoid(self.fc3(x))
+        x = self.fc3(x)
+        #x = torch.sigmoid(self.fc3(x))
         return x
 
 # CNN from SSL-ECG paper
@@ -588,9 +589,9 @@ class TransformerECGClassifier(nn.Module):
         x = F.relu(x)
         x = self.dropout_fc2(x)
         x = self.fc3(x)
-        
+        return x
         # Sigmoid activation for binary classification
-        return torch.sigmoid(x)
+        #return torch.sigmoid(x)
 
 
 # ----------------------
@@ -710,8 +711,8 @@ class TCNClassifier(nn.Module):
         # Flatten and classify
         x = x.flatten(1)
         x = self.linear(x)
-        return torch.sigmoid(x)
-
+        #return torch.sigmoid(x)
+        return x
 # ----------------------
 # Training and Evaluation Functions
 # ----------------------
