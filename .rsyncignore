@@ -52,5 +52,6 @@ src/ppg_preprocessing.py
 src/ppg_inspect.py
 
 data/interim/*.h5
+results/
 
 plots/
