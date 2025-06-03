@@ -35,7 +35,7 @@ def build_simclr_fingerprint(cfg: dict[str, object]) -> dict[str, str]:
     keys = (
         "model_name", "seed",
         "epochs", "lr", "batch_size", "temperature",
-        "window_len",        # ← add sequence length to avoid clashes
+        "window_len",   
     )
     return {k: str(cfg[k]) for k in keys}
 
