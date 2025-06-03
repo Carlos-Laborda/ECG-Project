@@ -97,6 +97,7 @@ target/
 /src/.metaflow/
 /src/mlartifacts/
 /src/mlruns/
+/results/
 
 # exclude metrics and plots
 /plots/metrics/
