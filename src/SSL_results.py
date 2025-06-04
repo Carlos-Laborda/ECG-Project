@@ -41,7 +41,7 @@ for run_name in args.runs:
     row = {
         "run_name": run_name,
         "run_id": run_id,
-        "classifier_model": params.get("classifier_model", "NA"),
+        "classifier_model": params.get("classifier_model", "Supervised"),
         "model_name": params.get("model_name", "NA"),
         "seed": params.get("seed", "NA"),
         "label_fraction": params.get("label_fraction", "all"),
