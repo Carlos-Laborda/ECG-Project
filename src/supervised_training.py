@@ -47,6 +47,8 @@ class ECGSupervisedFlow(FlowSpec):
     scheduler_factor = Parameter("scheduler_factor", default=0.1)
     scheduler_patience = Parameter("scheduler_patience", default=2)
     scheduler_min_lr = Parameter("scheduler_min_lr", default=1e-11)
+    label_fraction = Parameter("label_fraction", default=1.0,
+        help="Fraction of labelled training windows actually used (0.0-1.0).")
 
     # Metaflow steps
     @step
@@ -94,97 +96,100 @@ class ECGSupervisedFlow(FlowSpec):
     @step
     def train_model(self):
         """
-        Train (or load if same fingerprint) the supervised model specified by 'model_type'.
+        • Sub-sample training windows according to 'label_fraction'.
+        • If all labels are kept: try to re-use an existing run.
+        • Otherwise (or if no cached run) train from scratch.
+        • Trained model only saved when label_fraction == 1.0.
         """
         set_seed(self.seed)
         X, _, _ = load_processed_data(self.window_data_path)
+        
+        # label-fraction subsampling
+        if not (0 < self.label_fraction <= 1):
+            raise ValueError("label_fraction must be in (0,1].")
+        rng = np.random.default_rng(self.seed)
+        n_keep = max(1, int(len(self.train_idx) * self.label_fraction))
+        sub_train_idx = rng.choice(self.train_idx, n_keep, replace=False)
+        print(f"Using {len(sub_train_idx)} training windows ({self.label_fraction*100:.1f}%)")
 
-        # build fingerprint and MLflow lookup
-        self.fp = build_supervised_fingerprint({
-            "model_name": self.model_type.lower(),
-            "seed": self.seed,
-            "lr": self.lr,
-            "batch_size": self.batch_size,
-            "num_epochs": self.num_epochs,
-            "patience": self.patience,
-            "scheduler_mode": self.scheduler_mode,
-            "scheduler_factor": self.scheduler_factor,
-            "scheduler_patience": self.scheduler_patience,
-            "scheduler_min_lr": self.scheduler_min_lr,
-        })
-        run_id = search_encoder_fp(self.fp, self.experiment_name, self.mlflow_tracking_uri)
+        # Build datasets / loaders
+        tr_ds = ECGDataset(X[sub_train_idx], self.y[sub_train_idx])
+        va_ds = ECGDataset(X[self.val_idx],   self.y[self.val_idx])
 
-        if run_id is not None:
-            # Re-use existing model
-            print(f"Found matching run {run_id}: loading model.")
-            uri = f"runs:/{run_id}/supervised_model"
-            self.model = mlflow.pytorch.load_model(uri, map_location=self.device)
-
+        num_workers = min(8, os.cpu_count() or 2)
+        tr_loader = DataLoader(tr_ds, self.batch_size, shuffle=True,
+                               num_workers=num_workers, pin_memory=True)
+        va_loader = DataLoader(va_ds, self.batch_size, shuffle=False,
+                               num_workers=num_workers, pin_memory=True)
+        
+        # model choice
+        if self.model_type.lower() == "cnn":
+            self.model = Improved1DCNN_v2().to(self.device)
+        elif self.model_type.lower() == "tcn":
+            self.model = TCNClassifier().to(self.device)
         else:
-            # train from scratch
-            print("No matching run: training from scratch.")
-            # build datasets / loaders
-            tr_ds = ECGDataset(X[self.train_idx], self.y[self.train_idx])
-            va_ds = ECGDataset(X[self.val_idx],   self.y[self.val_idx])
+            self.model = TransformerECGClassifier().to(self.device)
 
-            num_workers = min(8, os.cpu_count() or 2)
-            tr_loader = DataLoader(tr_ds, self.batch_size, shuffle=True,
-                                   num_workers=num_workers, pin_memory=True)
-            va_loader = DataLoader(va_ds, self.batch_size, shuffle=False,
-                                   num_workers=num_workers, pin_memory=True)
+        loss_fn = nn.BCEWithLogitsLoss()
+        optimizer = optim.Adam(self.model.parameters(), lr=self.lr)
+        scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer, mode=self.scheduler_mode, factor=self.scheduler_factor,
+            patience=self.scheduler_patience, min_lr=self.scheduler_min_lr)
 
-            # choose model
-            if self.model_type.lower() == "cnn":
-                self.model = Improved1DCNN_v2().to(self.device)
-            elif self.model_type.lower() == "tcn":
-                self.model = TCNClassifier().to(self.device)
-            elif self.model_type.lower() == "transformer":
-                self.model = TransformerECGClassifier().to(self.device)
-            else:
-                raise ValueError(f"Unknown model_type '{self.model_type}'")
+        es = EarlyStopping(self.patience)
+        
+        # build fingerprint
+        self.fp = build_supervised_fingerprint({
+                "model_name": self.model_type.lower(),
+                "seed": self.seed,
+                "lr": self.lr,
+                "batch_size": self.batch_size,
+                "num_epochs": self.num_epochs,
+                "patience": self.patience,
+                "scheduler_mode": self.scheduler_mode,
+                "scheduler_factor": self.scheduler_factor,
+                "scheduler_patience": self.scheduler_patience,
+                "scheduler_min_lr": self.scheduler_min_lr,
+                "label_fraction": self.label_fraction,
+            })
+        
+        save_artifact = np.isclose(self.label_fraction, 1.0) # only log full-label runs
+        reused = False
+        if save_artifact:
+            run_id = search_encoder_fp(self.fp, self.experiment_name,
+                                    self.mlflow_tracking_uri)
+            if run_id:
+                # Re-use existing model
+                print(f"Re-using cached encoder {run_id}")
+                uri = f"runs:/{run_id}/supervised_model"
+                self.model = mlflow.pytorch.load_model(uri, map_location=self.device)
+                reused = True
 
-            loss_fn = nn.BCEWithLogitsLoss()
-            optimizer = optim.Adam(self.model.parameters(), lr=self.lr)
-            scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-                optimizer, mode=self.scheduler_mode, factor= self.scheduler_factor,
-                patience=self.scheduler_patience, min_lr=self.scheduler_min_lr, verbose=False
-            )
-            es = EarlyStopping(self.patience)
-
+        # train if no matching cached model found or using partial labels
+        if not reused:
+            print("Training model from scratch...")
             mlflow.set_tracking_uri(self.mlflow_tracking_uri)
             with mlflow.start_run(run_id=self.mlflow_run_id):
-                mlflow.log_params(self.fp | {
-                    "optimizer": "Adam",
-                    "loss_fn":   "BCEWithLogitsLoss",
-                })
+                mlflow.log_params(self.fp | {"optimizer": "Adam",
+                                            "loss_fn": "BCEWithLogitsLoss"})
 
-                # Training loop with validation
-                for ep in range(1, self.num_epochs+1):
+                for ep in range(1, self.num_epochs + 1):
                     print(f"\nEpoch {ep}/{self.num_epochs}")
-                    
-                    # Train and log metrics
-                    train_loss, train_acc, train_auc, train_pr_auc, train_f1 = train(
-                        self.model, tr_loader, optimizer, loss_fn,
-                        self.device, epoch=ep
-                    )
-                    
-                    # Validate and log metrics
-                    val_loss, val_acc, val_auc, val_pr_auc, val_f1 = test(
-                        self.model, va_loader, loss_fn,
-                        self.device, phase='val', epoch=ep
-                    )
+                    train_loss, *_ = train(self.model, tr_loader, optimizer,
+                                        loss_fn, self.device, epoch=ep)
+                    val_loss, *_   = test(self.model, va_loader, loss_fn,
+                                        self.device, phase='val', epoch=ep)
 
                     scheduler.step(val_loss)
                     es(val_loss)
                     if es.early_stop:
-                        print("Early stopping triggered")
-                        break
+                        print("Early stopping triggered"); break
 
-                # store model artifact
-                mlflow.pytorch.log_model(
-                    self.model, artifact_path="supervised_model"
-                )
-                
+                # save only when using 100 % labels
+                if save_artifact:
+                    mlflow.pytorch.log_model(self.model,
+                                            artifact_path="supervised_model")
+        
         self.next(self.evaluate)
 
     @step
