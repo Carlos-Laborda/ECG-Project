@@ -124,7 +124,7 @@ class ECGSimCLRFlow(FlowSpec):
                         print(f"Epoch {ep}/{self.epochs}: loss={tr_loss:.4f}")
 
                 # save encoder weights
-                ckpt = tempfile.mktemp(prefix="simclr_", suffix=".pt")
+                ckpt = os.path.join(tempfile.mkdtemp(), "simclr_encoder.pt")
                 torch.save(self.model.state_dict(), ckpt)
                 mlflow.log_artifact(ckpt, artifact_path="ssl_model")
                 
