@@ -70,7 +70,7 @@ def build_supervised_fingerprint(cfg: dict[str, object]) -> dict[str, str]:
     keys = (
         "model_name", "seed", "lr", "batch_size", "num_epochs",
         "patience", "scheduler_mode", "scheduler_factor",
-        "scheduler_patience", "scheduler_min_lr", 
+        "scheduler_patience", "scheduler_min_lr", "label_fraction"
     )
     return {k: str(cfg[k]) for k in keys}
 
