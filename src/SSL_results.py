@@ -44,7 +44,7 @@ for run_name in args.runs:
         "classifier_model": params.get("classifier_model", "Supervised"),
         "model_name": params.get("model_name", "NA"),
         "seed": params.get("seed", "NA"),
-        "label_fraction": params.get("label_fraction", "all"),
+        "label_fraction": params.get("label_fraction", "1.0"),
     }
     row.update({k: round(v, 2) for k, v in metrics.items()})
     all_rows.append(row)
