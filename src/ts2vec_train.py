@@ -7,6 +7,7 @@ import torch.optim as optim
 import mlflow
 import mlflow.pytorch
 from torch.utils.data import DataLoader, TensorDataset
+from sklearn.model_selection import train_test_split
 from metaflow import FlowSpec, step, Parameter, current, project, resources
 
 from ts2vec import TS2Vec, LinearClassifier, build_fingerprint, search_encoder_fp, build_linear_loaders, \
@@ -166,16 +167,18 @@ class ECGTS2VecFlow(FlowSpec):
         """Extract feature representations using the trained TS2Vec encoder."""
         mlflow.set_tracking_uri(self.mlflow_tracking_uri)
         X, _, _ = load_processed_data(self.window_data_path)
-        self.train_repr = self.ts2vec.encode(X[self.train_idx].astype(np.float32), encoding_window="full_series")
-        self.val_repr   = self.ts2vec.encode(X[self.val_idx  ].astype(np.float32), encoding_window="full_series")
-        self.test_repr  = self.ts2vec.encode(X[self.test_idx ].astype(np.float32), encoding_window="full_series")
 
-        # keep y arrays for the next step 
+        # Get TS2Vec embeddings
+        self.train_repr = self.ts2vec.encode(X[self.train_idx].astype(np.float32), encoding_window="full_series")
+        self.val_repr = self.ts2vec.encode(X[self.val_idx  ].astype(np.float32), encoding_window="full_series")
+        self.test_repr = self.ts2vec.encode(X[self.test_idx ].astype(np.float32), encoding_window="full_series")
+
+        # Corresponding labels
         self.y_train = self.y[self.train_idx]
         self.y_val = self.y[self.val_idx]
         self.y_test = self.y[self.test_idx]
 
-        print("Representations computed.")
+        print("\nRepresentations computed.")
         print(f"Extracted TS2Vec representations: train_repr shape={self.train_repr.shape}")
         self.next(self.train_classifier)
 
@@ -186,10 +189,17 @@ class ECGTS2VecFlow(FlowSpec):
         set_seed(self.seed)
 
         # subsample labeled training data
-        idx = np.random.permutation(len(self.train_repr))
-        n_sub = max(1, int(len(idx) * self.label_fraction))
-        tr_idx = idx[:n_sub]
-
+        labels = self.y_train
+        if self.label_fraction < 1.0:
+            tr_idx, _ = train_test_split(
+                np.arange(len(labels)),
+                train_size=self.label_fraction,
+                stratify=labels,
+                random_state=0
+            )
+        else:
+            tr_idx = np.arange(len(labels))
+    
         tr_loader = build_linear_loaders(self.train_repr[tr_idx], self.y_train[tr_idx],
                                          self.classifier_batch_size, self.device)
         val_loader= build_linear_loaders(self.val_repr, self.y_val,
