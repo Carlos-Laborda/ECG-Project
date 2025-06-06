@@ -7,6 +7,7 @@ import torch.optim as optim
 import mlflow
 import mlflow.pytorch
 from torch.utils.data import DataLoader, TensorDataset
+from sklearn.model_selection import train_test_split
 from metaflow import FlowSpec, step, Parameter, current, project, resources
 import tempfile, os
 from ts2vec_soft import (TS2Vec_soft, LinearClassifier, save_sim_mat, densify, train_linear_classifier, evaluate_classifier,
@@ -210,9 +211,16 @@ class ECGTS2VecFlow(FlowSpec):
         set_seed(self.seed)
 
         # subsample labeled training data
-        idx = np.random.permutation(len(self.train_repr))
-        n_sub = max(1, int(len(idx) * self.label_fraction))
-        tr_idx = idx[:n_sub]
+        labels = self.y_train
+        if self.label_fraction < 1.0:
+            tr_idx, _ = train_test_split(
+                np.arange(len(labels)),
+                train_size=self.label_fraction,
+                stratify=labels,
+                random_state=0
+            )
+        else:
+            tr_idx = np.arange(len(labels))
 
         tr_loader = build_linear_loaders(self.train_repr[tr_idx], self.y_train[tr_idx],
                                          self.classifier_batch_size, self.device)
