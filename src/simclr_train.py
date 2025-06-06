@@ -2,6 +2,7 @@ import os, mlflow, torch, numpy as np, torch.nn as nn, torch.optim as optim
 import tempfile
 import mlflow.pytorch
 from torch.utils.data import TensorDataset, DataLoader
+from sklearn.model_selection import train_test_split
 from metaflow import FlowSpec, step, Parameter, current, project, resources
 from torch_utilities import (load_processed_data, split_indices_by_participant,
                              set_seed)
@@ -157,11 +158,18 @@ class ECGSimCLRFlow(FlowSpec):
         set_seed(self.seed)
         
         # subsample labelled training windows
-        idx = np.random.permutation(len(self.train_repr))
-        keep = max(1, int(len(idx) * self.label_fraction))
-        idx = idx[:keep]
-
-        Xtr, ytr = self.train_repr[idx], self.y[self.train_idx][idx]
+        labels = self.y[self.train_idx]
+        if self.label_fraction < 1.0:
+            tr_idx, _ = train_test_split(
+                np.arange(len(labels)),
+                train_size=self.label_fraction,
+                stratify=labels,
+                random_state=0
+            )
+        else:
+            tr_idx = np.arange(len(labels))
+        
+        Xtr, ytr = self.train_repr[tr_idx], labels[tr_idx]
 
         clf = LinearClassifier(Xtr.shape[1]).to(self.device)
         loss_fn = nn.BCEWithLogitsLoss()
