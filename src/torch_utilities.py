@@ -13,7 +13,8 @@ import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
 from torchinfo import summary
 from sklearn.metrics import precision_recall_curve, auc, f1_score, roc_curve
-from torchmetrics.classification import BinaryAUROC, BinaryAveragePrecision, BinaryF1Score
+from torchmetrics.classification import BinaryAUROC, BinaryAveragePrecision
+from torcheval.metrics.functional import multiclass_f1_score
 
 # MLflow imports
 import mlflow
@@ -713,169 +714,140 @@ class TCNClassifier(nn.Module):
         x = self.linear(x)
         #return torch.sigmoid(x)
         return x
+    
 # ----------------------
 # Training and Evaluation Functions
 # ----------------------
 def train(model, train_loader, optimizer, loss_fn, device, epoch, log_interval=100):
-    """Train for one epoch and log metrics"""
+    """
+    Train for one epoch and log metrics (loss, accuracy, AUROC, PR-AUC, macro-F1).
+    """
     model.train()
     running_loss = 0.0
-    correct = 0
-    total_samples = 0
-    
-    # Initialize metrics
+    correct = total_samples = 0
+
     auroc_metric = BinaryAUROC()
-    pr_metric = BinaryAveragePrecision()
-    f1_metric = BinaryF1Score()
-    
+    pr_metric    = BinaryAveragePrecision()
+
+    # store preds/labels for MF1
+    all_preds, all_labels = [], []
+
     for batch_idx, (data, target) in enumerate(train_loader):
-        # Data preprocessing
-        data = data.to(device).permute(0, 2, 1)
+        data   = data.to(device).permute(0, 2, 1)   # (B, C, L)
         target = target.to(device).float()
-        
-        # Forward pass
+
+        # forward / backward
         optimizer.zero_grad(set_to_none=True)
-        output = model(data)
-        output = output.view(-1)
-        
-        # Update metrics
-        auroc_metric.update(output.detach().cpu(), target.cpu().int())
-        pr_metric.update(output.detach().cpu(), target.cpu().int())
-        f1_metric.update((output > 0.5).float().cpu(), target.cpu().int())
-        
-        # Calculate loss and backpropagate
-        loss = loss_fn(output, target)
+        output = model(data).view(-1)           
+        loss   = loss_fn(output, target)
         loss.backward()
         optimizer.step()
-        
-        # Accumulate metrics
+
+        # accumulate loss & accuracy
         running_loss += loss.item() * data.size(0)
-        preds = (output > 0.5).float()
+        preds  = (torch.sigmoid(output) > 0.5).float()
         correct += preds.eq(target).sum().item()
         total_samples += data.size(0)
-        
-        # Log intermediate training loss
-        if batch_idx % log_interval == 0:
-            batch_avg_loss = running_loss / total_samples
-            print(f"Epoch {epoch} [{batch_idx}/{len(train_loader)}] "
-                  f"Loss: {batch_avg_loss:.4f}")
-    
-    # Log epoch metrics
-    epoch_loss = running_loss / total_samples
-    epoch_acc = correct / total_samples
-    auc_roc = auroc_metric.compute().item()
-    pr_auc = pr_metric.compute().item()
-    f1 = f1_metric.compute().item()
-    
-    mlflow.log_metrics({
-        "train_loss": epoch_loss,
-        "train_accuracy": epoch_acc,
-        "train_auc_roc": auc_roc,
-        "train_pr_auc": pr_auc,
-        "train_f1": f1
-    }, step=epoch)
-    
-    return epoch_loss, epoch_acc, auc_roc, pr_auc, f1
 
+        # update AUROC / PR-AUC with probabilities
+        probs = torch.sigmoid(output).detach().cpu()
+        auroc_metric.update(probs, target.cpu().int())
+        pr_metric.update(probs,   target.cpu().int())
+
+        # store for MF1 (need ints)
+        all_preds.append(preds.detach().cpu())
+        all_labels.append(target.cpu())
+
+        if batch_idx % log_interval == 0:
+            print(f"Epoch {epoch} [{batch_idx}/{len(train_loader)}] "
+                  f"Loss: {(running_loss/total_samples):.4f}")
+
+    # epoch metrics
+    epoch_loss = running_loss / total_samples
+    epoch_acc  = correct      / total_samples
+    epoch_auroc = auroc_metric.compute().item()
+    epoch_pr_auc = pr_metric.compute().item()
+
+    all_preds  = torch.cat(all_preds).to(torch.int64)
+    all_labels = torch.cat(all_labels).to(torch.int64)
+    epoch_f1   = multiclass_f1_score(all_preds, all_labels,
+                                     num_classes=2, average="macro").item()
+
+    mlflow.log_metrics({
+        "train_loss":     epoch_loss,
+        "train_accuracy": epoch_acc,
+        "train_auc_roc":  epoch_auroc,
+        "train_pr_auc":   epoch_pr_auc,
+        "train_f1":       epoch_f1,
+    }, step=epoch)
+
+    return epoch_loss, epoch_acc, epoch_auroc, epoch_pr_auc, epoch_f1
+
+
+# ------------------------------------------------------------------
+#  Validation / Test function
+# ------------------------------------------------------------------
 def test(model, data_loader, loss_fn, device, phase='val', epoch=None):
-    """Evaluate model and log metrics. Phase can be 'val' or 'test'"""
+    """
+    Evaluate the model on val/test set and log metrics.
+    """
     model.eval()
     running_loss = 0.0
-    correct = 0
-    total_samples = 0
-    
-    # Initialize metrics
+    correct = total_samples = 0
+
     auroc_metric = BinaryAUROC()
-    pr_metric = BinaryAveragePrecision()
-    f1_metric = BinaryF1Score()
-    
-    # Lists to store all predictions and labels for ROC curve
-    all_preds = []
-    all_labels = []
-    is_test_phase = (phase == 'test')
-    
+    pr_metric    = BinaryAveragePrecision()
+
+    all_preds, all_labels = [], []
+
     with torch.no_grad():
         for data, target in data_loader:
-            # Data preprocessing
-            data = data.to(device).permute(0, 2, 1)
+            data   = data.to(device).permute(0, 2, 1)
             target = target.to(device).float()
-            
-            # Forward pass
-            output = model(data)
-            output = output.view(-1)
-            
-            # Update metrics
-            auroc_metric.update(output.cpu(), target.cpu().int())
-            pr_metric.update(output.cpu(), target.cpu().int())
-            f1_metric.update((output > 0.5).float().cpu(), target.cpu().int())
-            
-            # Store predictions and labels for ROC curve
-            if is_test_phase:
-                all_preds.extend(output.cpu().numpy())
-                all_labels.extend(target.cpu().numpy())
-            
-            # Calculate loss
-            loss = loss_fn(output, target)
-            
-            # Accumulate metrics
+
+            output = model(data).view(-1)     
+            loss   = loss_fn(output, target)
+
             running_loss += loss.item() * data.size(0)
-            preds = (output > 0.5).float()
+            preds  = (torch.sigmoid(output) > 0.5).float()
             correct += preds.eq(target).sum().item()
             total_samples += data.size(0)
-    
-    # Calculate final metrics
+
+            probs = torch.sigmoid(output).cpu()
+            auroc_metric.update(probs, target.cpu().int())
+            pr_metric.update(probs,   target.cpu().int())
+
+            all_preds.append(preds.cpu())
+            all_labels.append(target.cpu())
+
     avg_loss = running_loss / total_samples
-    accuracy = correct / total_samples
-    auc_roc = auroc_metric.compute().item()
-    pr_auc = pr_metric.compute().item()
-    f1 = f1_metric.compute().item()
-    
-    # # Convert lists to numpy arrays
-    # if is_test_phase:
-    #     all_preds = np.array(all_preds)
-    #     all_labels = np.array(all_labels)
-    
-    #     # Calculate ROC curve points
-    #     fpr, tpr, thresholds = roc_curve(all_labels, all_preds)
-        
-    #     # Log ROC curve data as JSON artifact
-    #     roc_data = {
-    #         "fpr": fpr.tolist(),
-    #         "tpr": tpr.tolist(),
-    #         "thresholds": thresholds.tolist(),
-    #         "auc": auc_roc
-    #     }
-        
-    #     with tempfile.NamedTemporaryFile(mode='w', suffix='.json') as f:
-    #         json.dump(roc_data, f)
-    #         f.flush()
-            
-    #         # Log the file with a name based on phase and epoch
-    #         if epoch is not None:
-    #             mlflow.log_artifact(f.name, f"{phase}_roc_data_epoch_{epoch}.json")
-    #         else:
-    #             mlflow.log_artifact(f.name, f"{phase}_roc_data.json")
-    
-    # Log metrics with appropriate names based on phase
+    accuracy = correct      / total_samples
+    auc_roc  = auroc_metric.compute().item()
+    pr_auc   = pr_metric.compute().item()
+
+    all_preds  = torch.cat(all_preds).to(torch.int64)
+    all_labels = torch.cat(all_labels).to(torch.int64)
+    f1_macro   = multiclass_f1_score(all_preds, all_labels,
+                                     num_classes=2, average="macro").item()
+
     metrics = {
-        f"{phase}_loss": avg_loss,
+        f"{phase}_loss":     avg_loss,
         f"{phase}_accuracy": accuracy,
-        f"{phase}_auc_roc": auc_roc,
-        f"{phase}_pr_auc": pr_auc,
-        f"{phase}_f1": f1
+        f"{phase}_auc_roc":  auc_roc,
+        f"{phase}_pr_auc":   pr_auc,
+        f"{phase}_f1":       f1_macro
     }
-    
-    # For validation, include epoch for tracking
+
     if epoch is not None:
         mlflow.log_metrics(metrics, step=epoch)
     else:
         mlflow.log_metrics(metrics)
-    
-        print(f"{phase.capitalize()} set: Average loss: {avg_loss:.4f}, Accuracy: {accuracy*100:.2f}%, \
-              AUC-ROC: {auc_roc:.4f}, PR-AUC: {pr_auc:.4f}, F1: {f1:.4f}")
 
-    
-    return avg_loss, accuracy, auc_roc, pr_auc, f1
+    print(f"{phase.capitalize()} set: "
+          f"Loss {avg_loss:.4f} | Acc {accuracy*100:.2f}% | "
+          f"AUROC {auc_roc:.4f} | PR-AUC {pr_auc:.4f} | F1-macro {f1_macro:.4f}")
+
+    return avg_loss, accuracy, auc_roc, pr_auc, f1_macro
 
 class EarlyStopping:
     """
