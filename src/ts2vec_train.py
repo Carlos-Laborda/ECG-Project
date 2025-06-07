@@ -11,7 +11,7 @@ from sklearn.model_selection import train_test_split
 from metaflow import FlowSpec, step, Parameter, current, project, resources
 
 from ts2vec import TS2Vec, LinearClassifier, build_fingerprint, search_encoder_fp, build_linear_loaders, \
-    train_linear_classifier, evaluate_classifier
+    train_linear_classifier, evaluate_classifier, MLPClassifier
 
 from torch_utilities import load_processed_data, split_indices_by_participant, set_seed
 
@@ -205,14 +205,14 @@ class ECGTS2VecFlow(FlowSpec):
         val_loader= build_linear_loaders(self.val_repr, self.y_val,
                                          self.classifier_batch_size, self.device, shuffle=False)
 
-        self.classifier = LinearClassifier(self.train_repr.shape[-1]).to(self.device)
+        self.classifier = MLPClassifier(self.train_repr.shape[-1]).to(self.device)
         opt = torch.optim.Adam(self.classifier.parameters(), lr=self.classifier_lr)
         loss_fn = torch.nn.BCEWithLogitsLoss()
 
         mlflow.set_tracking_uri(self.mlflow_tracking_uri)
         with mlflow.start_run(run_id=self.mlflow_run_id):
             params = {
-                "classifier_model": "LinearClassifier",
+                "classifier_model": "MLPClassifier",
                 "seed": self.seed,
                 "classifier_lr": self.classifier_lr,
                 "classifier_epochs": self.classifier_epochs,
