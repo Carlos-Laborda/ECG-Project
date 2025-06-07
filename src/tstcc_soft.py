@@ -12,7 +12,8 @@ import tqdm
 
 from torch.utils.data import DataLoader, TensorDataset, Dataset
 from sklearn.metrics import classification_report, cohen_kappa_score, confusion_matrix, accuracy_score
-from torchmetrics.classification import BinaryAUROC, BinaryAveragePrecision, BinaryF1Score
+from torchmetrics.classification import BinaryAUROC, BinaryAveragePrecision
+from torcheval.metrics.functional import multiclass_f1_score
 from shutil import copy
 from einops import rearrange, repeat
 from typing import Union, Sequence, Tuple, Dict, Any, List
@@ -1583,67 +1584,56 @@ def train_linear_classifier(
     """
     Trains a linear classifier with validation loop and MLflow logging.
 
-    Args:
-        model: The classifier model (subclass of nn.Module).
-        train_loader: DataLoader for the training set.
-        val_loader: DataLoader for the validation set.
-        optimizer: The optimizer for training.
-        loss_fn: The loss function.
-        epochs: Number of training epochs.
-        device: The device to train on ('cpu' or 'cuda').
-
     Returns:
-        Tuple: (Trained model, list of validation accuracies, list of validation AUROCs, list of validation PR-AUCs, list of validation F1-Scores)
+        Tuple: (Trained model, list of validation accuracies, AUROCs, PR-AUCs, and F1-Scores)
     """
-    val_accuracies = []
-    val_aurocs = []
-    val_pr_aucs = []
-    val_f1_scores = []
-    
+    val_accuracies, val_aurocs, val_pr_aucs, val_f1_scores = [], [], [], []
+
     train_auroc_metric = BinaryAUROC()
     val_auroc_metric = BinaryAUROC()
     train_pr_auc_metric = BinaryAveragePrecision()
     val_pr_auc_metric = BinaryAveragePrecision()
-    train_f1_metric = BinaryF1Score() 
-    val_f1_metric = BinaryF1Score()
 
     for epoch in range(1, epochs + 1):
         # Training phase
         model.train()
         running_loss = 0.0
         correct_train = total_train = 0
+        train_preds_all, train_labels_all = [], []
+
         train_auroc_metric.reset()
         train_pr_auc_metric.reset()
-        train_f1_metric.reset()
-        
+
         for features, labels in train_loader:
             features, labels = features.to(device), labels.to(device)
             optimizer.zero_grad()
-            outputs = model(features).squeeze() 
+            outputs = model(features).squeeze()
             loss = loss_fn(outputs, labels)
             loss.backward()
             optimizer.step()
-            
+
             running_loss += loss.item() * features.size(0)
-            # Accuracy calculation
-            preds_train = (torch.sigmoid(outputs) > 0.5).float()
-            correct_train += (preds_train == labels).sum().item()
+            probs = torch.sigmoid(outputs)
+            preds = (probs > 0.5).float()
+
+            correct_train += (preds == labels).sum().item()
             total_train += labels.size(0)
-            # Update metrics
-            outputs_cpu = outputs.detach().cpu()
-            labels_cpu_int = labels.cpu().int()
-            preds_train_cpu_int = preds_train.cpu().int()
-            
-            train_auroc_metric.update(outputs_cpu, labels_cpu_int)
-            train_pr_auc_metric.update(outputs_cpu, labels_cpu_int)
-            train_f1_metric.update(preds_train_cpu_int, labels_cpu_int)
-                
+
+            train_auroc_metric.update(probs.detach().cpu(), labels.cpu().int())
+            train_pr_auc_metric.update(probs.detach().cpu(), labels.cpu().int())
+
+            train_preds_all.append(preds.detach().cpu())
+            train_labels_all.append(labels.cpu())
+
         epoch_loss = running_loss / total_train if total_train > 0 else 0.0
         epoch_train_acc = correct_train / total_train if total_train > 0 else 0.0
         epoch_train_auroc = train_auroc_metric.compute().item()
         epoch_train_pr_auc = train_pr_auc_metric.compute().item()
-        epoch_train_f1 = train_f1_metric.compute().item()
-        
+
+        train_preds_all = torch.cat(train_preds_all).to(torch.int64)
+        train_labels_all = torch.cat(train_labels_all).to(torch.int64)
+        epoch_train_f1 = multiclass_f1_score(train_preds_all, train_labels_all, num_classes=2, average="macro").item()
+
         mlflow.log_metrics({
             "classifier_train_loss": epoch_loss,
             "classifier_train_accuracy": epoch_train_acc,
@@ -1657,43 +1647,47 @@ def train_linear_classifier(
         # Validation phase
         model.eval()
         correct_val = total_val = 0
+        val_preds_all, val_labels_all = [], []
+
         val_auroc_metric.reset()
         val_pr_auc_metric.reset()
-        val_f1_metric.reset()
-        
+
         with torch.no_grad():
             for features, labels in val_loader:
                 features, labels = features.to(device), labels.to(device)
                 outputs = model(features).squeeze()
-                # Accuracy calculation
-                preds_val = (torch.sigmoid(outputs) > 0.5).float()
-                correct_val += (preds_val == labels).sum().item()
+                probs = torch.sigmoid(outputs)
+                preds = (probs > 0.5).float()
+
+                correct_val += (preds == labels).sum().item()
                 total_val += labels.size(0)
-                # Update metrics
-                outputs_cpu = outputs.cpu()
-                labels_cpu_int = labels.cpu().int()
-                preds_val_cpu_int = preds_val.cpu().int()
-                
-                val_auroc_metric.update(outputs_cpu, labels_cpu_int)
-                val_pr_auc_metric.update(outputs_cpu, labels_cpu_int)
-                val_f1_metric.update(preds_val_cpu_int, labels_cpu_int)
-        
+
+                val_auroc_metric.update(probs.cpu(), labels.cpu().int())
+                val_pr_auc_metric.update(probs.cpu(), labels.cpu().int())
+
+                val_preds_all.append(preds.cpu())
+                val_labels_all.append(labels.cpu())
+
         val_acc = correct_val / total_val if total_val > 0 else 0.0
         val_auroc = val_auroc_metric.compute().item()
         val_pr_auc = val_pr_auc_metric.compute().item()
-        val_f1 = val_f1_metric.compute().item()
+
+        val_preds_all = torch.cat(val_preds_all).to(torch.int64)
+        val_labels_all = torch.cat(val_labels_all).to(torch.int64)
+        val_f1 = multiclass_f1_score(val_preds_all, val_labels_all, num_classes=2, average="macro").item()
+
         val_accuracies.append(val_acc)
         val_aurocs.append(val_auroc)
         val_pr_aucs.append(val_pr_auc)
         val_f1_scores.append(val_f1)
-        
+
         mlflow.log_metrics({
             "val_accuracy": val_acc,
             "val_auroc": val_auroc,
             "val_pr_auc": val_pr_auc,
             "val_f1": val_f1,
         }, step=epoch)
-        
+
         print(f"Epoch {epoch}/{epochs} - Val Acc: {val_acc:.4f}, Val AUROC: {val_auroc:.4f}, Val PR-AUC: {val_pr_auc:.4f}, Val F1: {val_f1:.4f}")
 
     return model, val_accuracies, val_aurocs, val_pr_aucs, val_f1_scores
@@ -1709,52 +1703,50 @@ def evaluate_classifier(
     """
     Evaluates the classifier on the test set and logs the accuracy to MLflow.
 
-    Args:
-        model: The trained classifier model.
-        test_loader: DataLoader for the test set.
-        device: The device to evaluate on ('cpu' or 'cuda').
-
     Returns:
-        float: The test accuracy, test AUROC, and test PR-AUC.
+        Tuple: (test_accuracy, test_auroc, test_pr_auc, test_f1)
     """
     model.eval()
     correct = total = 0
+    test_preds_all, test_labels_all = [], []
+
     test_auroc_metric = BinaryAUROC()
     test_pr_auc_metric = BinaryAveragePrecision()
-    test_f1_metric = BinaryF1Score()
+
     test_auroc_metric.reset()
     test_pr_auc_metric.reset()
-    test_f1_metric.reset()
-    
+
     with torch.no_grad():
         for features, labels in test_loader:
             features, labels = features.to(device), labels.to(device)
-            outputs = model(features).squeeze() 
-            # Accuracy calculation
-            preds = (torch.sigmoid(outputs) > 0.5).float()
+            outputs = model(features).squeeze()
+            probs = torch.sigmoid(outputs)
+            preds = (probs > 0.5).float()
+
             correct += (preds == labels).sum().item()
             total += labels.size(0)
-            # Update metrics
-            outputs_cpu = outputs.cpu()
-            labels_cpu_int = labels.cpu().int()
-            preds_cpu_int = preds.cpu().int()
-            
-            test_auroc_metric.update(outputs_cpu, labels_cpu_int)
-            test_pr_auc_metric.update(outputs_cpu, labels_cpu_int)
-            test_f1_metric.update(preds_cpu_int, labels_cpu_int)
+
+            test_auroc_metric.update(probs.cpu(), labels.cpu().int())
+            test_pr_auc_metric.update(probs.cpu(), labels.cpu().int())
+
+            test_preds_all.append(preds.cpu())
+            test_labels_all.append(labels.cpu())
 
     test_accuracy = correct / total if total > 0 else 0.0
     test_auroc = test_auroc_metric.compute().item()
     test_pr_auc = test_pr_auc_metric.compute().item()
-    test_f1 = test_f1_metric.compute().item()
-    
+
+    test_preds_all = torch.cat(test_preds_all).to(torch.int64)
+    test_labels_all = torch.cat(test_labels_all).to(torch.int64)
+    test_f1 = multiclass_f1_score(test_preds_all, test_labels_all, num_classes=2, average="macro").item()
+
     mlflow.log_metrics({
         "test_accuracy": test_accuracy,
         "test_auroc": test_auroc,
         "test_pr_auc": test_pr_auc,
         "test_f1": test_f1,
     })
-    
+
     print(f"Test Accuracy: {test_accuracy:.4f}, Test AUROC: {test_auroc:.4f}, Test PR-AUC: {test_pr_auc:.4f}, Test F1: {test_f1:.4f}")
     return test_accuracy, test_auroc, test_pr_auc, test_f1
 
