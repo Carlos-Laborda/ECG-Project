@@ -384,6 +384,19 @@ class LinearClassifier(nn.Module):
     def forward(self, x):
         # x is expected to be of shape (batch, feature_dim)
         return self.fc(x)
+    
+class MLPClassifier(nn.Module):
+    def __init__(self, input_dim, hidden_dim=64, dropout=0.2, num_classes=1):
+        super(MLPClassifier, self).__init__()
+        self.net = nn.Sequential(
+            nn.Linear(input_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_dim, num_classes)
+        )
+
+    def forward(self, x):
+        return self.net(x)
 
 # --------------------------------------------------------
 # ts2vec.py
