@@ -4,6 +4,7 @@ import torch, torch.nn as nn, torch.optim as optim
 import mlflow, mlflow.pytorch
 from mlflow.tracking import MlflowClient
 from torch.utils.data import DataLoader, TensorDataset
+from sklearn.model_selection import train_test_split
 from metaflow import FlowSpec, step, Parameter, current, project, resources
 
 from torch_utilities import (             
@@ -104,13 +105,20 @@ class ECGSupervisedFlow(FlowSpec):
         set_seed(self.seed)
         X, _, _ = load_processed_data(self.window_data_path)
         
-        # label-fraction subsampling
+        # Stratified label-fraction subsampling
         if not (0 < self.label_fraction <= 1):
             raise ValueError("label_fraction must be in (0,1].")
-        rng = np.random.default_rng(self.seed)
-        n_keep = max(1, int(len(self.train_idx) * self.label_fraction))
-        sub_train_idx = rng.choice(self.train_idx, n_keep, replace=False)
-        print(f"Using {len(sub_train_idx)} training windows ({self.label_fraction*100:.1f}%)")
+        
+        if self.label_fraction < 1.0:
+            tr_idx, _ = train_test_split(
+                np.arange(len(self.train_idx)),
+                train_size=self.label_fraction,
+                stratify=self.y[self.train_idx],
+                random_state=0
+            )
+            sub_train_idx = self.train_idx[tr_idx]
+        else:
+            sub_train_idx = self.train_idx
 
         # Build datasets / loaders
         tr_ds = ECGDataset(X[sub_train_idx], self.y[sub_train_idx])
