@@ -30,6 +30,9 @@ export MLFLOW_TRACKING_URI=http://fs0.das6.cs.vu.nl:5005
 #   --batch_size 16 \
 #   --scheduler_factor 0.5 \
 #   --scheduler_min_lr 1e-09 \
+#   --patience 20 \
+#   --lr 1e-5 \
+#   --label_fraction 1 \
 
 # TCN
 # echo "Launching training with seed: $1"
@@ -40,6 +43,7 @@ export MLFLOW_TRACKING_URI=http://fs0.das6.cs.vu.nl:5005
 #   --seed $1 \
 #   --lr 0.0005 \
 #   --patience 20 \
+#   --label_fraction 1.0 \
 
 # Transformer
 # echo "Launching training with seed: $1"
@@ -50,6 +54,7 @@ export MLFLOW_TRACKING_URI=http://fs0.das6.cs.vu.nl:5005
 #   --seed $1 \
 #   --lr 1e-5 \
 #   --patience 20 \
+#   --label_fraction 0.1 \
 
 # --- Run Self Supervised Model script ---
 # TS2Vec
@@ -72,12 +77,12 @@ export MLFLOW_TRACKING_URI=http://fs0.das6.cs.vu.nl:5005
 
 # TSTCC
 # echo "Launching training with seed: $1"
-# python tstcc_train.py run \
-#   --mlflow_tracking_uri "http://fs0.das6.cs.vu.nl:5005" \
-#   --window_data_path "../../../../var/scratch/cla224/ECG-Project/data/windowed_data.h5" \
-#   --tcc_epochs 40 \
-#   --label_fraction 1.0 \
-#   --seed $1
+python tstcc_train.py run \
+  --mlflow_tracking_uri "http://fs0.das6.cs.vu.nl:5005" \
+  --window_data_path "../../../../var/scratch/cla224/ECG-Project/data/windowed_data.h5" \
+  --tcc_epochs 100 \
+  --label_fraction 1.0 \
+  --seed $1
 
 # TSTCCSoft
 # echo "Launching training with seed: $1"
@@ -87,14 +92,15 @@ export MLFLOW_TRACKING_URI=http://fs0.das6.cs.vu.nl:5005
 #   --tcc_epochs 40 \
 #   --label_fraction 1.0 \
 #   --seed $1
-  
+
+# SimCLR
 # echo "Launching training with seed: $1"
-python simclr_train.py run \
-  --mlflow_tracking_uri "http://fs0.das6.cs.vu.nl:5005" \
-  --window_data_path "../../../../var/scratch/cla224/ECG-Project/data/windowed_data.h5" \
-  --epochs 300 \
-  --label_fraction 1.0 \
-  --seed $1
+# python simclr_train.py run \
+#   --mlflow_tracking_uri "http://fs0.das6.cs.vu.nl:5005" \
+#   --window_data_path "../../../../var/scratch/cla224/ECG-Project/data/windowed_data.h5" \
+#   --epochs 300 \
+#   --label_fraction 1.0 \
+#   --seed $1
 
 
 # --- Run Transfer Learning script ---
