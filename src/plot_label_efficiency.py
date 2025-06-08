@@ -124,7 +124,56 @@ else:
     data = pd.DataFrame(records)
     data.to_csv(RESULTS_FILE, index=False)
     print(f"[info] Saved full results to {RESULTS_FILE}")
+
+# --------------------------------------------------
+# Check data Normality
+# ---------------------------------------------------
+def check_normality(data, group_name, fraction):
+    """Check normality of data using visual and statistical tests."""
+    # Shapiro-Wilk test
+    statistic, p_value = stats.shapiro(data)
     
+    # Create QQ plot
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4))
+    
+    # Histogram
+    sns.histplot(data, kde=True, ax=ax1)
+    ax1.set_title(f'{group_name} Distribution (Label Fraction: {int(fraction*100)}%)')
+    ax1.set_xlabel('F1 Score')
+    
+    # QQ plot
+    stats.probplot(data, dist="norm", plot=ax2)
+    ax2.set_title("Q-Q Plot")
+    
+    plt.tight_layout()
+    plt.show()
+    
+    print(f"\nNormality Test Results for {group_name} ({int(fraction*100)}% labels):")
+    print(f"Shapiro-Wilk test statistic: {statistic:.3f}")
+    print(f"p-value: {p_value:.4f}")
+    print("Interpretation:")
+    print("H0: Data is normally distributed")
+    print(f"{'Reject' if p_value < 0.05 else 'Fail to reject'} null hypothesis (p {'<' if p_value < 0.05 else '>='} 0.05)")
+    print("-" * 50)
+
+# Test for each label fraction
+for fraction in LABEL_FRACTIONS:
+    # Check supervised scores
+    supervised_scores = data[
+        (data.group == 'Supervised') & 
+        (data.label_fraction == fraction)
+    ]['f1_mean']
+    
+    # Check SSL scores (linear classifier only)
+    ssl_scores = data[
+        (data.group == 'Self-Supervised') & 
+        (data.classifier_model == 'LinearClassifier') &
+        (data.model != 'SimCLR') &
+        (data.label_fraction == fraction)
+    ]['f1_mean']
+    
+    check_normality(supervised_scores, "Supervised", fraction)
+    check_normality(ssl_scores, "Self-Supervised", fraction)
 
 # --------------------------------------------------
 # Statistical Testing at Each Label Fraction SSL (linear) vs Supervised
