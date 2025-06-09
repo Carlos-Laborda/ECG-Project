@@ -43,17 +43,26 @@ SUPERVISED_MODELS = [
     "Supervised_Transformer"
 ]
 
-SSL_MODELS = [
-    "TS2Vec",
-    "SoftTS2Vec",
-    "TSTCC",
-    "SoftTSTCC",
-    #"SimCLR"
+SSL_LINEAR_MODELS = [
+    ("TS2Vec", "LinearClassifier"),
+    ("SoftTS2Vec", "LinearClassifier"),
+    ("TSTCC", "LinearClassifier"),
+    ("SoftTSTCC", "LinearClassifier"),
+    ("SimCLR", "LinearClassifier")
+]
+
+SSL_MLP_MODELS = [
+    ("TS2Vec", "MLPClassifier"),
+    ("SoftTS2Vec", "MLPClassifier"),
+    ("TSTCC", "MLPClassifier"),
+    ("SoftTSTCC", "MLPClassifier"),
+    ("SimCLR", "MLPClassifier")
 ]
 
 GROUPS = {
     "Supervised": SUPERVISED_MODELS,
-    "Self-Supervised": SSL_MODELS
+    "Self-Supervised (Linear)": SSL_LINEAR_MODELS,
+    "Self-Supervised (MLP)": SSL_MLP_MODELS
 }
 
 # --------------------------------------------
@@ -66,240 +75,176 @@ else:
     print("Parsing metrics and building dataframe...")
     records = []
 
-    for group_name, model_list in GROUPS.items():
-        for model in model_list:
-            pattern = str(ROOT_DIR / model / "*_*") 
-            matching_dirs = glob(pattern)
-            for exp_path_str in matching_dirs:
-                exp_path = pathlib.Path(exp_path_str)
-                exp_name = exp_path.name
+    # Handle Supervised Models
+    for model in SUPERVISED_MODELS:
+        pattern = str(ROOT_DIR / model / "*_*") 
+        matching_dirs = glob(pattern)
+        for exp_path_str in matching_dirs:
+            exp_path = pathlib.Path(exp_path_str)
+            exp_name = exp_path.name
 
-                # Parse classifier model and label fraction
-                parts = exp_name.split("_")
-                if len(parts) < 2:
-                    continue  # skip malformed names
+            # Parse classifier model and label fraction
+            parts = exp_name.split("_")
+            if len(parts) < 2:
+                continue
+            
+            classifier_model = parts[0]
+            try:
+                label_fraction = float(parts[-1])
+            except ValueError:
+                continue
 
-                classifier_model = parts[0]
-                try:
-                    label_fraction = float(parts[-1])
-                except ValueError:
-                    continue  # skip if not a valid float
+            csv_file = exp_path / "aggregated_metrics.csv"
+            if not csv_file.exists():
+                continue
 
-                csv_file = exp_path / "aggregated_metrics.csv"
-                if not csv_file.exists():
-                    continue
+            df = pd.read_csv(csv_file)
 
-                df = pd.read_csv(csv_file)
+            # Normalize AUC metric name
+            auc_name = 'test_auc_roc' if 'test_auc_roc' in df.metric.values else (
+                'test_auroc' if 'test_auroc' in df.metric.values else None)
+            if auc_name is None:
+                continue
 
-                # Normalize AUC metric name
-                auc_name = 'test_auc_roc' if 'test_auc_roc' in df.metric.values else (
-                    'test_auroc' if 'test_auroc' in df.metric.values else None)
-                if auc_name is None:
-                    continue
+            def get_metric(metric):
+                row = df[df.metric == metric]
+                return (row["mean"].values[0], row["std"].values[0]) if not row.empty else (np.nan, np.nan)
 
-                def get_metric(metric):
-                    row = df[df.metric == metric]
-                    return (row["mean"].values[0], row["std"].values[0]) if not row.empty else (np.nan, np.nan)
+            acc_mean, acc_std = get_metric("test_accuracy")
+            auc_mean, auc_std = get_metric(auc_name)
+            pr_mean, pr_std   = get_metric("test_pr_auc")
+            f1_mean, f1_std   = get_metric("test_f1")
 
-                acc_mean, acc_std = get_metric("test_accuracy")
-                auc_mean, auc_std = get_metric(auc_name)
-                pr_mean, pr_std   = get_metric("test_pr_auc")
-                f1_mean, f1_std   = get_metric("test_f1")
+            records.append({
+                "group": "Supervised",
+                "model": model,
+                "classifier_model": classifier_model,
+                "label_fraction": label_fraction,
+                "accuracy_mean": acc_mean,
+                "accuracy_std": acc_std,
+                "auc_mean": auc_mean,
+                "auc_std": auc_std,
+                "pr_auc_mean": pr_mean,
+                "pr_auc_std": pr_std,
+                "f1_mean": f1_mean,
+                "f1_std": f1_std
+            })
+    
+    # Handle SSL Models (both Linear and MLP)
+    for ssl_model, classifier in SSL_LINEAR_MODELS + SSL_MLP_MODELS:
+        pattern = str(ROOT_DIR / ssl_model / f"{classifier}_*")
+        matching_dirs = glob(pattern)
+        for exp_path_str in matching_dirs:
+            exp_path = pathlib.Path(exp_path_str)
+            exp_name = exp_path.name
 
-                records.append({
-                    "group": group_name,
-                    "model": model,
-                    "classifier_model": classifier_model,
-                    "label_fraction": label_fraction,
-                    "accuracy_mean": acc_mean,
-                    "accuracy_std": acc_std,
-                    "auc_mean": auc_mean,
-                    "auc_std": auc_std,
-                    "pr_auc_mean": pr_mean,
-                    "pr_auc_std": pr_std,
-                    "f1_mean": f1_mean,
-                    "f1_std": f1_std
-                })
+            parts = exp_name.split("_")
+            if len(parts) < 2:
+                continue
+
+            try:
+                label_fraction = float(parts[-1])
+            except ValueError:
+                continue
+
+            csv_file = exp_path / "aggregated_metrics.csv"
+            if not csv_file.exists():
+                continue
+            
+            df = pd.read_csv(csv_file)
+
+            # Normalize AUC metric name
+            auc_name = 'test_auc_roc' if 'test_auc_roc' in df.metric.values else (
+                'test_auroc' if 'test_auroc' in df.metric.values else None)
+            if auc_name is None:
+                continue
+
+            def get_metric(metric):
+                row = df[df.metric == metric]
+                return (row["mean"].values[0], row["std"].values[0]) if not row.empty else (np.nan, np.nan)
+
+            acc_mean, acc_std = get_metric("test_accuracy")
+            auc_mean, auc_std = get_metric(auc_name)
+            pr_mean, pr_std   = get_metric("test_pr_auc")
+            f1_mean, f1_std   = get_metric("test_f1")
+
+            # Correct group assignment based on classifier type
+            group = "Self-Supervised (Linear)" if classifier == "LinearClassifier" else "Self-Supervised (MLP)"
+            
+            records.append({
+                "group": group,
+                "model": ssl_model,
+                "classifier_model": classifier,  
+                "label_fraction": label_fraction,
+                "accuracy_mean": acc_mean,
+                "accuracy_std": acc_std,
+                "auc_mean": auc_mean,
+                "auc_std": auc_std,
+                "pr_auc_mean": pr_mean,
+                "pr_auc_std": pr_std,
+                "f1_mean": f1_mean,
+                "f1_std": f1_std
+            })
 
     data = pd.DataFrame(records)
+    # Add model type column for easier filtering
+    data['model_type'] = data.apply(
+        lambda x: 'Supervised' if x['group'] == 'Supervised' 
+        else ('SSL-Linear' if x['classifier_model'] == 'LinearClassifier' 
+              else 'SSL-MLP'), axis=1
+    )
     data.to_csv(RESULTS_FILE, index=False)
     print(f"[info] Saved full results to {RESULTS_FILE}")
 
-# --------------------------------------------------
-# Check data Normality
-# ---------------------------------------------------
-def check_normality(data, group_name, fraction):
-    """Check normality of data using visual and statistical tests."""
-    # Shapiro-Wilk test
-    statistic, p_value = stats.shapiro(data)
-    
-    # Create QQ plot
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4))
-    
-    # Histogram
-    sns.histplot(data, kde=True, ax=ax1)
-    ax1.set_title(f'{group_name} Distribution (Label Fraction: {int(fraction*100)}%)')
-    ax1.set_xlabel('F1 Score')
-    
-    # QQ plot
-    stats.probplot(data, dist="norm", plot=ax2)
-    ax2.set_title("Q-Q Plot")
-    
-    plt.tight_layout()
-    plt.show()
-    
-    print(f"\nNormality Test Results for {group_name} ({int(fraction*100)}% labels):")
-    print(f"Shapiro-Wilk test statistic: {statistic:.3f}")
-    print(f"p-value: {p_value:.4f}")
-    print("Interpretation:")
-    print("H0: Data is normally distributed")
-    print(f"{'Reject' if p_value < 0.05 else 'Fail to reject'} null hypothesis (p {'<' if p_value < 0.05 else '>='} 0.05)")
-    print("-" * 50)
-
-# Test for each label fraction
-for fraction in LABEL_FRACTIONS:
-    # Check supervised scores
-    supervised_scores = data[
-        (data.group == 'Supervised') & 
-        (data.label_fraction == fraction)
-    ]['f1_mean']
-    
-    # Check SSL scores (linear classifier only)
-    ssl_scores = data[
-        (data.group == 'Self-Supervised') & 
-        (data.classifier_model == 'LinearClassifier') &
-        (data.model != 'SimCLR') &
-        (data.label_fraction == fraction)
-    ]['f1_mean']
-    
-    check_normality(supervised_scores, "Supervised", fraction)
-    check_normality(ssl_scores, "Self-Supervised", fraction)
-
 # --------------------------------------------------
-# Statistical Testing at Each Label Fraction SSL (linear) vs Supervised
+# Supervised Models Comparison: CNN vs TCN vs Transformer
 # --------------------------------------------------
-print("\nStatistical Testing (SSL vs Supervised)")
-print("-" * 50)
+# Filter data for each supervised model
+cnn_data = data[
+    data.model == 'Supervised_CNN'
+].sort_values('label_fraction')
 
-for fraction in LABEL_FRACTIONS:
-    # Get supervised scores for this fraction
-    supervised_scores = data[
-        (data.group == 'Supervised') & 
-        (data.label_fraction == fraction)
-    ]['f1_mean']
-    
-    # Get SSL scores for this fraction (linear classifier only)
-    ssl_scores = data[
-        (data.group == 'Self-Supervised') & 
-        (data.classifier_model == 'LinearClassifier') &
-        (data.model != 'SimCLR') &
-        (data.label_fraction == fraction)
-    ]['f1_mean']
-    
-    # Perform t-test
-    t_stat, p_value = stats.ttest_ind(supervised_scores, ssl_scores)
-    
-    print(f"\nLabel Fraction: {int(fraction*100)}%")
-    print(f"Supervised mean: {supervised_scores.mean():.3f} ± {supervised_scores.std():.3f}")
-    print(f"SSL mean: {ssl_scores.mean():.3f} ± {ssl_scores.std():.3f}")
-    print(f"p-value: {p_value:.4f}")
-    if p_value < 0.05:
-        print("Significant difference detected (p < 0.05)")
-        if supervised_scores.mean() > ssl_scores.mean():
-            print("Supervised performs better")
-        else:
-            print("Self-supervised performs better")
-    else:
-        print("No significant difference (p >= 0.05)")
-        
-# --------------------------------------------------
-# Statistical Testing: Supervised vs TS2Vec-MLP
-# --------------------------------------------------
-print("\nStatistical Testing (Supervised vs TS2Vec-MLP)")
-print("-" * 50)
+tcn_data = data[
+    data.model == 'Supervised_TCN'
+].sort_values('label_fraction')
 
-for fraction in LABEL_FRACTIONS:
-    # Get supervised scores for this fraction
-    supervised_scores = data[
-        (data.group == 'Supervised') & 
-        (data.label_fraction == fraction)
-    ]['f1_mean']
-    
-    # Get TS2Vec MLP scores and std from seeds for this fraction
-    ts2vec_mlp_data = data[
-        (data.model == 'TS2Vec') & 
-        (data.classifier_model == 'MLPClassifier') &
-        (data.label_fraction == fraction)
-    ]
-    ts2vec_mlp_mean = ts2vec_mlp_data['f1_mean'].mean()
-    ts2vec_mlp_std = ts2vec_mlp_data['f1_std'].mean()  # Use std from seeds
-    
-    # Perform t-test
-    t_stat, p_value = stats.ttest_ind(supervised_scores, ts2vec_mlp_data['f1_mean'])
-    
-    print(f"\nLabel Fraction: {int(fraction*100)}%")
-    print(f"Supervised mean: {supervised_scores.mean():.3f} ± {supervised_scores.std():.3f}")
-    print(f"TS2Vec-MLP mean: {ts2vec_mlp_mean:.3f} ± {ts2vec_mlp_std:.3f}")  # Now using seed-level std
-    print(f"p-value: {p_value:.4f}")
-    if p_value < 0.05:
-        print("Significant difference detected (p < 0.05)")
-        if supervised_scores.mean() > ts2vec_mlp_mean:
-            print("Supervised performs better")
-        else:
-            print("TS2Vec-MLP performs better")
-    else:
-        print("No significant difference (p >= 0.05)")
-
-# --------------------------------------------------
-# Supervised vs SSL Models: Average F1 Score Comparison
-# --------------------------------------------------
-# Filter and aggregate Supervised models
-supervised_avg = (
-    data[data.group == 'Supervised']
-    .groupby('label_fraction')
-    .agg(
-        f1_mean=('f1_mean', 'mean'),
-        f1_std=('f1_mean', 'std')
-    )
-    .reset_index()
-)
-
-# Filter and aggregate SSL models (linear classifier only)
-ssl_avg = (
-    data[(data.group == 'Self-Supervised') & 
-         (data.classifier_model == 'LinearClassifier') &
-         (data.model != 'SimCLR')] 
-    .groupby('label_fraction')
-    .agg(
-        f1_mean=('f1_mean', 'mean'),
-        f1_std=('f1_mean', 'std')
-    )
-    .reset_index()
-)
+transformer_data = data[
+    data.model == 'Supervised_Transformer'
+].sort_values('label_fraction')
 
 # Create publication-quality plot
 plt.style.use('seaborn-v0_8-whitegrid')
 fig, ax = plt.subplots(figsize=(10, 6), dpi=300)
 
-# Plot Supervised Average
-ax.plot(supervised_avg.label_fraction, supervised_avg.f1_mean,
-        marker='o', label='Supervised (Average)',
-        color='#FF6B6B', linewidth=2.5, markersize=8,
+# Plot CNN
+ax.plot(cnn_data.label_fraction, cnn_data.f1_mean,
+        marker='o', label='CNN',
+        color='#2E86C1', linewidth=2.5, markersize=8,
         markerfacecolor='white', markeredgewidth=2)
-ax.fill_between(supervised_avg.label_fraction,
-                supervised_avg.f1_mean - supervised_avg.f1_std,
-                supervised_avg.f1_mean + supervised_avg.f1_std,
-                color='#FF6B6B', alpha=0.15)
+ax.fill_between(cnn_data.label_fraction,
+                cnn_data.f1_mean - cnn_data.f1_std,
+                cnn_data.f1_mean + cnn_data.f1_std,
+                color='#2E86C1', alpha=0.15)
 
-# Plot SSL Average
-ax.plot(ssl_avg.label_fraction, ssl_avg.f1_mean,
-        marker='s', label='Self-Supervised (Average)',
-        color='#1E90FF', linewidth=2.5, markersize=8,
+# Plot TCN
+ax.plot(tcn_data.label_fraction, tcn_data.f1_mean,
+        marker='s', label='TCN',
+        color='#E74C3C', linewidth=2.5, markersize=8,
         markerfacecolor='white', markeredgewidth=2)
-ax.fill_between(ssl_avg.label_fraction,
-                ssl_avg.f1_mean - ssl_avg.f1_std,
-                ssl_avg.f1_mean + ssl_avg.f1_std,
-                color='#1E90FF', alpha=0.15)
+ax.fill_between(tcn_data.label_fraction,
+                tcn_data.f1_mean - tcn_data.f1_std,
+                tcn_data.f1_mean + tcn_data.f1_std,
+                color='#E74C3C', alpha=0.15)
+
+# Plot Transformer
+ax.plot(transformer_data.label_fraction, transformer_data.f1_mean,
+        marker='^', label='Transformer',
+        color='#6A5ACD', linewidth=2.5, markersize=8,
+        markerfacecolor='white', markeredgewidth=2)
+ax.fill_between(transformer_data.label_fraction,
+                transformer_data.f1_mean - transformer_data.f1_std,
+                transformer_data.f1_mean + transformer_data.f1_std,
+                color='#6A5ACD', alpha=0.15)
 
 # Styling
 ax.set_xscale('log')
@@ -307,7 +252,7 @@ ax.set_xticks(LABEL_FRACTIONS)
 ax.set_xticklabels([f'{int(f*100)}%' for f in LABEL_FRACTIONS])
 ax.set_xlabel('Proportion of Labeled Training Data', fontsize=12, fontweight='bold')
 ax.set_ylabel('F1 Score', fontsize=12, fontweight='bold')
-ax.set_title('Average Performance: Supervised vs Self-Supervised', 
+ax.set_title('Label Efficiency: Supervised Models Comparison', 
              fontsize=14, fontweight='bold', pad=20)
 
 # Grid and background
@@ -330,17 +275,17 @@ ax.legend(frameon=True,
 plt.tight_layout()
 
 # Save high-resolution versions
-plt.savefig('../results/supervised_vs_ssl_avg.pdf', 
-            dpi=300, bbox_inches='tight', format='pdf')
-plt.savefig('../results/supervised_vs_ssl_avg.png', 
-            dpi=300, bbox_inches='tight', format='png')
+plt.savefig('../results/supervised_models_comparison.pdf', 
+            dpi=300, bbox_inches='tight')
+plt.savefig('../results/supervised_models_comparison.png', 
+            dpi=300, bbox_inches='tight')
 plt.show()
 
 
 # --------------------------------------------------
-# Three-way Comparison: Supervised vs SSL-Linear vs SSL-MLP
+# Supervised vs SSL Models (Linear): Average F1 Score Comparison
 # --------------------------------------------------
-# Filter and aggregate Supervised models
+# Filter and aggregate data
 supervised_avg = (
     data[data.group == 'Supervised']
     .groupby('label_fraction')
@@ -351,23 +296,8 @@ supervised_avg = (
     .reset_index()
 )
 
-# Filter and aggregate SSL models with Linear classifier
 ssl_linear_avg = (
-    data[(data.group == 'Self-Supervised') & 
-         (data.classifier_model == 'LinearClassifier') &
-         (data.model != 'SimCLR')]
-    .groupby('label_fraction')
-    .agg(
-        f1_mean=('f1_mean', 'mean'),
-        f1_std=('f1_mean', 'std')
-    )
-    .reset_index()
-)
-
-# Filter and aggregate SSL models with MLP classifier
-ssl_mlp_avg = (
-    data[(data.group == 'Self-Supervised') & 
-         (data.classifier_model == 'MLPClassifier') &
+    data[(data.group == 'Self-Supervised (Linear)') & 
          (data.model != 'SimCLR')]
     .groupby('label_fraction')
     .agg(
@@ -383,7 +313,189 @@ fig, ax = plt.subplots(figsize=(10, 6), dpi=300)
 
 # Plot Supervised Average
 ax.plot(supervised_avg.label_fraction, supervised_avg.f1_mean,
-        marker='o', label='Supervised (Average)',
+        marker='o', label='Supervised',
+        color='#FF6B6B', linewidth=2.5, markersize=8,
+        markerfacecolor='white', markeredgewidth=2)
+ax.fill_between(supervised_avg.label_fraction,
+                supervised_avg.f1_mean - supervised_avg.f1_std,
+                supervised_avg.f1_mean + supervised_avg.f1_std,
+                color='#FF6B6B', alpha=0.15)
+
+# Plot SSL Average
+ax.plot(ssl_linear_avg.label_fraction, ssl_linear_avg.f1_mean,
+        marker='s', label='Self-Supervised (Linear)',
+        color='#1E90FF', linewidth=2.5, markersize=8,
+        markerfacecolor='white', markeredgewidth=2)
+ax.fill_between(ssl_linear_avg.label_fraction,
+                ssl_linear_avg.f1_mean - ssl_linear_avg.f1_std,
+                ssl_linear_avg.f1_mean + ssl_linear_avg.f1_std,
+                color='#1E90FF', alpha=0.15)
+
+# Styling
+ax.set_xscale('log')
+ax.set_xticks(LABEL_FRACTIONS)
+ax.set_xticklabels([f'{int(f*100)}%' for f in LABEL_FRACTIONS])
+ax.set_xlabel('Proportion of Labeled Training Data', fontsize=12, fontweight='bold')
+ax.set_ylabel('F1 Score', fontsize=12, fontweight='bold')
+ax.set_title('Averaged Supervised vs Self-Supervised Learning with Linear Classifier', 
+             fontsize=14, fontweight='bold', pad=20)
+
+# Grid and background
+ax.grid(True, linestyle='--', alpha=0.3)
+ax.set_facecolor('#FAFAFA')
+
+# Spines
+ax.spines['top'].set_visible(False)
+ax.spines['right'].set_visible(False)
+ax.spines['left'].set_linewidth(0.5)
+ax.spines['bottom'].set_linewidth(0.5)
+
+# Legend
+ax.legend(frameon=True, 
+         fancybox=True,
+         shadow=False,
+         fontsize=11,
+         loc='lower right')
+
+plt.tight_layout()
+
+# Save high-resolution versions
+plt.savefig('../results/supervised_vs_ssl_linear.pdf', 
+            dpi=300, bbox_inches='tight', format='pdf')
+plt.savefig('../results/supervised_vs_ssl_linear.png', 
+            dpi=300, bbox_inches='tight', format='png')
+plt.show()
+
+
+# --------------------------------------------------
+# Supervised vs SSL Models (MLP): Average F1 Score Comparison
+# --------------------------------------------------
+# Filter and aggregate data
+supervised_avg = (
+    data[data.group == 'Supervised']
+    .groupby('label_fraction')
+    .agg(
+        f1_mean=('f1_mean', 'mean'),
+        f1_std=('f1_mean', 'std')
+    )
+    .reset_index()
+)
+
+ssl_mlp_avg = (
+    data[(data.group == 'Self-Supervised (MLP)') & 
+         (data.model != 'SimCLR')]
+    .groupby('label_fraction')
+    .agg(
+        f1_mean=('f1_mean', 'mean'),
+        f1_std=('f1_mean', 'std')
+    )
+    .reset_index()
+)
+
+# Create publication-quality plot
+plt.style.use('seaborn-v0_8-whitegrid')
+fig, ax = plt.subplots(figsize=(10, 6), dpi=300)
+
+# Plot Supervised Average
+ax.plot(supervised_avg.label_fraction, supervised_avg.f1_mean,
+        marker='o', label='Supervised',
+        color='#FF6B6B', linewidth=2.5, markersize=8,
+        markerfacecolor='white', markeredgewidth=2)
+ax.fill_between(supervised_avg.label_fraction,
+                supervised_avg.f1_mean - supervised_avg.f1_std,
+                supervised_avg.f1_mean + supervised_avg.f1_std,
+                color='#FF6B6B', alpha=0.15)
+
+# Plot SSL MLP Average
+ax.plot(ssl_mlp_avg.label_fraction, ssl_mlp_avg.f1_mean,
+        marker='s', label='Self-Supervised (MLP)',
+        color='#6A5ACD', linewidth=2.5, markersize=8,
+        markerfacecolor='white', markeredgewidth=2)
+ax.fill_between(ssl_mlp_avg.label_fraction,
+                ssl_mlp_avg.f1_mean - ssl_mlp_avg.f1_std,
+                ssl_mlp_avg.f1_mean + ssl_mlp_avg.f1_std,
+                color='#6A5ACD', alpha=0.15)
+
+# Styling
+ax.set_xscale('log')
+ax.set_xticks(LABEL_FRACTIONS)
+ax.set_xticklabels([f'{int(f*100)}%' for f in LABEL_FRACTIONS])
+ax.set_xlabel('Proportion of Labeled Training Data', fontsize=12, fontweight='bold')
+ax.set_ylabel('F1 Score', fontsize=12, fontweight='bold')
+ax.set_title('Averaged Supervised vs Self-Supervised Learning with MLP Classifier', 
+             fontsize=14, fontweight='bold', pad=20)
+
+# Grid and background
+ax.grid(True, linestyle='--', alpha=0.3)
+ax.set_facecolor('#FAFAFA')
+
+# Spines
+ax.spines['top'].set_visible(False)
+ax.spines['right'].set_visible(False)
+ax.spines['left'].set_linewidth(0.5)
+ax.spines['bottom'].set_linewidth(0.5)
+
+# Legend
+ax.legend(frameon=True, 
+         fancybox=True,
+         shadow=False,
+         fontsize=11,
+         loc='lower right')
+
+plt.tight_layout()
+
+# Save high-resolution versions
+plt.savefig('../results/supervised_vs_ssl_mlp.pdf', 
+            dpi=300, bbox_inches='tight', format='pdf')
+plt.savefig('../results/supervised_vs_ssl_mlp.png', 
+            dpi=300, bbox_inches='tight', format='png')
+plt.show()
+
+# --------------------------------------------------
+# Three-way Comparison: F1-scores Supervised vs SSL-Linear vs SSL-MLP
+# --------------------------------------------------
+# Filter and aggregate Supervised models
+supervised_avg = (
+    data[data.group == 'Supervised']
+    .groupby('label_fraction')
+    .agg(
+        f1_mean=('f1_mean', 'mean'),
+        f1_std=('f1_mean', 'std')
+    )
+    .reset_index()
+)
+
+# Filter and aggregate SSL models with Linear classifier
+ssl_linear_avg = (
+    data[(data.group == 'Self-Supervised (Linear)') & 
+         (data.model != 'SimCLR')]
+    .groupby('label_fraction')
+    .agg(
+        f1_mean=('f1_mean', 'mean'),
+        f1_std=('f1_mean', 'std')
+    )
+    .reset_index()
+)
+
+# Filter and aggregate SSL models with MLP classifier
+ssl_mlp_avg = (
+    data[(data.group == 'Self-Supervised (MLP)') & 
+         (data.model != 'SimCLR')]
+    .groupby('label_fraction')
+    .agg(
+        f1_mean=('f1_mean', 'mean'),
+        f1_std=('f1_mean', 'std')
+    )
+    .reset_index()
+)
+
+# Create publication-quality plot
+plt.style.use('seaborn-v0_8-whitegrid')
+fig, ax = plt.subplots(figsize=(10, 6), dpi=300)
+
+# Plot Supervised Average
+ax.plot(supervised_avg.label_fraction, supervised_avg.f1_mean,
+        marker='o', label='Supervised',
         color='#FF6B6B', linewidth=2.5, markersize=8,
         markerfacecolor='white', markeredgewidth=2)
 ax.fill_between(supervised_avg.label_fraction,
@@ -417,7 +529,7 @@ ax.set_xticks(LABEL_FRACTIONS)
 ax.set_xticklabels([f'{int(f*100)}%' for f in LABEL_FRACTIONS])
 ax.set_xlabel('Proportion of Labeled Training Data', fontsize=12, fontweight='bold')
 ax.set_ylabel('F1 Score', fontsize=12, fontweight='bold')
-ax.set_title('Average Performance: Supervised vs Self-Supervised Methods', 
+ax.set_title('Supervised vs Self-Supervised Learning Methods', 
              fontsize=14, fontweight='bold', pad=20)
 
 # Grid and background
@@ -440,19 +552,133 @@ ax.legend(frameon=True,
 plt.tight_layout()
 
 # Save high-resolution versions
-plt.savefig('../results/three_way_comparison.pdf', 
+plt.savefig('../results/f1_three_way_comparison.pdf', 
             dpi=300, bbox_inches='tight', format='pdf')
-plt.savefig('../results/three_way_comparison.png', 
+plt.savefig('../results/f1_three_way_comparison.png', 
             dpi=300, bbox_inches='tight', format='png')
 plt.show()
 
 
 # --------------------------------------------------
-# TSTCC vs SoftTSTCC Comparison
+# Three-way Comparison: AUC-ROC Supervised vs SSL-Linear vs SSL-MLP
 # --------------------------------------------------
-# Filter data for the two models
-tstcc_data = data[data.model == 'TSTCC'].sort_values('label_fraction')
-soft_tstcc_data = data[data.model == 'SoftTSTCC'].sort_values('label_fraction')
+# Filter and aggregate Supervised models
+supervised_avg = (
+    data[data.group == 'Supervised']
+    .groupby('label_fraction')
+    .agg(
+        auc_mean=('auc_mean', 'mean'),
+        auc_std=('auc_mean', 'std')
+    )
+    .reset_index()
+)
+
+# Filter and aggregate SSL models with Linear classifier
+ssl_linear_avg = (
+    data[(data.group == 'Self-Supervised (Linear)') & 
+         (data.model != 'SimCLR')]
+    .groupby('label_fraction')
+    .agg(
+        auc_mean=('auc_mean', 'mean'),
+        auc_std=('auc_mean', 'std')
+    )
+    .reset_index()
+)
+
+# Filter and aggregate SSL models with MLP classifier
+ssl_mlp_avg = (
+    data[(data.group == 'Self-Supervised (MLP)') & 
+         (data.model != 'SimCLR')]
+    .groupby('label_fraction')
+    .agg(
+        auc_mean=('auc_mean', 'mean'),
+        auc_std=('auc_mean', 'std')
+    )
+    .reset_index()
+)
+
+# Create publication-quality plot
+plt.style.use('seaborn-v0_8-whitegrid')
+fig, ax = plt.subplots(figsize=(10, 6), dpi=300)
+
+# Plot Supervised Average
+ax.plot(supervised_avg.label_fraction, supervised_avg.auc_mean,
+        marker='o', label='Supervised',
+        color='#FF6B6B', linewidth=2.5, markersize=8,
+        markerfacecolor='white', markeredgewidth=2)
+ax.fill_between(supervised_avg.label_fraction,
+                supervised_avg.auc_mean - supervised_avg.auc_std,
+                supervised_avg.auc_mean + supervised_avg.auc_std,
+                color='#FF6B6B', alpha=0.15)
+
+# Plot SSL Linear Average
+ax.plot(ssl_linear_avg.label_fraction, ssl_linear_avg.auc_mean,
+        marker='s', label='Self-Supervised (Linear)',
+        color='#1E90FF', linewidth=2.5, markersize=8,
+        markerfacecolor='white', markeredgewidth=2)
+ax.fill_between(ssl_linear_avg.label_fraction,
+                ssl_linear_avg.auc_mean - ssl_linear_avg.auc_std,
+                ssl_linear_avg.auc_mean + ssl_linear_avg.auc_std,
+                color='#1E90FF', alpha=0.15)
+
+# Plot SSL MLP Average
+ax.plot(ssl_mlp_avg.label_fraction, ssl_mlp_avg.auc_mean,
+        marker='^', label='Self-Supervised (MLP)',
+        color='#6A5ACD', linewidth=2.5, markersize=8,
+        markerfacecolor='white', markeredgewidth=2)
+ax.fill_between(ssl_mlp_avg.label_fraction,
+                ssl_mlp_avg.auc_mean - ssl_mlp_avg.auc_std,
+                ssl_mlp_avg.auc_mean + ssl_mlp_avg.auc_std,
+                color='#6A5ACD', alpha=0.15)
+
+# Styling
+ax.set_xscale('log')
+ax.set_xticks(LABEL_FRACTIONS)
+ax.set_xticklabels([f'{int(f*100)}%' for f in LABEL_FRACTIONS])
+ax.set_xlabel('Proportion of Labeled Training Data', fontsize=12, fontweight='bold')
+ax.set_ylabel('AUC-ROC Score', fontsize=12, fontweight='bold')
+ax.set_title('Supervised vs Self-Supervised Learning Methods', 
+             fontsize=14, fontweight='bold', pad=20)
+
+# Grid and background
+ax.grid(True, linestyle='--', alpha=0.3)
+ax.set_facecolor('#FAFAFA')
+
+# Spines
+ax.spines['top'].set_visible(False)
+ax.spines['right'].set_visible(False)
+ax.spines['left'].set_linewidth(0.5)
+ax.spines['bottom'].set_linewidth(0.5)
+
+# Legend
+ax.legend(frameon=True, 
+         fancybox=True,
+         shadow=False,
+         fontsize=11,
+         loc='lower right')
+
+plt.tight_layout()
+
+# Save high-resolution versions
+plt.savefig('../results/auc_roc_three_way_comparison.pdf', 
+            dpi=300, bbox_inches='tight', format='pdf')
+plt.savefig('../results/auc_roc_three_way_comparison.png', 
+            dpi=300, bbox_inches='tight', format='png')
+plt.show()
+
+# --------------------------------------------------
+# TSTCC vs SoftTSTCC Comparison (Linear Classifier)
+# --------------------------------------------------
+# Filter data for the two models with LinearClassifier only
+tstcc_data = data[
+    (data.model == 'TSTCC') & 
+    (data.classifier_model == 'LinearClassifier')
+].sort_values('label_fraction')
+
+soft_tstcc_data = data[
+    (data.model == 'SoftTSTCC') & 
+    (data.classifier_model == 'LinearClassifier')
+].sort_values('label_fraction')
 
 # Create publication-quality plot
 plt.style.use('seaborn-v0_8-whitegrid')
@@ -484,7 +710,7 @@ ax.set_xticks(LABEL_FRACTIONS)
 ax.set_xticklabels([f'{int(f*100)}%' for f in LABEL_FRACTIONS])
 ax.set_xlabel('Proportion of Labeled Training Data', fontsize=12, fontweight='bold')
 ax.set_ylabel('F1 Score', fontsize=12, fontweight='bold')
-ax.set_title('Label Efficiency: TSTCC vs SoftTSTCC', 
+ax.set_title('Label Efficiency: TSTCC vs SoftTSTCC (Linear Classifier)', 
              fontsize=14, fontweight='bold', pad=20)
 
 # Grid and background
@@ -499,30 +725,35 @@ ax.spines['bottom'].set_linewidth(0.5)
 
 # Legend
 ax.legend(frameon=True, 
-          fancybox=True,
-          shadow=False,
-          fontsize=11,
-          loc='lower right')
+         fancybox=True,
+         shadow=False,
+         fontsize=11,
+         loc='lower right')
 
 plt.tight_layout()
 
 # Save high-resolution versions
-plt.savefig('../results/tstcc_comparison.pdf', 
+plt.savefig('../results/tstcc_linear_comparison.pdf', 
             dpi=300, bbox_inches='tight', format='pdf')
-plt.savefig('../results/tstcc_comparison.png', 
+plt.savefig('../results/tstcc_linear_comparison.png', 
             dpi=300, bbox_inches='tight', format='png')
 plt.show()
 
 # --------------------------------------------------
 # TS2Vec vs SoftTS2Vec Comparison (Linear Classifier)
 # --------------------------------------------------
-# Filter data for the two models with LinearClassifier only
-ts2vec_data = data[(data.model == 'TS2Vec') & 
-                   (data.classifier_model == 'LinearClassifier')].sort_values('label_fraction')
-soft_ts2vec_data = data[(data.model == 'SoftTS2Vec') & 
-                        (data.classifier_model == 'LinearClassifier')].sort_values('label_fraction')
+# Filter data for both models with LinearClassifier
+ts2vec_data = data[
+    (data.model == 'TS2Vec') & 
+    (data.classifier_model == 'LinearClassifier')
+].sort_values('label_fraction')
 
-# Create publication-quality plot
+soft_ts2vec_data = data[
+    (data.model == 'SoftTS2Vec') & 
+    (data.classifier_model == 'LinearClassifier')
+].sort_values('label_fraction')
+
+# Create plot
 plt.style.use('seaborn-v0_8-whitegrid')
 fig, ax = plt.subplots(figsize=(10, 6), dpi=300)
 
@@ -552,49 +783,41 @@ ax.set_xticks(LABEL_FRACTIONS)
 ax.set_xticklabels([f'{int(f*100)}%' for f in LABEL_FRACTIONS])
 ax.set_xlabel('Proportion of Labeled Training Data', fontsize=12, fontweight='bold')
 ax.set_ylabel('F1 Score', fontsize=12, fontweight='bold')
-ax.set_title('Label Efficiency: TS2Vec vs SoftTS2Vec\n(Linear Classifier)', 
+ax.set_title('TS2Vec vs SoftTS2Vec with Linear Classifier', 
              fontsize=14, fontweight='bold', pad=20)
 
-# Grid and background
 ax.grid(True, linestyle='--', alpha=0.3)
 ax.set_facecolor('#FAFAFA')
-
-# Spines
 ax.spines['top'].set_visible(False)
 ax.spines['right'].set_visible(False)
 ax.spines['left'].set_linewidth(0.5)
 ax.spines['bottom'].set_linewidth(0.5)
-
-# Legend
-ax.legend(frameon=True, 
-         fancybox=True,
-         shadow=False,
-         fontsize=11,
-         loc='lower right')
+ax.legend(frameon=True, fancybox=True, shadow=False, fontsize=11, loc='lower right')
 
 plt.tight_layout()
-
-# Save high-resolution versions
-plt.savefig('../results/ts2vec_comparison.pdf', 
-            dpi=300, bbox_inches='tight', format='pdf')
-plt.savefig('../results/ts2vec_comparison.png', 
-            dpi=300, bbox_inches='tight', format='png')
+plt.savefig('../results/ts2vec_vs_soft_comparison.pdf', dpi=300, bbox_inches='tight')
+plt.savefig('../results/ts2vec_vs_soft_comparison.png', dpi=300, bbox_inches='tight')
 plt.show()
 
 # --------------------------------------------------
 # TS2Vec: Linear vs MLP Classifier Comparison
 # --------------------------------------------------
 # Filter data for TS2Vec with different classifiers
-ts2vec_linear = data[(data.model == 'TS2Vec') & 
-                     (data.classifier_model == 'LinearClassifier')].sort_values('label_fraction')
-ts2vec_mlp = data[(data.model == 'TS2Vec') & 
-                  (data.classifier_model == 'MLPClassifier')].sort_values('label_fraction')
+ts2vec_linear = data[
+    (data.model == 'TS2Vec') & 
+    (data.classifier_model == 'LinearClassifier')
+].sort_values('label_fraction')
 
-# Create publication-quality plot
+ts2vec_mlp = data[
+    (data.model == 'TS2Vec') & 
+    (data.classifier_model == 'MLPClassifier')
+].sort_values('label_fraction')
+
+# Create plot
 plt.style.use('seaborn-v0_8-whitegrid')
 fig, ax = plt.subplots(figsize=(10, 6), dpi=300)
 
-# Plot TS2Vec + Linear
+# Plot TS2Vec with Linear classifier
 ax.plot(ts2vec_linear.label_fraction, ts2vec_linear.f1_mean,
         marker='o', label='TS2Vec (Linear)',
         color='#2E86C1', linewidth=2.5, markersize=8,
@@ -604,7 +827,7 @@ ax.fill_between(ts2vec_linear.label_fraction,
                 ts2vec_linear.f1_mean + ts2vec_linear.f1_std,
                 color='#2E86C1', alpha=0.15)
 
-# Plot TS2Vec + MLP
+# Plot TS2Vec with MLP classifier
 ax.plot(ts2vec_mlp.label_fraction, ts2vec_mlp.f1_mean,
         marker='s', label='TS2Vec (MLP)',
         color='#E74C3C', linewidth=2.5, markersize=8,
@@ -619,32 +842,19 @@ ax.set_xscale('log')
 ax.set_xticks(LABEL_FRACTIONS)
 ax.set_xticklabels([f'{int(f*100)}%' for f in LABEL_FRACTIONS])
 ax.set_xlabel('Proportion of Labeled Training Data', fontsize=12, fontweight='bold')
-ax.set_ylabel('AUC-ROC Score', fontsize=12, fontweight='bold')
+ax.set_ylabel('F1 Score', fontsize=12, fontweight='bold')
 ax.set_title('TS2Vec: Linear vs MLP Classifier Performance', 
              fontsize=14, fontweight='bold', pad=20)
 
-# Grid and background
 ax.grid(True, linestyle='--', alpha=0.3)
 ax.set_facecolor('#FAFAFA')
-
-# Spines
 ax.spines['top'].set_visible(False)
 ax.spines['right'].set_visible(False)
 ax.spines['left'].set_linewidth(0.5)
 ax.spines['bottom'].set_linewidth(0.5)
-
-# Legend
-ax.legend(frameon=True, 
-         fancybox=True,
-         shadow=False,
-         fontsize=11,
-         loc='lower right')
+ax.legend(frameon=True, fancybox=True, shadow=False, fontsize=11, loc='lower right')
 
 plt.tight_layout()
-
-# Save high-resolution versions
-plt.savefig('../results/ts2vec_classifier_comparison.pdf', 
-            dpi=300, bbox_inches='tight', format='pdf')
-plt.savefig('../results/ts2vec_classifier_comparison.png', 
-            dpi=300, bbox_inches='tight', format='png')
+plt.savefig('../results/ts2vec_classifier_comparison.pdf', dpi=300, bbox_inches='tight')
+plt.savefig('../results/ts2vec_classifier_comparison.png', dpi=300, bbox_inches='tight')
 plt.show()
