@@ -14,7 +14,7 @@ from torch.utils.data import DataLoader, TensorDataset
 from sklearn.model_selection import train_test_split
 from metaflow import FlowSpec, step, Parameter, current, project, resources
 
-from torch_utilities import load_processed_data, split_indices_by_participant, set_seed
+from torch_utilities import load_processed_data, split_indices_by_participant, set_seed, MLPClassifier
 
 from tstcc import data_generator_from_arrays, Trainer, base_Model, TC, Config as ECGConfig, LinearClassifier, \
     train_linear_classifier, evaluate_classifier, encode_representations, show_shape, build_tstcc_fingerprint, search_encoder_fp, \
@@ -261,14 +261,14 @@ class ECGTSTCCFlow(FlowSpec):
         val_loader= build_linear_loaders(self.val_repr, self.y_val,
                                          self.classifier_batch_size, self.device, shuffle=False)
 
-        self.classifier = LinearClassifier(self.train_repr.shape[-1]).to(self.device)
+        self.classifier = MLPClassifier(self.train_repr.shape[-1]).to(self.device)
         opt = torch.optim.AdamW(self.classifier.parameters(), lr=self.classifier_lr)
         loss_fn = torch.nn.BCEWithLogitsLoss()
 
         mlflow.set_tracking_uri(self.mlflow_tracking_uri)
         with mlflow.start_run(run_id=self.mlflow_run_id):
             params = {
-                "classifier_model": "LinearClassifier",
+                "classifier_model": "MLPClassifier",
                 "seed": self.seed,
                 "classifier_lr": self.classifier_lr,
                 "classifier_epochs": self.classifier_epochs,
