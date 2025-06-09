@@ -5,7 +5,7 @@ from torch.utils.data import TensorDataset, DataLoader
 from sklearn.model_selection import train_test_split
 from metaflow import FlowSpec, step, Parameter, current, project, resources
 from torch_utilities import (load_processed_data, split_indices_by_participant,
-                             set_seed)
+                             set_seed, MLPClassifier)
 
 from simclr import (get_simclr_model, NTXentLoss, simclr_data_loaders, pretrain_one_epoch,
                     encode_representations, LinearClassifier, train_linear_classifier,
@@ -171,7 +171,7 @@ class ECGSimCLRFlow(FlowSpec):
         
         Xtr, ytr = self.train_repr[tr_idx], labels[tr_idx]
 
-        clf = LinearClassifier(Xtr.shape[1]).to(self.device)
+        clf = MLPClassifier(Xtr.shape[1]).to(self.device)
         loss_fn = nn.BCEWithLogitsLoss()
         opt = optim.AdamW(clf.parameters(), lr=self.clf_lr)
 
@@ -187,7 +187,7 @@ class ECGSimCLRFlow(FlowSpec):
         mlflow.set_tracking_uri(self.mlflow_tracking_uri)
         with mlflow.start_run(run_id=self.mlflow_run_id):
             mlflow.log_params({
-                "classifier_model": "LinearClassifier",
+                "classifier_model": "MLPClassifier",
                 "seed": self.seed,
                 "classifier_lr": self.clf_lr,
                 "classifier_epochs": self.clf_epochs,
