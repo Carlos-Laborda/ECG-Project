@@ -13,7 +13,7 @@ import tempfile, os
 from ts2vec_soft import (TS2Vec_soft, LinearClassifier, save_sim_mat, densify, train_linear_classifier, evaluate_classifier,
                         build_fingerprint, search_encoder_fp, compute_soft_labels, build_linear_loaders)
 
-from torch_utilities import load_processed_data, set_seed, split_indices_by_participant
+from torch_utilities import load_processed_data, set_seed, split_indices_by_participant, MLPClassifier
 
 
 # Metaflow Pipeline for Soft TS2Vec pretraining and classifier fine-tuning
@@ -227,14 +227,14 @@ class ECGTS2VecFlow(FlowSpec):
         val_loader= build_linear_loaders(self.val_repr, self.y_val,
                                          self.classifier_batch_size, self.device, shuffle=False)
 
-        self.classifier = LinearClassifier(self.train_repr.shape[-1]).to(self.device)
+        self.classifier = MLPClassifier(self.train_repr.shape[-1]).to(self.device)
         opt = torch.optim.AdamW(self.classifier.parameters(), lr=self.classifier_lr)
         loss_fn = torch.nn.BCEWithLogitsLoss()
 
         mlflow.set_tracking_uri(self.mlflow_tracking_uri)
         with mlflow.start_run(run_id=self.mlflow_run_id):
             params = {
-                "classifier_model": "LinearClassifier",
+                "classifier_model": "MLPClassifier",
                 "seed": self.seed,
                 "classifier_lr": self.classifier_lr,
                 "classifier_epochs": self.classifier_epochs,
