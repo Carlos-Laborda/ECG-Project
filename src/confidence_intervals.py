@@ -20,64 +20,48 @@ ROOT = Path("/Users/carlitos/Desktop/ECG-Project/results")
 SSL_MODELS = {"TS2Vec", "SoftTS2Vec", "TSTCC", "SoftTSTCC", "SimCLR"}
 SUPERVISED_MODELS = ["Supervised_CNN", "Supervised_TCN", "Supervised_Transformer"]
 
-# SUPERVISED VS SSL LINEAR VS SSL MLP
-# Aggregate F1 scores by group and label fraction
-def scores_by_fraction(root: Path):
-    pattern_label = re.compile(r".*_(0\.\d+|1\.0)$")
-    results = defaultdict(lambda: defaultdict(list))
+def save_results_to_csv(supervised_results, ssl_linear_results, ssl_mlp_results):
+    """Save confidence interval results to CSV files."""
+    results_dir = Path("../results/confidence_intervals")
+    results_dir.mkdir(exist_ok=True)
+    
+    # Helper function to create DataFrame from results
+    def create_df(results_dict, models):
+        records = []
+        for frac in sorted(results_dict.keys()):
+            for model in models:
+                scores = results_dict[frac].get(model, [])
+                if not scores:
+                    continue
+                mean, (lower, upper) = bootstrap_ci(scores)
+                ci_width = upper - lower
+                records.append({
+                    'label_fraction': frac,
+                    'model': model.replace('Supervised_', ''),
+                    'mean': mean,
+                    'ci_lower': lower,
+                    'ci_upper': upper,
+                    'ci_width': ci_width
+                })
+        return pd.DataFrame(records)
+    
+    # Save supervised results
+    supervised_df = create_df(supervised_results, SUPERVISED_MODELS)
+    supervised_df.to_csv(results_dir / 'supervised_ci.csv', index=False)
+    
+    # Save SSL Linear results
+    ssl_linear_df = create_df(ssl_linear_results, SSL_MODELS)
+    ssl_linear_df.to_csv(results_dir / 'ssl_linear_ci.csv', index=False)
+    
+    # Save SSL MLP results
+    ssl_mlp_df = create_df(ssl_mlp_results, SSL_MODELS)
+    ssl_mlp_df.to_csv(results_dir / 'ssl_mlp_ci.csv', index=False)
+    
+    print("\nResults saved to:")
+    print(f"- {results_dir}/supervised_ci.csv")
+    print(f"- {results_dir}/ssl_linear_ci.csv")
+    print(f"- {results_dir}/ssl_mlp_ci.csv")
 
-    for model_dir in root.iterdir():
-        if not model_dir.is_dir():
-            continue
-        model_type = model_dir.name
-
-        if model_type.startswith("Supervised"):
-            group = "Supervised"
-        elif model_type in SSL_MODELS:
-            group = "SSL"
-        else:
-            continue
-
-        for sub in model_dir.iterdir():
-            if not sub.is_dir():
-                continue
-            m = pattern_label.match(sub.name)
-            if not m:
-                continue
-            frac = float(m.group(1))
-            clf_type = sub.name.split("_")[0]
-
-            if group == "Supervised":
-                cat = "Supervised"
-            elif clf_type == "LinearClassifier":
-                cat = "SSL_Linear"
-            elif clf_type == "MLPClassifier":
-                cat = "SSL_MLP"
-            else:
-                continue
-
-            csv_path = sub / "individual_runs.csv"
-            if not csv_path.exists():
-                continue
-
-            df = pd.read_csv(csv_path)
-            results[frac][cat].extend(df["test_f1"].values)
-
-    return results
-
-results = scores_by_fraction(ROOT)
-
-print("\nBootstrapped 95% CI for F1 scores per label fraction:")
-print("-" * 70)
-for frac in sorted(results.keys()):
-    print(f"\nLabel Fraction = {frac:.2f}")
-    for group in ["Supervised", "SSL_Linear", "SSL_MLP"]:
-        scores = results[frac].get(group, [])
-        if not scores:
-            continue
-        mean, (lower, upper) = bootstrap_ci(scores)
-        print(f"{group:12} → Mean: {mean:.2f}, 95% CI: [{lower:.2f}, {upper:.2f}]")
-        
 # SUPERVISED MODELS F1 SCORES BY LABEL FRACTION
 def scores_by_supervised_model(root: Path):
     """Collect F1 scores for each supervised model by label fraction."""
@@ -237,3 +221,6 @@ for frac in sorted(ssl_mlp_results.keys()):
         print(f"{model:12} → "
               f"Mean: {mean:.3f}, 95% CI: [{lower:.3f}, {upper:.3f}] "
               f"(±{ci_width/2:.3f})")
+
+# Add this after all the print statements
+save_results_to_csv(supervised_results, ssl_linear_results, ssl_mlp_results)
