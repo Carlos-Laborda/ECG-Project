@@ -281,6 +281,143 @@ plt.savefig('../results/supervised_models_comparison.png',
             dpi=300, bbox_inches='tight')
 plt.show()
 
+# --------------------------------------------------
+# SSL Linear Models Comparison (including SimCLR)
+# --------------------------------------------------
+# Filter data for each SSL model with linear classifier
+ts2vec_data = data[
+    (data.model == 'TS2Vec') & 
+    (data.classifier_model == 'LinearClassifier')
+].sort_values('label_fraction')
+
+soft_ts2vec_data = data[
+    (data.model == 'SoftTS2Vec') & 
+    (data.classifier_model == 'LinearClassifier')
+].sort_values('label_fraction')
+
+tstcc_data = data[
+    (data.model == 'TSTCC') & 
+    (data.classifier_model == 'LinearClassifier')
+].sort_values('label_fraction')
+
+soft_tstcc_data = data[
+    (data.model == 'SoftTSTCC') & 
+    (data.classifier_model == 'LinearClassifier')
+].sort_values('label_fraction')
+
+simclr_data = data[
+    (data.model == 'SimCLR') & 
+    (data.classifier_model == 'LinearClassifier')
+].sort_values('label_fraction')
+
+# Create publication-quality plot
+plt.style.use('seaborn-v0_8-whitegrid')
+fig, ax = plt.subplots(figsize=(10, 6), dpi=300)
+
+# Plot TS2Vec
+ax.plot(ts2vec_data.label_fraction, ts2vec_data.f1_mean,
+        marker='o', label='TS2Vec',
+        color='#2E86C1', linewidth=2.5, markersize=8,
+        markerfacecolor='white', markeredgewidth=2)
+ax.fill_between(ts2vec_data.label_fraction,
+                ts2vec_data.f1_mean - ts2vec_data.f1_std,
+                ts2vec_data.f1_mean + ts2vec_data.f1_std,
+                color='#2E86C1', alpha=0.15)
+
+# Plot SoftTS2Vec
+ax.plot(soft_ts2vec_data.label_fraction, soft_ts2vec_data.f1_mean,
+        marker='s', label='SoftTS2Vec',
+        color='#E74C3C', linewidth=2.5, markersize=8,
+        markerfacecolor='white', markeredgewidth=2)
+ax.fill_between(soft_ts2vec_data.label_fraction,
+                soft_ts2vec_data.f1_mean - soft_ts2vec_data.f1_std,
+                soft_ts2vec_data.f1_mean + soft_ts2vec_data.f1_std,
+                color='#E74C3C', alpha=0.15)
+
+# Plot TSTCC
+ax.plot(tstcc_data.label_fraction, tstcc_data.f1_mean,
+        marker='^', label='TSTCC',
+        color='#6A5ACD', linewidth=2.5, markersize=8,
+        markerfacecolor='white', markeredgewidth=2)
+ax.fill_between(tstcc_data.label_fraction,
+                tstcc_data.f1_mean - tstcc_data.f1_std,
+                tstcc_data.f1_mean + tstcc_data.f1_std,
+                color='#6A5ACD', alpha=0.15)
+
+# Plot SoftTSTCC
+ax.plot(soft_tstcc_data.label_fraction, soft_tstcc_data.f1_mean,
+        marker='D', label='SoftTSTCC',
+        color='#2ECC71', linewidth=2.5, markersize=8,
+        markerfacecolor='white', markeredgewidth=2)
+ax.fill_between(soft_tstcc_data.label_fraction,
+                soft_tstcc_data.f1_mean - soft_tstcc_data.f1_std,
+                soft_tstcc_data.f1_mean + soft_tstcc_data.f1_std,
+                color='#2ECC71', alpha=0.15)
+
+# Plot SimCLR
+ax.plot(simclr_data.label_fraction, simclr_data.f1_mean,
+        marker='*', label='SimCLR',
+        color='#FFA500', linewidth=2.5, markersize=10,
+        markerfacecolor='white', markeredgewidth=2)
+ax.fill_between(simclr_data.label_fraction,
+                simclr_data.f1_mean - simclr_data.f1_std,
+                simclr_data.f1_mean + simclr_data.f1_std,
+                color='#FFA500', alpha=0.15)
+
+# Styling
+ax.set_xscale('log')
+ax.set_xticks(LABEL_FRACTIONS)
+ax.set_xticklabels([f'{int(f*100)}%' for f in LABEL_FRACTIONS])
+ax.set_xlabel('Proportion of Labeled Training Data', fontsize=12, fontweight='bold')
+ax.set_ylabel('F1 Score', fontsize=12, fontweight='bold')
+ax.set_title('Label Efficiency: SSL Models with Linear Classifier', 
+             fontsize=14, fontweight='bold', pad=20)
+
+# Grid and background
+ax.grid(True, linestyle='--', alpha=0.3)
+ax.set_facecolor('#FAFAFA')
+
+# Spines
+ax.spines['top'].set_visible(False)
+ax.spines['right'].set_visible(False)
+ax.spines['left'].set_linewidth(0.5)
+ax.spines['bottom'].set_linewidth(0.5)
+
+# Legend
+ax.legend(frameon=True, 
+         fancybox=True,
+         shadow=False,
+         fontsize=11,
+         loc='lower right')
+
+plt.tight_layout()
+
+# Save high-resolution versions
+plt.savefig('../results/ssl_linear_models_comparison.pdf', 
+            dpi=300, bbox_inches='tight')
+plt.savefig('../results/ssl_linear_models_comparison.png', 
+            dpi=300, bbox_inches='tight')
+plt.show()
+
+# Print statistical comparison
+print("\nStatistical Comparison of SSL Models with Linear Classifier")
+print("=" * 70)
+
+for fraction in LABEL_FRACTIONS:
+    print(f"\nLabel Fraction: {int(fraction*100)}%")
+    print("-" * 30)
+    
+    ts2vec_scores = ts2vec_data[ts2vec_data.label_fraction == fraction]['f1_mean']
+    soft_ts2vec_scores = soft_ts2vec_data[soft_ts2vec_data.label_fraction == fraction]['f1_mean']
+    tstcc_scores = tstcc_data[tstcc_data.label_fraction == fraction]['f1_mean']
+    soft_tstcc_scores = soft_tstcc_data[soft_tstcc_data.label_fraction == fraction]['f1_mean']
+    simclr_scores = simclr_data[simclr_data.label_fraction == fraction]['f1_mean']
+    
+    print(f"TS2Vec:     {ts2vec_scores.mean():.3f} ± {ts2vec_scores.std():.3f}")
+    print(f"SoftTS2Vec: {soft_ts2vec_scores.mean():.3f} ± {soft_ts2vec_scores.std():.3f}")
+    print(f"TSTCC:      {tstcc_scores.mean():.3f} ± {tstcc_scores.std():.3f}")
+    print(f"SoftTSTCC:  {soft_tstcc_scores.mean():.3f} ± {soft_tstcc_scores.std():.3f}")
+    print(f"SimCLR:     {simclr_scores.mean():.3f} ± {simclr_scores.std():.3f}")
 
 # --------------------------------------------------
 # Supervised vs SSL Models (Linear): Average F1 Score Comparison
@@ -560,6 +697,114 @@ plt.show()
 
 
 # --------------------------------------------------
+# Three-way Comparison: F1-scores Supervised (CNN + TCN) vs SSL-Linear vs SSL-MLP (excluding SimCLR)
+# --------------------------------------------------
+# Filter and aggregate Supervised models
+supervised_avg = (
+    data[(data.group == 'Supervised') &
+         (data.model != 'Supervised_Transformer')]
+    .groupby('label_fraction')
+    .agg(
+        f1_mean=('f1_mean', 'mean'),
+        f1_std=('f1_mean', 'std')
+    )
+    .reset_index()
+)
+
+# Filter and aggregate SSL models with Linear classifier
+ssl_linear_avg = (
+    data[(data.group == 'Self-Supervised (Linear)') & 
+         (data.model != 'SimCLR')]
+    .groupby('label_fraction')
+    .agg(
+        f1_mean=('f1_mean', 'mean'),
+        f1_std=('f1_mean', 'std')
+    )
+    .reset_index()
+)
+
+# Filter and aggregate SSL models with MLP classifier
+ssl_mlp_avg = (
+    data[(data.group == 'Self-Supervised (MLP)') & 
+         (data.model != 'SimCLR')]
+    .groupby('label_fraction')
+    .agg(
+        f1_mean=('f1_mean', 'mean'),
+        f1_std=('f1_mean', 'std')
+    )
+    .reset_index()
+)
+
+# Create publication-quality plot
+plt.style.use('seaborn-v0_8-whitegrid')
+fig, ax = plt.subplots(figsize=(10, 6), dpi=300)
+
+# Plot Supervised Average
+ax.plot(supervised_avg.label_fraction, supervised_avg.f1_mean,
+        marker='o', label='Supervised (CNN + TCN)',
+        color='#FF6B6B', linewidth=2.5, markersize=8,
+        markerfacecolor='white', markeredgewidth=2)
+ax.fill_between(supervised_avg.label_fraction,
+                supervised_avg.f1_mean - supervised_avg.f1_std,
+                supervised_avg.f1_mean + supervised_avg.f1_std,
+                color='#FF6B6B', alpha=0.15)
+
+# Plot SSL Linear Average
+ax.plot(ssl_linear_avg.label_fraction, ssl_linear_avg.f1_mean,
+        marker='s', label='Self-Supervised (Linear)',
+        color='#1E90FF', linewidth=2.5, markersize=8,
+        markerfacecolor='white', markeredgewidth=2)
+ax.fill_between(ssl_linear_avg.label_fraction,
+                ssl_linear_avg.f1_mean - ssl_linear_avg.f1_std,
+                ssl_linear_avg.f1_mean + ssl_linear_avg.f1_std,
+                color='#1E90FF', alpha=0.15)
+
+# Plot SSL MLP Average
+ax.plot(ssl_mlp_avg.label_fraction, ssl_mlp_avg.f1_mean,
+        marker='^', label='Self-Supervised (MLP)',
+        color='#6A5ACD', linewidth=2.5, markersize=8,
+        markerfacecolor='white', markeredgewidth=2)
+ax.fill_between(ssl_mlp_avg.label_fraction,
+                ssl_mlp_avg.f1_mean - ssl_mlp_avg.f1_std,
+                ssl_mlp_avg.f1_mean + ssl_mlp_avg.f1_std,
+                color='#6A5ACD', alpha=0.15)
+
+# Styling
+ax.set_xscale('log')
+ax.set_xticks(LABEL_FRACTIONS)
+ax.set_xticklabels([f'{int(f*100)}%' for f in LABEL_FRACTIONS])
+ax.set_xlabel('Proportion of Labeled Training Data', fontsize=12, fontweight='bold')
+ax.set_ylabel('F1 Score', fontsize=12, fontweight='bold')
+ax.set_title('Supervised vs Self-Supervised Learning Methods', 
+             fontsize=14, fontweight='bold', pad=20)
+
+# Grid and background
+ax.grid(True, linestyle='--', alpha=0.3)
+ax.set_facecolor('#FAFAFA')
+
+# Spines
+ax.spines['top'].set_visible(False)
+ax.spines['right'].set_visible(False)
+ax.spines['left'].set_linewidth(0.5)
+ax.spines['bottom'].set_linewidth(0.5)
+
+# Legend
+ax.legend(frameon=True, 
+         fancybox=True,
+         shadow=False,
+         fontsize=11,
+         loc='lower right')
+
+plt.tight_layout()
+
+# Save high-resolution versions
+plt.savefig('../results/f1_three_way_comparison.pdf', 
+            dpi=300, bbox_inches='tight', format='pdf')
+plt.savefig('../results/f1_three_way_comparison.png', 
+            dpi=300, bbox_inches='tight', format='png')
+plt.show()
+
+# --------------------------------------------------
 # Three-way Comparison: AUC-ROC Supervised vs SSL-Linear vs SSL-MLP
 # --------------------------------------------------
 # Filter and aggregate Supervised models
@@ -667,50 +912,85 @@ plt.savefig('../results/auc_roc_three_way_comparison.png',
 plt.show()
 
 # --------------------------------------------------
-# TSTCC vs SoftTSTCC Comparison (Linear Classifier)
+# Three-way Comparison: AUC-ROC Supervised (CNN + TCN) vs SSL-Linear vs SSL-MLP (excluding SimCLR)
 # --------------------------------------------------
-# Filter data for the two models with LinearClassifier only
-tstcc_data = data[
-    (data.model == 'TSTCC') & 
-    (data.classifier_model == 'LinearClassifier')
-].sort_values('label_fraction')
+# Filter and aggregate Supervised models
+supervised_avg = (
+    data[(data.group == 'Supervised') &
+         (data.model != 'Supervised_Transformer')]
+    .groupby('label_fraction')
+    .agg(
+        auc_mean=('auc_mean', 'mean'),
+        auc_std=('auc_mean', 'std')
+    )
+    .reset_index()
+)
 
-soft_tstcc_data = data[
-    (data.model == 'SoftTSTCC') & 
-    (data.classifier_model == 'LinearClassifier')
-].sort_values('label_fraction')
+# Filter and aggregate SSL models with Linear classifier
+ssl_linear_avg = (
+    data[(data.group == 'Self-Supervised (Linear)') & 
+         (data.model != 'SimCLR')]
+    .groupby('label_fraction')
+    .agg(
+        auc_mean=('auc_mean', 'mean'),
+        auc_std=('auc_mean', 'std')
+    )
+    .reset_index()
+)
+
+# Filter and aggregate SSL models with MLP classifier
+ssl_mlp_avg = (
+    data[(data.group == 'Self-Supervised (MLP)') & 
+         (data.model != 'SimCLR')]
+    .groupby('label_fraction')
+    .agg(
+        auc_mean=('auc_mean', 'mean'),
+        auc_std=('auc_mean', 'std')
+    )
+    .reset_index()
+)
 
 # Create publication-quality plot
 plt.style.use('seaborn-v0_8-whitegrid')
 fig, ax = plt.subplots(figsize=(10, 6), dpi=300)
 
-# Plot TSTCC
-ax.plot(tstcc_data.label_fraction, tstcc_data.f1_mean,
-        marker='o', label='TSTCC',
-        color='#2E86C1', linewidth=2.5, markersize=8,
+# Plot Supervised Average
+ax.plot(supervised_avg.label_fraction, supervised_avg.auc_mean,
+        marker='o', label='Supervised (CNN + TCN)',
+        color='#FF6B6B', linewidth=2.5, markersize=8,
         markerfacecolor='white', markeredgewidth=2)
-ax.fill_between(tstcc_data.label_fraction,
-                tstcc_data.f1_mean - tstcc_data.f1_std,
-                tstcc_data.f1_mean + tstcc_data.f1_std,
-                color='#2E86C1', alpha=0.15)
+ax.fill_between(supervised_avg.label_fraction,
+                supervised_avg.auc_mean - supervised_avg.auc_std,
+                supervised_avg.auc_mean + supervised_avg.auc_std,
+                color='#FF6B6B', alpha=0.15)
 
-# Plot SoftTSTCC
-ax.plot(soft_tstcc_data.label_fraction, soft_tstcc_data.f1_mean,
-        marker='s', label='SoftTSTCC',
-        color='#E74C3C', linewidth=2.5, markersize=8,
+# Plot SSL Linear Average
+ax.plot(ssl_linear_avg.label_fraction, ssl_linear_avg.auc_mean,
+        marker='s', label='Self-Supervised (Linear)',
+        color='#1E90FF', linewidth=2.5, markersize=8,
         markerfacecolor='white', markeredgewidth=2)
-ax.fill_between(soft_tstcc_data.label_fraction,
-                soft_tstcc_data.f1_mean - soft_tstcc_data.f1_std,
-                soft_tstcc_data.f1_mean + soft_tstcc_data.f1_std,
-                color='#E74C3C', alpha=0.15)
+ax.fill_between(ssl_linear_avg.label_fraction,
+                ssl_linear_avg.auc_mean - ssl_linear_avg.auc_std,
+                ssl_linear_avg.auc_mean + ssl_linear_avg.auc_std,
+                color='#1E90FF', alpha=0.15)
+
+# Plot SSL MLP Average
+ax.plot(ssl_mlp_avg.label_fraction, ssl_mlp_avg.auc_mean,
+        marker='^', label='Self-Supervised (MLP)',
+        color='#6A5ACD', linewidth=2.5, markersize=8,
+        markerfacecolor='white', markeredgewidth=2)
+ax.fill_between(ssl_mlp_avg.label_fraction,
+                ssl_mlp_avg.auc_mean - ssl_mlp_avg.auc_std,
+                ssl_mlp_avg.auc_mean + ssl_mlp_avg.auc_std,
+                color='#6A5ACD', alpha=0.15)
 
 # Styling
 ax.set_xscale('log')
 ax.set_xticks(LABEL_FRACTIONS)
 ax.set_xticklabels([f'{int(f*100)}%' for f in LABEL_FRACTIONS])
 ax.set_xlabel('Proportion of Labeled Training Data', fontsize=12, fontweight='bold')
-ax.set_ylabel('F1 Score', fontsize=12, fontweight='bold')
-ax.set_title('Label Efficiency: TSTCC vs SoftTSTCC (Linear Classifier)', 
+ax.set_ylabel('AUC-ROC Score', fontsize=12, fontweight='bold')
+ax.set_title('Supervised vs Self-Supervised Learning Methods', 
              fontsize=14, fontweight='bold', pad=20)
 
 # Grid and background
@@ -733,49 +1013,104 @@ ax.legend(frameon=True,
 plt.tight_layout()
 
 # Save high-resolution versions
-plt.savefig('../results/tstcc_linear_comparison.pdf', 
+plt.savefig('../results/auc_roc_three_way_comparison.pdf', 
             dpi=300, bbox_inches='tight', format='pdf')
-plt.savefig('../results/tstcc_linear_comparison.png', 
+plt.savefig('../results/auc_roc_three_way_comparison.png', 
             dpi=300, bbox_inches='tight', format='png')
 plt.show()
 
 # --------------------------------------------------
-# TS2Vec vs SoftTS2Vec Comparison (Linear Classifier)
+# Four-way Comparison: F1-scores Supervised (CNN + TCN) vs Transformer vs SSL-Linear vs SSL-MLP (excluding SimCLR)
 # --------------------------------------------------
-# Filter data for both models with LinearClassifier
-ts2vec_data = data[
-    (data.model == 'TS2Vec') & 
-    (data.classifier_model == 'LinearClassifier')
-].sort_values('label_fraction')
+# Filter and aggregate Supervised models (CNN + TCN)
+supervised_avg = (
+    data[(data.group == 'Supervised') &
+         (data.model != 'Supervised_Transformer')]
+    .groupby('label_fraction')
+    .agg(
+        f1_mean=('f1_mean', 'mean'),
+        f1_std=('f1_mean', 'std')
+    )
+    .reset_index()
+)
 
-soft_ts2vec_data = data[
-    (data.model == 'SoftTS2Vec') & 
-    (data.classifier_model == 'LinearClassifier')
-].sort_values('label_fraction')
+# Get Transformer data separately
+transformer_avg = (
+    data[data.model == 'Supervised_Transformer']
+    .groupby('label_fraction')
+    .agg(
+        f1_mean=('f1_mean', 'mean'),
+        f1_std=('f1_mean', 'std')
+    )
+    .reset_index()
+)
 
-# Create plot
+# Filter and aggregate SSL models (Linear and MLP) - keeping existing code
+ssl_linear_avg = (
+    data[(data.group == 'Self-Supervised (Linear)') & 
+         (data.model != 'SimCLR')]
+    .groupby('label_fraction')
+    .agg(
+        f1_mean=('f1_mean', 'mean'),
+        f1_std=('f1_mean', 'std')
+    )
+    .reset_index()
+)
+
+ssl_mlp_avg = (
+    data[(data.group == 'Self-Supervised (MLP)') & 
+         (data.model != 'SimCLR')]
+    .groupby('label_fraction')
+    .agg(
+        f1_mean=('f1_mean', 'mean'),
+        f1_std=('f1_mean', 'std')
+    )
+    .reset_index()
+)
+
+# Create publication-quality plot
 plt.style.use('seaborn-v0_8-whitegrid')
 fig, ax = plt.subplots(figsize=(10, 6), dpi=300)
 
-# Plot TS2Vec
-ax.plot(ts2vec_data.label_fraction, ts2vec_data.f1_mean,
-        marker='o', label='TS2Vec',
-        color='#2E86C1', linewidth=2.5, markersize=8,
+# Plot Supervised Average (CNN + TCN)
+ax.plot(supervised_avg.label_fraction, supervised_avg.f1_mean,
+        marker='o', label='Supervised (CNN + TCN)',
+        color='#FF6B6B', linewidth=2.5, markersize=8,
         markerfacecolor='white', markeredgewidth=2)
-ax.fill_between(ts2vec_data.label_fraction,
-                ts2vec_data.f1_mean - ts2vec_data.f1_std,
-                ts2vec_data.f1_mean + ts2vec_data.f1_std,
-                color='#2E86C1', alpha=0.15)
+ax.fill_between(supervised_avg.label_fraction,
+                supervised_avg.f1_mean - supervised_avg.f1_std,
+                supervised_avg.f1_mean + supervised_avg.f1_std,
+                color='#FF6B6B', alpha=0.15)
 
-# Plot SoftTS2Vec
-ax.plot(soft_ts2vec_data.label_fraction, soft_ts2vec_data.f1_mean,
-        marker='s', label='SoftTS2Vec',
-        color='#E74C3C', linewidth=2.5, markersize=8,
+# Plot Transformer separately
+ax.plot(transformer_avg.label_fraction, transformer_avg.f1_mean,
+        marker='D', label='Transformer',
+        color='#2ECC71', linewidth=2.5, markersize=8,
         markerfacecolor='white', markeredgewidth=2)
-ax.fill_between(soft_ts2vec_data.label_fraction,
-                soft_ts2vec_data.f1_mean - soft_ts2vec_data.f1_std,
-                soft_ts2vec_data.f1_mean + soft_ts2vec_data.f1_std,
-                color='#E74C3C', alpha=0.15)
+ax.fill_between(transformer_avg.label_fraction,
+                transformer_avg.f1_mean - transformer_avg.f1_std,
+                transformer_avg.f1_mean + transformer_avg.f1_std,
+                color='#2ECC71', alpha=0.15)
+
+# Plot SSL Linear Average
+ax.plot(ssl_linear_avg.label_fraction, ssl_linear_avg.f1_mean,
+        marker='s', label='Self-Supervised (Linear)',
+        color='#1E90FF', linewidth=2.5, markersize=8,
+        markerfacecolor='white', markeredgewidth=2)
+ax.fill_between(ssl_linear_avg.label_fraction,
+                ssl_linear_avg.f1_mean - ssl_linear_avg.f1_std,
+                ssl_linear_avg.f1_mean + ssl_linear_avg.f1_std,
+                color='#1E90FF', alpha=0.15)
+
+# Plot SSL MLP Average
+ax.plot(ssl_mlp_avg.label_fraction, ssl_mlp_avg.f1_mean,
+        marker='^', label='Self-Supervised (MLP)',
+        color='#6A5ACD', linewidth=2.5, markersize=8,
+        markerfacecolor='white', markeredgewidth=2)
+ax.fill_between(ssl_mlp_avg.label_fraction,
+                ssl_mlp_avg.f1_mean - ssl_mlp_avg.f1_std,
+                ssl_mlp_avg.f1_mean + ssl_mlp_avg.f1_std,
+                color='#6A5ACD', alpha=0.15)
 
 # Styling
 ax.set_xscale('log')
@@ -783,59 +1118,128 @@ ax.set_xticks(LABEL_FRACTIONS)
 ax.set_xticklabels([f'{int(f*100)}%' for f in LABEL_FRACTIONS])
 ax.set_xlabel('Proportion of Labeled Training Data', fontsize=12, fontweight='bold')
 ax.set_ylabel('F1 Score', fontsize=12, fontweight='bold')
-ax.set_title('TS2Vec vs SoftTS2Vec with Linear Classifier', 
+ax.set_title('Comparison of Learning Methods', 
              fontsize=14, fontweight='bold', pad=20)
 
+# Grid and background
 ax.grid(True, linestyle='--', alpha=0.3)
 ax.set_facecolor('#FAFAFA')
+
+# Spines
 ax.spines['top'].set_visible(False)
 ax.spines['right'].set_visible(False)
 ax.spines['left'].set_linewidth(0.5)
 ax.spines['bottom'].set_linewidth(0.5)
-ax.legend(frameon=True, fancybox=True, shadow=False, fontsize=11, loc='lower right')
+
+# Legend
+ax.legend(frameon=True, 
+         fancybox=True,
+         shadow=True,
+         fontsize=11,
+         loc='lower right')
+
 
 plt.tight_layout()
-plt.savefig('../results/ts2vec_vs_soft_comparison.pdf', dpi=300, bbox_inches='tight')
-plt.savefig('../results/ts2vec_vs_soft_comparison.png', dpi=300, bbox_inches='tight')
+
+plt.savefig('../results/f1_four_way_comparison.pdf', 
+            dpi=300, bbox_inches='tight', format='pdf')
+plt.savefig('../results/f1_four_way_comparison.png', 
+            dpi=300, bbox_inches='tight', format='png')
 plt.show()
 
-# --------------------------------------------------
-# TS2Vec: Linear vs MLP Classifier Comparison
-# --------------------------------------------------
-# Filter data for TS2Vec with different classifiers
-ts2vec_linear = data[
-    (data.model == 'TS2Vec') & 
-    (data.classifier_model == 'LinearClassifier')
-].sort_values('label_fraction')
 
-ts2vec_mlp = data[
-    (data.model == 'TS2Vec') & 
-    (data.classifier_model == 'MLPClassifier')
-].sort_values('label_fraction')
+# --------------------------------------------------
+# Four-way Comparison: AUC-ROC scores Supervised (CNN + TCN) vs Transformer vs SSL-Linear vs SSL-MLP (excluding SimCLR)
+# --------------------------------------------------
+# Filter and aggregate Supervised models (CNN + TCN)
+supervised_avg = (
+    data[(data.group == 'Supervised') &
+         (data.model != 'Supervised_Transformer')]
+    .groupby('label_fraction')
+    .agg(
+        auc_mean=('auc_mean', 'mean'),
+        auc_std=('auc_mean', 'std')
+    )
+    .reset_index()
+)
 
-# Create plot
+# Get Transformer data separately
+transformer_avg = (
+    data[data.model == 'Supervised_Transformer']
+    .groupby('label_fraction')
+    .agg(
+        auc_mean=('auc_mean', 'mean'),
+        auc_std=('auc_mean', 'std')
+    )
+    .reset_index()
+)
+
+# Filter and aggregate SSL models (Linear and MLP) - keeping existing code
+ssl_linear_avg = (
+    data[(data.group == 'Self-Supervised (Linear)') & 
+         (data.model != 'SimCLR')]
+    .groupby('label_fraction')
+    .agg(
+        auc_mean=('auc_mean', 'mean'),
+        auc_std=('auc_mean', 'std')
+    )
+    .reset_index()
+)
+
+ssl_mlp_avg = (
+    data[(data.group == 'Self-Supervised (MLP)') & 
+         (data.model != 'SimCLR')]
+    .groupby('label_fraction')
+    .agg(
+        auc_mean=('auc_mean', 'mean'),
+        auc_std=('auc_mean', 'std')
+    )
+    .reset_index()
+)
+
+# Create publication-quality plot
 plt.style.use('seaborn-v0_8-whitegrid')
 fig, ax = plt.subplots(figsize=(10, 6), dpi=300)
 
-# Plot TS2Vec with Linear classifier
-ax.plot(ts2vec_linear.label_fraction, ts2vec_linear.f1_mean,
-        marker='o', label='TS2Vec (Linear)',
-        color='#2E86C1', linewidth=2.5, markersize=8,
+# Plot Supervised Average (CNN + TCN)
+ax.plot(supervised_avg.label_fraction, supervised_avg.auc_mean,
+        marker='o', label='Supervised (CNN + TCN)',
+        color='#FF6B6B', linewidth=2.5, markersize=8,
         markerfacecolor='white', markeredgewidth=2)
-ax.fill_between(ts2vec_linear.label_fraction,
-                ts2vec_linear.f1_mean - ts2vec_linear.f1_std,
-                ts2vec_linear.f1_mean + ts2vec_linear.f1_std,
-                color='#2E86C1', alpha=0.15)
+ax.fill_between(supervised_avg.label_fraction,
+                supervised_avg.auc_mean - supervised_avg.auc_std,
+                supervised_avg.auc_mean + supervised_avg.auc_std,
+                color='#FF6B6B', alpha=0.15)
 
-# Plot TS2Vec with MLP classifier
-ax.plot(ts2vec_mlp.label_fraction, ts2vec_mlp.f1_mean,
-        marker='s', label='TS2Vec (MLP)',
-        color='#E74C3C', linewidth=2.5, markersize=8,
+# Plot Transformer separately
+ax.plot(transformer_avg.label_fraction, transformer_avg.auc_mean,
+        marker='D', label='Transformer',
+        color='#2ECC71', linewidth=2.5, markersize=8,
         markerfacecolor='white', markeredgewidth=2)
-ax.fill_between(ts2vec_mlp.label_fraction,
-                ts2vec_mlp.f1_mean - ts2vec_mlp.f1_std,
-                ts2vec_mlp.f1_mean + ts2vec_mlp.f1_std,
-                color='#E74C3C', alpha=0.15)
+ax.fill_between(transformer_avg.label_fraction,
+                transformer_avg.auc_mean - transformer_avg.auc_std,
+                transformer_avg.auc_mean + transformer_avg.auc_std,
+                color='#2ECC71', alpha=0.15)
+
+# Plot SSL Linear Average
+ax.plot(ssl_linear_avg.label_fraction, ssl_linear_avg.auc_mean,
+        marker='s', label='Self-Supervised (Linear)',
+        color='#1E90FF', linewidth=2.5, markersize=8,
+        markerfacecolor='white', markeredgewidth=2)
+ax.fill_between(ssl_linear_avg.label_fraction,
+                ssl_linear_avg.auc_mean - ssl_linear_avg.auc_std,
+                ssl_linear_avg.auc_mean + ssl_linear_avg.auc_std,
+                color='#1E90FF', alpha=0.15)
+
+# Plot SSL MLP Average
+ax.plot(ssl_mlp_avg.label_fraction, ssl_mlp_avg.auc_mean,
+        marker='^', label='Self-Supervised (MLP)',
+        color='#6A5ACD', linewidth=2.5, markersize=8,
+        markerfacecolor='white', markeredgewidth=2)
+ax.fill_between(ssl_mlp_avg.label_fraction,
+                ssl_mlp_avg.auc_mean - ssl_mlp_avg.auc_std,
+                ssl_mlp_avg.auc_mean + ssl_mlp_avg.auc_std,
+                color='#6A5ACD', alpha=0.15)
 
 # Styling
 ax.set_xscale('log')
@@ -843,18 +1247,31 @@ ax.set_xticks(LABEL_FRACTIONS)
 ax.set_xticklabels([f'{int(f*100)}%' for f in LABEL_FRACTIONS])
 ax.set_xlabel('Proportion of Labeled Training Data', fontsize=12, fontweight='bold')
 ax.set_ylabel('F1 Score', fontsize=12, fontweight='bold')
-ax.set_title('TS2Vec: Linear vs MLP Classifier Performance', 
+ax.set_title('Comparison of Learning Methods', 
              fontsize=14, fontweight='bold', pad=20)
 
+# Grid and background
 ax.grid(True, linestyle='--', alpha=0.3)
 ax.set_facecolor('#FAFAFA')
+
+# Spines
 ax.spines['top'].set_visible(False)
 ax.spines['right'].set_visible(False)
 ax.spines['left'].set_linewidth(0.5)
 ax.spines['bottom'].set_linewidth(0.5)
-ax.legend(frameon=True, fancybox=True, shadow=False, fontsize=11, loc='lower right')
+
+# Legend
+ax.legend(frameon=True, 
+         fancybox=True,
+         shadow=True,
+         fontsize=11,
+         loc='lower right')
+
 
 plt.tight_layout()
-plt.savefig('../results/ts2vec_classifier_comparison.pdf', dpi=300, bbox_inches='tight')
-plt.savefig('../results/ts2vec_classifier_comparison.png', dpi=300, bbox_inches='tight')
+
+plt.savefig('../results/f1_four_way_comparison.pdf', 
+            dpi=300, bbox_inches='tight', format='pdf')
+plt.savefig('../results/f1_four_way_comparison.png', 
+            dpi=300, bbox_inches='tight', format='png')
 plt.show()
