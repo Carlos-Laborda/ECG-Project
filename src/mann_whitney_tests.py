@@ -25,8 +25,21 @@ ROOT = Path("/Users/carlitos/Desktop/ECG-Project/results")
 NORM_TEST_ALPHA = 0.05
 # ----------------------------------
 
-SSL_MODELS = {"TS2Vec", "SoftTS2Vec", "TSTCC", "SoftTSTCC", "SimCLR"}
-SUPERVISED_MODELS = ["Supervised_CNN", "Supervised_TCN", "Supervised_Transformer"]
+SSL_MODELS = {
+    "TS2Vec", 
+    "SoftTS2Vec", 
+    "TSTCC", 
+    "SoftTSTCC", 
+    #"SimCLR"
+    }
+
+SUPERVISED_MODELS = [
+    "Supervised_CNN", 
+    "Supervised_TCN", 
+    #"Supervised_Transformer"
+    ]
+
+TRANSFORMER_MODEL = "Supervised_Transformer"
 
 def find_runs_by_comparison(root: Path):
     pattern_label = re.compile(r".*_(0\.\d+|1\.0)$")
@@ -37,7 +50,11 @@ def find_runs_by_comparison(root: Path):
             continue
         model_type = model_dir.name
 
-        if model_type.startswith("Supervised"):
+        if model_type == TRANSFORMER_MODEL:
+            group = "Transformer"
+        elif model_type.startswith("Supervised"):
+            if model_type not in SUPERVISED_MODELS:
+                continue
             group = "Supervised"
         elif model_type in SSL_MODELS:
             group = "SSL"
@@ -53,7 +70,9 @@ def find_runs_by_comparison(root: Path):
             label_frac = float(m.group(1))
             clf_type = sub.name.split("_")[0]
 
-            if group == "Supervised":
+            if group == "Transformer":
+                cat = "Transformer"
+            elif group == "Supervised":
                 cat = "Supervised"
             elif clf_type == "LinearClassifier":
                 cat = "SSL_Linear"
@@ -67,12 +86,10 @@ def find_runs_by_comparison(root: Path):
                 continue
 
             df = pd.read_csv(csv_path)
-            
-            
             for f1 in df["test_f1"].values:
                 data[label_frac][cat].append(f1)
-                
-            # Check for both possible AUC metric names
+            
+            # # Check for both possible AUC metric names
             # if "test_auc_roc" in df.columns:
             #     auc_values = df["test_auc_roc"].values
             # elif "test_auroc" in df.columns:
@@ -90,23 +107,6 @@ def normality_report(values):
         return False, "n/a"
     stat, p = shapiro(values)
     return p > NORM_TEST_ALPHA, f"{p:.4f}"
-
-def ttest_comparison(results, group1, group2):
-    print(f"\nWelch's t-test: {group1} vs {group2}")
-    print("-" * 70)
-    print(f"{'Frac':>5} | N_1   N_2 | Shapiro_1   Shapiro_2   | t-stat   p-value   sig")
-    print("-" * 70)
-    for frac in sorted(results):
-        v1 = results[frac].get(group1, [])
-        v2 = results[frac].get(group2, [])
-        if len(v1) < 2 or len(v2) < 2:
-            continue
-        n1, n2 = len(v1), len(v2)
-        norm1, p1 = normality_report(v1)
-        norm2, p2 = normality_report(v2)
-        t_stat, p_val = ttest_ind(v1, v2, equal_var=False)
-        sig = "*" if p_val < 0.05 else ""
-        print(f"{frac:5.2f} | {n1:^5} {n2:^5} | {p1:^11} {p2:^11} | {t_stat:7.3f}  {p_val:8.4f}  {sig}")
         
 def cliffs_delta(a, b):
     """Compute Cliff's Delta for two independent samples."""
@@ -146,22 +146,27 @@ def mannwhitney_comparison(results, group1, group2):
 
 all_results = find_runs_by_comparison(ROOT)
 
-# 1. Supervised vs SSL Linear
-ttest_comparison(all_results, "Supervised", "SSL_Linear")
-
-# 2. SSL Linear vs SSL MLP
-ttest_comparison(all_results, "SSL_Linear", "SSL_MLP")
-
-# 3. Supervised vs SSL MLP
-ttest_comparison(all_results, "Supervised", "SSL_MLP")
-
-# Mann–Whitney U tests
+# Original comparisons
+print("\n=== Original Comparisons ===")
 mannwhitney_comparison(all_results, "Supervised", "SSL_Linear")
 mannwhitney_comparison(all_results, "SSL_Linear", "SSL_MLP")
 mannwhitney_comparison(all_results, "Supervised", "SSL_MLP")
 
+# New comparisons with Transformer
+print("\n=== Transformer Comparisons ===")
+mannwhitney_comparison(all_results, "Transformer", "Supervised")
+mannwhitney_comparison(all_results, "Transformer", "SSL_Linear")
+mannwhitney_comparison(all_results, "Transformer", "SSL_MLP")
+
 
 # COMPARISON OF INDIVIDUAL SSL MODELS
+SSL_MODELS = {
+    "TS2Vec", 
+    "SoftTS2Vec", 
+    "TSTCC", 
+    "SoftTSTCC", 
+    "SimCLR"
+    }
 # Load scores for individual SSL models
 def get_ssl_model_scores(root: Path):
     pattern_label = re.compile(r".*_(0\.\d+|1\.0)$")
@@ -216,6 +221,11 @@ compare_ssl_models(ssl_results)
 
 
 # COMPARISON OF SUPERVISED MODELS
+SUPERVISED_MODELS = [
+    "Supervised_CNN", 
+    "Supervised_TCN", 
+    "Supervised_Transformer"
+    ]
 # Load F1 scores
 def get_supervised_scores(root: Path):
     pattern_label = re.compile(r".*_(0\.\d+|1\.0)$")
