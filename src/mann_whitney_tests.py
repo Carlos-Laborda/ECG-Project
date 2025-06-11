@@ -147,13 +147,13 @@ def mannwhitney_comparison(results, group1, group2):
 all_results = find_runs_by_comparison(ROOT)
 
 # Original comparisons
-print("\n=== Original Comparisons ===")
+print("\n=== Original Comparisons F1 scores ===")
 mannwhitney_comparison(all_results, "Supervised", "SSL_Linear")
 mannwhitney_comparison(all_results, "SSL_Linear", "SSL_MLP")
 mannwhitney_comparison(all_results, "Supervised", "SSL_MLP")
 
 # New comparisons with Transformer
-print("\n=== Transformer Comparisons ===")
+print("\n=== Transformer Comparisons F1 scores ===")
 mannwhitney_comparison(all_results, "Transformer", "Supervised")
 mannwhitney_comparison(all_results, "Transformer", "SSL_Linear")
 mannwhitney_comparison(all_results, "Transformer", "SSL_MLP")
