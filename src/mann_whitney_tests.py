@@ -25,23 +25,96 @@ ROOT = Path("/Users/carlitos/Desktop/ECG-Project/results")
 NORM_TEST_ALPHA = 0.05
 # ----------------------------------
 
+SSL_MODELS_ALL = {
+    "TS2Vec", 
+    "SoftTS2Vec", 
+    "TSTCC", 
+    "SoftTSTCC", 
+    "SimCLR"
+    }
+
+SUPERVISED_MODELS_ALL = [
+    "Supervised_CNN", 
+    "Supervised_TCN", 
+    "Supervised_Transformer"
+    ]
+
 SSL_MODELS = {
     "TS2Vec", 
     "SoftTS2Vec", 
     "TSTCC", 
     "SoftTSTCC", 
-    #"SimCLR"
     }
 
 SUPERVISED_MODELS = [
     "Supervised_CNN", 
     "Supervised_TCN", 
-    #"Supervised_Transformer"
     ]
 
 TRANSFORMER_MODEL = "Supervised_Transformer"
 
-def find_runs_by_comparison(root: Path):
+
+# Load F1 scores for individual supervised models
+def get_supervised_scores(root: Path):
+    pattern_label = re.compile(r".*_(0\.\d+|1\.0)$")
+    results = defaultdict(lambda: defaultdict(list))
+
+    for model_dir in root.iterdir():
+        if not model_dir.is_dir() or model_dir.name not in SUPERVISED_MODELS_ALL:
+            continue
+        model_name = model_dir.name.replace("Supervised_", "")
+
+        for sub in model_dir.iterdir():
+            if not sub.is_dir():
+                continue
+            m = pattern_label.match(sub.name)
+            if not m:
+                continue
+            frac = float(m.group(1))
+
+            csv_path = sub / "individual_runs.csv"
+            if not csv_path.exists():
+                continue
+
+            df = pd.read_csv(csv_path)
+            results[frac][model_name].extend(df["test_f1"].values)
+
+    return results
+
+# Load scores for individual SSL models
+def get_ssl_model_scores(root: Path):
+    """Load individual SSL model results."""
+    pattern_label = re.compile(r".*_(0\.\d+|1\.0)$")
+    results = defaultdict(lambda: defaultdict(list))  # Changed structure
+
+    for model_dir in root.iterdir():
+        if not model_dir.is_dir() or model_dir.name not in SSL_MODELS_ALL:
+            continue
+        model_name = model_dir.name
+
+        for sub in model_dir.iterdir():
+            if not sub.is_dir():
+                continue
+            m = pattern_label.match(sub.name)
+            if not m:
+                continue
+            frac = float(m.group(1))
+            clf_type = sub.name.split("_")[0]
+            
+            # Create combined model name with classifier type
+            model_clf = f"{model_name}_{clf_type}"
+            
+            csv_path = sub / "individual_runs.csv"
+            if not csv_path.exists():
+                continue
+
+            df = pd.read_csv(csv_path)
+            results[frac][model_clf].extend(df["test_f1"].values)
+
+    return results
+
+# Load f1 scores for the curated supervised and ssl models
+def get_supervised_and_ssl_scores(root: Path):
     pattern_label = re.compile(r".*_(0\.\d+|1\.0)$")
     data = defaultdict(lambda: defaultdict(list))
 
@@ -102,12 +175,7 @@ def find_runs_by_comparison(root: Path):
 
     return data
 
-def normality_report(values):
-    if len(values) < 3:
-        return False, "n/a"
-    stat, p = shapiro(values)
-    return p > NORM_TEST_ALPHA, f"{p:.4f}"
-        
+# Helper functions
 def cliffs_delta(a, b):
     """Compute Cliff's Delta for two independent samples."""
     n1, n2 = len(a), len(b)
@@ -144,132 +212,46 @@ def mannwhitney_comparison(results, group1, group2):
         print(f"{frac:5.2f} | {len(v1):^4} {len(v2):^4} | {u_stat:7.3f}  {p_val:8.4f}  {sig} | {d:10.3f}  {mag:>9}")
 
 
-all_results = find_runs_by_comparison(ROOT)
+"""Run all statistical comparisons."""
+# Individual supervised model comparisons
+print("\n=== Individual Supervised Model Comparisons ===")
+sup_results = get_supervised_scores(ROOT)
+sup_models = list(set([m for frac in sup_results.keys() for m in sup_results[frac].keys()]))
+for m1, m2 in combinations(sup_models, 2):
+    mannwhitney_comparison(sup_results, m1, m2)
 
-# Original comparisons
-print("\n=== Original Comparisons F1 scores ===")
+# Individual SSL model comparisons
+print("\n=== Individual SSL Model Comparisons ===")
+ssl_results = get_ssl_model_scores(ROOT)
+# Group models by classifier type
+linear_models = []
+mlp_models = []
+for frac in ssl_results.keys():
+    for model in ssl_results[frac].keys():
+        if "LinearClassifier" in model:
+            linear_models.append(model)
+        elif "MLPClassifier" in model:
+            mlp_models.append(model)
+# Remove duplicates and sort
+linear_models = sorted(list(set(linear_models)))
+mlp_models = sorted(list(set(mlp_models)))
+# Compare Linear models
+print("\n--- Linear Classifier Models ---")
+for m1, m2 in combinations(linear_models, 2):
+    mannwhitney_comparison(ssl_results, m1, m2)
+# Compare MLP models
+print("\n--- MLP Classifier Models ---")
+for m1, m2 in combinations(mlp_models, 2):
+    mannwhitney_comparison(ssl_results, m1, m2)
+
+# Group comparisons
+print("\n=== Group Comparisons (F1 scores) ===")
+all_results = get_supervised_and_ssl_scores(ROOT)
 mannwhitney_comparison(all_results, "Supervised", "SSL_Linear")
 mannwhitney_comparison(all_results, "SSL_Linear", "SSL_MLP")
 mannwhitney_comparison(all_results, "Supervised", "SSL_MLP")
 
-# New comparisons with Transformer
-print("\n=== Transformer Comparisons F1 scores ===")
+print("\n=== Transformer vs Other Groups ===")
 mannwhitney_comparison(all_results, "Transformer", "Supervised")
 mannwhitney_comparison(all_results, "Transformer", "SSL_Linear")
 mannwhitney_comparison(all_results, "Transformer", "SSL_MLP")
-
-
-# COMPARISON OF INDIVIDUAL SSL MODELS
-SSL_MODELS = {
-    "TS2Vec", 
-    "SoftTS2Vec", 
-    "TSTCC", 
-    "SoftTSTCC", 
-    "SimCLR"
-    }
-# Load scores for individual SSL models
-def get_ssl_model_scores(root: Path):
-    pattern_label = re.compile(r".*_(0\.\d+|1\.0)$")
-    results = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
-
-    for model_dir in root.iterdir():
-        if not model_dir.is_dir() or model_dir.name not in SSL_MODELS:
-            continue
-        model_name = model_dir.name
-
-        for sub in model_dir.iterdir():
-            if not sub.is_dir():
-                continue
-            m = pattern_label.match(sub.name)
-            if not m:
-                continue
-            frac = float(m.group(1))
-            clf_type = sub.name.split("_")[0]
-            clf = "Linear" if clf_type == "LinearClassifier" else "MLP" if clf_type == "MLPClassifier" else None
-            if clf is None:
-                continue
-
-            csv_path = sub / "individual_runs.csv"
-            if not csv_path.exists():
-                continue
-
-            df = pd.read_csv(csv_path)
-            results[frac][clf][model_name].extend(df["test_f1"].values)
-
-    return results
-
-# Perform all pairwise comparisons
-def compare_ssl_models(results):
-    for frac in sorted(results.keys()):
-        for clf in ["Linear", "MLP"]:
-            print(f"\nLabel Fraction = {frac:.2f} | Classifier = {clf}")
-            models = list(results[frac][clf].keys())
-            for m1, m2 in combinations(models, 2):
-                v1 = results[frac][clf][m1]
-                v2 = results[frac][clf][m2]
-                if len(v1) < 2 or len(v2) < 2:
-                    continue
-                u_stat, p_val = mannwhitneyu(v1, v2, alternative="two-sided")
-                d = cliffs_delta(v1, v2)
-                mag = cliffs_magnitude(d)
-                sig = "*" if p_val < 0.05 else ""
-                print(f"{m1:12} vs {m2:12} | p = {p_val:.4f} | δ = {d:.3f} ({mag}) {sig}")
-
-
-ssl_results = get_ssl_model_scores(ROOT)
-compare_ssl_models(ssl_results)
-
-
-# COMPARISON OF SUPERVISED MODELS
-SUPERVISED_MODELS = [
-    "Supervised_CNN", 
-    "Supervised_TCN", 
-    "Supervised_Transformer"
-    ]
-# Load F1 scores
-def get_supervised_scores(root: Path):
-    pattern_label = re.compile(r".*_(0\.\d+|1\.0)$")
-    results = defaultdict(lambda: defaultdict(list))
-
-    for model_dir in root.iterdir():
-        if not model_dir.is_dir() or model_dir.name not in SUPERVISED_MODELS:
-            continue
-        model_name = model_dir.name.replace("Supervised_", "")
-
-        for sub in model_dir.iterdir():
-            if not sub.is_dir():
-                continue
-            m = pattern_label.match(sub.name)
-            if not m:
-                continue
-            frac = float(m.group(1))
-
-            csv_path = sub / "individual_runs.csv"
-            if not csv_path.exists():
-                continue
-
-            df = pd.read_csv(csv_path)
-            results[frac][model_name].extend(df["test_f1"].values)
-
-    return results
-
-# Pairwise comparisons
-def compare_supervised_models(results):
-    for frac in sorted(results.keys()):
-        print(f"\nLabel Fraction = {frac:.2f}")
-        models = list(results[frac].keys())
-        for m1, m2 in combinations(models, 2):
-            v1 = results[frac][m1]
-            v2 = results[frac][m2]
-            if len(v1) < 2 or len(v2) < 2:
-                continue
-
-            u_stat, p_val = mannwhitneyu(v1, v2, alternative="two-sided")
-            d = cliffs_delta(v1, v2)
-            mag = cliffs_magnitude(d)
-            sig = "*" if p_val < 0.05 else ""
-            print(f"{m1:10} vs {m2:10} | p = {p_val:.4f} | δ = {d:.3f} ({mag}) {sig}")
-
-
-sup_results = get_supervised_scores(ROOT)
-compare_supervised_models(sup_results)
