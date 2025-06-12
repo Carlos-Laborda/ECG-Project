@@ -290,14 +290,14 @@ class ECGTSTCCFlow(FlowSpec):
         val_loader= build_linear_loaders(self.val_repr, self.y_val,
                                          self.classifier_batch_size, self.device, shuffle=False)
 
-        self.classifier = MLPClassifier(self.train_repr.shape[-1]).to(self.device)
+        self.classifier = LinearClassifier(self.train_repr.shape[-1]).to(self.device)
         opt = torch.optim.AdamW(self.classifier.parameters(), lr=self.classifier_lr)
-        loss_fn = torch.nn.BCEWithLogitsLoss()
+        self.loss_fn = torch.nn.BCEWithLogitsLoss()
 
         mlflow.set_tracking_uri(self.mlflow_tracking_uri)
         with mlflow.start_run(run_id=self.mlflow_run_id):
             params = {
-                "classifier_model": "MLPClassifier",
+                "classifier_model": "LinearClassifier",
                 "seed": self.seed,
                 "classifier_lr": self.classifier_lr,
                 "classifier_epochs": self.classifier_epochs,
@@ -305,8 +305,9 @@ class ECGTSTCCFlow(FlowSpec):
                 "label_fraction": self.label_fraction
             }
             mlflow.log_params(params)
-            train_linear_classifier(self.classifier, tr_loader, val_loader,
-                                    opt, loss_fn, self.classifier_epochs, self.device)
+            
+            model, self.best_threshold = train_linear_classifier(self.classifier, tr_loader, val_loader,
+                                    opt, self.loss_fn, self.classifier_epochs, self.device)
 
         print("Classifier training complete.")
         self.next(self.evaluate)
@@ -322,7 +323,9 @@ class ECGTSTCCFlow(FlowSpec):
             self.test_accuracy, test_auroc, test_pr_auc, test_f1 = evaluate_classifier(
                 model=self.classifier,
                 test_loader=test_loader,
-                device=self.device
+                device=self.device,
+                threshold=self.best_threshold,
+                loss_fn=self.loss_fn
             )
         self.next(self.end)
 
