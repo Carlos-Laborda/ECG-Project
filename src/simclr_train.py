@@ -171,9 +171,9 @@ class ECGSimCLRFlow(FlowSpec):
         
         Xtr, ytr = self.train_repr[tr_idx], labels[tr_idx]
 
-        clf = MLPClassifier(Xtr.shape[1]).to(self.device)
-        loss_fn = nn.BCEWithLogitsLoss()
-        opt = optim.AdamW(clf.parameters(), lr=self.clf_lr)
+        self.classifier = LinearClassifier(Xtr.shape[1]).to(self.device)
+        self.loss_fn = nn.BCEWithLogitsLoss()
+        opt = optim.AdamW(self.classifier.parameters(), lr=self.clf_lr)
 
         tr_dl = DataLoader(
             TensorDataset(torch.from_numpy(Xtr).float(),
@@ -187,17 +187,16 @@ class ECGSimCLRFlow(FlowSpec):
         mlflow.set_tracking_uri(self.mlflow_tracking_uri)
         with mlflow.start_run(run_id=self.mlflow_run_id):
             mlflow.log_params({
-                "classifier_model": "MLPClassifier",
+                "classifier_model": "LinearClassifier",
                 "seed": self.seed,
                 "classifier_lr": self.clf_lr,
                 "classifier_epochs": self.clf_epochs,
                 "classifier_batch_size": self.clf_batch_size,
                 "label_fraction": self.label_fraction,
             })
-            clf, *_ = train_linear_classifier(
-                clf, tr_dl, va_dl, opt, loss_fn,
-                self.clf_epochs, self.device)
-            self.classifier = clf
+    
+            model, self.best_threshold = train_linear_classifier(self.classifier, tr_dl, va_dl,
+                                    opt, self.loss_fn, self.clf_epochs, self.device)
         
         print("Classifier training complete.")
         self.next(self.evaluate)
@@ -212,8 +211,13 @@ class ECGSimCLRFlow(FlowSpec):
         
         mlflow.set_tracking_uri(self.mlflow_tracking_uri)
         with mlflow.start_run(run_id=self.mlflow_run_id):
-            self.test_acc, *_ = evaluate_classifier(
-                self.classifier, te_dl, self.device)
+            self.test_acc, test_auroc, test_pr_auc, test_f1 = evaluate_classifier(
+                model=self.classifier,
+                test_loader=te_dl,
+                device=self.device,
+                threshold=self.best_threshold,
+                loss_fn=self.loss_fn
+            )
         self.next(self.end)
 
     @step
