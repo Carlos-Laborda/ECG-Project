@@ -1569,6 +1569,34 @@ class LinearClassifier(nn.Module):
         # x is expected to be of shape (batch, feature_dim)
         return self.fc(x)
     
+
+# ------------------------------------------------------------------
+# threshold sweep helper
+# ------------------------------------------------------------------
+def find_best_threshold(
+    probs: np.ndarray,
+    labels: np.ndarray,
+    num_classes: int = 2,
+    average: str = "macro",
+    grid: int = 101,
+):
+    """
+    Scan `grid` equally-spaced thresholds in (0,1) and return the one
+    that maximises Macro-F1 together with that F1.
+    """
+    ts = np.linspace(0.0, 1.0, grid, endpoint=False)[1:]
+    best_t, best_f1 = 0.5, -1.0
+    labels_t = torch.from_numpy(labels.astype(np.int64))
+    for t in ts:
+        preds_t = torch.from_numpy((probs >= t).astype(np.int64))
+        f1 = multiclass_f1_score(preds_t, labels_t,
+                                 num_classes=num_classes,
+                                 average=average).item()
+        if f1 > best_f1:
+            best_f1, best_t = f1, t
+    return best_t, best_f1
+
+
 # --------------------------------------------------------
 # Classifier Training Loop
 # --------------------------------------------------------
@@ -1582,115 +1610,86 @@ def train_linear_classifier(
     device,
 ):
     """
-    Trains a linear classifier with validation loop and MLflow logging.
-
-    Returns:
-        Tuple: (Trained model, list of validation accuracies, AUROCs, PR-AUCs, and F1-Scores)
+    Train `model`, tune threshold on the validation set each epoch,
+    log everything to MLflow and return (`model`, `best_threshold`).
     """
-    val_accuracies, val_aurocs, val_pr_aucs, val_f1_scores = [], [], [], []
+    train_auc_m = BinaryAUROC()
+    train_pr_m  = BinaryAveragePrecision()
+    val_auc_m   = BinaryAUROC()
+    val_pr_m    = BinaryAveragePrecision()
 
-    train_auroc_metric = BinaryAUROC()
-    val_auroc_metric = BinaryAUROC()
-    train_pr_auc_metric = BinaryAveragePrecision()
-    val_pr_auc_metric = BinaryAveragePrecision()
+    best_threshold = 0.5
+    best_val_f1_overall = -1.0
 
     for epoch in range(1, epochs + 1):
-        # Training phase
+        # TRAIN
         model.train()
-        running_loss = 0.0
-        correct_train = total_train = 0
-        train_preds_all, train_labels_all = [], []
+        running_loss = correct = total = 0
+        train_auc_m.reset(); train_pr_m.reset()
 
-        train_auroc_metric.reset()
-        train_pr_auc_metric.reset()
-
-        for features, labels in train_loader:
-            features, labels = features.to(device), labels.to(device)
+        for X, y in train_loader:
+            X, y = X.to(device), y.to(device)
             optimizer.zero_grad()
-            outputs = model(features).squeeze()
-            loss = loss_fn(outputs, labels)
-            loss.backward()
-            optimizer.step()
+            logits = model(X).squeeze()
+            loss   = loss_fn(logits, y)
+            loss.backward(); optimizer.step()
 
-            running_loss += loss.item() * features.size(0)
-            probs = torch.sigmoid(outputs)
+            running_loss += loss.item() * X.size(0)
+            probs = torch.sigmoid(logits)
             preds = (probs > 0.5).float()
+            correct += (preds == y).sum().item()
+            total   += y.size(0)
 
-            correct_train += (preds == labels).sum().item()
-            total_train += labels.size(0)
-
-            train_auroc_metric.update(probs.detach().cpu(), labels.cpu().int())
-            train_pr_auc_metric.update(probs.detach().cpu(), labels.cpu().int())
-
-            train_preds_all.append(preds.detach().cpu())
-            train_labels_all.append(labels.cpu())
-
-        epoch_loss = running_loss / total_train if total_train > 0 else 0.0
-        epoch_train_acc = correct_train / total_train if total_train > 0 else 0.0
-        epoch_train_auroc = train_auroc_metric.compute().item()
-        epoch_train_pr_auc = train_pr_auc_metric.compute().item()
-
-        train_preds_all = torch.cat(train_preds_all).to(torch.int64)
-        train_labels_all = torch.cat(train_labels_all).to(torch.int64)
-        epoch_train_f1 = multiclass_f1_score(train_preds_all, train_labels_all, num_classes=2, average="macro").item()
+            train_auc_m.update(probs.detach().cpu(), y.cpu().int())
+            train_pr_m.update(probs.detach().cpu(),  y.cpu().int())
 
         mlflow.log_metrics({
-            "classifier_train_loss": epoch_loss,
-            "classifier_train_accuracy": epoch_train_acc,
-            "classifier_train_auroc": epoch_train_auroc,
-            "classifier_train_pr_auc": epoch_train_pr_auc,
-            "classifier_train_f1": epoch_train_f1,
+            "train_loss"  : running_loss / total,
+            "train_accuracy": correct / total,
+            "train_auroc" : train_auc_m.compute().item(),
+            "train_pr_auc": train_pr_m.compute().item(),
         }, step=epoch)
 
-        print(f"Epoch {epoch}/{epochs} - Train Loss: {epoch_loss:.4f}, Train Acc: {epoch_train_acc:.4f}, Train AUROC: {epoch_train_auroc:.4f}, Train PR-AUC: {epoch_train_pr_auc:.4f}, Train F1: {epoch_train_f1:.4f}")
-
-        # Validation phase
+        # VALIDATION + TUNING 
         model.eval()
-        correct_val = total_val = 0
-        val_preds_all, val_labels_all = [], []
-
-        val_auroc_metric.reset()
-        val_pr_auc_metric.reset()
+        val_auc_m.reset(); val_pr_m.reset()
+        val_probs, val_labels = [], []
 
         with torch.no_grad():
-            for features, labels in val_loader:
-                features, labels = features.to(device), labels.to(device)
-                outputs = model(features).squeeze()
-                probs = torch.sigmoid(outputs)
-                preds = (probs > 0.5).float()
+            for X, y in val_loader:
+                X, y = X.to(device), y.to(device)
+                logits = model(X).squeeze()
+                probs  = torch.sigmoid(logits)
 
-                correct_val += (preds == labels).sum().item()
-                total_val += labels.size(0)
+                val_probs.append(probs.cpu().numpy())
+                val_labels.append(y.cpu().numpy())
 
-                val_auroc_metric.update(probs.cpu(), labels.cpu().int())
-                val_pr_auc_metric.update(probs.cpu(), labels.cpu().int())
+                val_auc_m.update(probs.cpu(), y.cpu().int())
+                val_pr_m.update(probs.cpu(),  y.cpu().int())
 
-                val_preds_all.append(preds.cpu())
-                val_labels_all.append(labels.cpu())
+        p = np.concatenate(val_probs)
+        l = np.concatenate(val_labels)
 
-        val_acc = correct_val / total_val if total_val > 0 else 0.0
-        val_auroc = val_auroc_metric.compute().item()
-        val_pr_auc = val_pr_auc_metric.compute().item()
+        t_star, f1_star = find_best_threshold(p, l)
+        if f1_star > best_val_f1_overall:
+            best_val_f1_overall = f1_star
+            best_threshold      = t_star
 
-        val_preds_all = torch.cat(val_preds_all).to(torch.int64)
-        val_labels_all = torch.cat(val_labels_all).to(torch.int64)
-        val_f1 = multiclass_f1_score(val_preds_all, val_labels_all, num_classes=2, average="macro").item()
-
-        val_accuracies.append(val_acc)
-        val_aurocs.append(val_auroc)
-        val_pr_aucs.append(val_pr_auc)
-        val_f1_scores.append(val_f1)
+        preds_val = (p >= t_star).astype(int)
+        val_acc   = (preds_val == l).mean()
 
         mlflow.log_metrics({
-            "val_accuracy": val_acc,
-            "val_auroc": val_auroc,
-            "val_pr_auc": val_pr_auc,
-            "val_f1": val_f1,
+            "val_accuracy"      : val_acc,
+            "val_auroc"         : val_auc_m.compute().item(),
+            "val_pr_auc"        : val_pr_m.compute().item(),
+            "val_best_macro_f1" : f1_star,
+            "val_best_threshold": t_star,
         }, step=epoch)
 
-        print(f"Epoch {epoch}/{epochs} - Val Acc: {val_acc:.4f}, Val AUROC: {val_auroc:.4f}, Val PR-AUC: {val_pr_auc:.4f}, Val F1: {val_f1:.4f}")
+        print(f"[Ep {epoch}] val_acc={val_acc:.4f}  auc={val_auc_m.compute():.4f}  "
+              f"f1*={f1_star:.4f} @ t={t_star:.2f}")
 
-    return model, val_accuracies, val_aurocs, val_pr_aucs, val_f1_scores
+    return model, best_threshold
 
 # --------------------------------------------------------
 # Classifier Evaluation Loop
@@ -1698,57 +1697,65 @@ def train_linear_classifier(
 def evaluate_classifier(
     model,
     test_loader,
-    device
+    device,
+    threshold: float,
+    loss_fn=None,        
 ):
-    """
-    Evaluates the classifier on the test set and logs the accuracy to MLflow.
 
-    Returns:
-        Tuple: (test_accuracy, test_auroc, test_pr_auc, test_f1)
-    """
     model.eval()
-    correct = total = 0
-    test_preds_all, test_labels_all = [], []
+    test_auc_m = BinaryAUROC()
+    test_pr_m  = BinaryAveragePrecision()
 
-    test_auroc_metric = BinaryAUROC()
-    test_pr_auc_metric = BinaryAveragePrecision()
-
-    test_auroc_metric.reset()
-    test_pr_auc_metric.reset()
+    probs_all, labels_all = [], []
+    running_loss = correct = total = 0
 
     with torch.no_grad():
-        for features, labels in test_loader:
-            features, labels = features.to(device), labels.to(device)
-            outputs = model(features).squeeze()
-            probs = torch.sigmoid(outputs)
-            preds = (probs > 0.5).float()
+        for X, y in test_loader:
+            X, y = X.to(device), y.to(device)
+            logits = model(X).squeeze()
+            probs  = torch.sigmoid(logits)
 
-            correct += (preds == labels).sum().item()
-            total += labels.size(0)
+            if loss_fn is not None:
+                running_loss += loss_fn(logits, y).item() * X.size(0)
 
-            test_auroc_metric.update(probs.cpu(), labels.cpu().int())
-            test_pr_auc_metric.update(probs.cpu(), labels.cpu().int())
+            probs_all .append(probs.cpu().numpy())
+            labels_all.append(y.cpu().numpy().astype(np.int64))  
 
-            test_preds_all.append(preds.cpu())
-            test_labels_all.append(labels.cpu())
+            test_auc_m.update(probs.cpu(), y.cpu().int())
+            test_pr_m .update(probs.cpu(), y.cpu().int())
 
-    test_accuracy = correct / total if total > 0 else 0.0
-    test_auroc = test_auroc_metric.compute().item()
-    test_pr_auc = test_pr_auc_metric.compute().item()
+            correct += ((probs >= threshold).float() == y).sum().item()
+            total   += y.size(0)
 
-    test_preds_all = torch.cat(test_preds_all).to(torch.int64)
-    test_labels_all = torch.cat(test_labels_all).to(torch.int64)
-    test_f1 = multiclass_f1_score(test_preds_all, test_labels_all, num_classes=2, average="macro").item()
+    p = np.concatenate(probs_all)
+    l = np.concatenate(labels_all)              
+    preds = (p >= threshold).astype(np.int64)    
 
-    mlflow.log_metrics({
-        "test_accuracy": test_accuracy,
-        "test_auroc": test_auroc,
-        "test_pr_auc": test_pr_auc,
-        "test_f1": test_f1,
-    })
+    test_metrics = {
+        "test_accuracy": correct / total,
+        "test_auroc"   : test_auc_m.compute().item(),
+        "test_pr_auc"  : test_pr_m.compute().item(),
+        "test_f1"      : multiclass_f1_score(
+                            torch.from_numpy(preds),
+                            torch.from_numpy(l),
+                            num_classes=2,
+                            average="macro"
+                         ).item(),
+        "test_threshold": threshold,
+    }
+    if loss_fn is not None:
+        test_metrics["test_loss"] = running_loss / total
 
-    print(f"Test Accuracy: {test_accuracy:.4f}, Test AUROC: {test_auroc:.4f}, Test PR-AUC: {test_pr_auc:.4f}, Test F1: {test_f1:.4f}")
-    return test_accuracy, test_auroc, test_pr_auc, test_f1
+    mlflow.log_metrics(test_metrics)
+    print(f"TEST ▶ acc={test_metrics['test_accuracy']:.4f} "
+          f"auc={test_metrics['test_auroc']:.4f} "
+          f"f1={test_metrics['test_f1']:.4f} @ t={threshold:.2f}")
+
+    return (test_metrics["test_accuracy"],
+            test_metrics["test_auroc"],
+            test_metrics["test_pr_auc"],
+            test_metrics["test_f1"])
+
 
 # ----------------------------------------------------------------------
 # Encoding function to textract TS-TCC representations
