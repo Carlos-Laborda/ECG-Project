@@ -1282,7 +1282,106 @@ plt.style.use('seaborn-v0_8-whitegrid')
 sns.set_palette("colorblind")
 
 # ------------------------------------------------------------------
-# Load CI files
+# 3-way comparison of F1-scores: Supervised (CNN + TCN) vs SSL-Linear vs SSL-MLP (excluding SimCLR)
+# Pooled Bootstrap confidence intervals
+# ------------------------------------------------------------------
+root = pathlib.Path("../results/confidence_intervals")
+sup_file   = root / "supervised_ci.csv"
+lin_file   = root / "ssl_linear_ci.csv"
+mlp_file   = root / "ssl_mlp_ci.csv"
+
+sup_df  = pd.read_csv(sup_file )
+lin_df  = pd.read_csv(lin_file )
+mlp_df  = pd.read_csv(mlp_file )
+
+# drop SimCLR everywhere
+lin_df  = lin_df[lin_df.model != "SimCLR"]
+mlp_df  = mlp_df[mlp_df.model != "SimCLR"]
+
+
+def bootstrap_ci(data, n_boot=10000, ci=0.95):
+    """Calculate bootstrapped confidence interval for the mean."""
+    boot_means = []
+    for _ in range(n_boot):
+        # Sample with replacement
+        sample = np.random.choice(data, size=len(data), replace=True)
+        boot_means.append(np.mean(sample))
+    
+    # Calculate percentile intervals
+    lower = np.percentile(boot_means, ((1-ci)/2) * 100)
+    upper = np.percentile(boot_means, (1-(1-ci)/2) * 100)
+    return lower, upper
+
+def pooled_ci(df):
+    """Compute pooled mean and bootstrapped CIs for each label fraction."""
+    results = []
+    
+    for frac, group in df.groupby("label_fraction"):
+        scores = group["mean"].values  # Get all F1 scores for this fraction
+        mean_score = np.mean(scores)
+        ci_lower, ci_upper = bootstrap_ci(scores, n_boot=10000, ci=0.95)
+        
+        results.append({
+            "label_fraction": frac,
+            "mean": mean_score,
+            "ci_lower": ci_lower,
+            "ci_upper": ci_upper
+        })
+    
+    return pd.DataFrame(results).sort_values("label_fraction")
+
+# Supervised-group (CNN + TCN)
+cnn_tcn = sup_df[sup_df.model.isin(["CNN", "TCN"])]
+sup_grp = pooled_ci(cnn_tcn)
+
+# SSL groups
+ssl_lin  = pooled_ci(lin_df)
+ssl_mlp  = pooled_ci(mlp_df)
+
+# ------------------------------------------------------------------
+# Plot
+# ------------------------------------------------------------------
+fig, ax = plt.subplots(figsize=(10, 6), dpi=300)
+
+# Modified draw function
+def draw(group_df, color, marker, label):
+    ax.plot(group_df.label_fraction, group_df["mean"], marker=marker,
+            color=color, linewidth=2.5, markersize=7,
+            markerfacecolor='white', markeredgewidth=1.8,
+            label=label)
+    ax.fill_between(group_df.label_fraction, 
+                    group_df["ci_lower"], 
+                    group_df["ci_upper"],
+                    color=color, alpha=0.15)
+
+draw(ssl_mlp  , "#9467BD", "^", "SSL MLP")
+draw(ssl_lin  , "#1F77B4", "s", "SSL Linear")
+draw(sup_grp , "#FF6B6B", "o", "Supervised - CNN + TCN")
+
+# Styling
+ax.set_xscale('log')
+fractions = [0.01, 0.05, 0.10, 0.50, 1.00]
+ax.set_xticks(fractions)
+ax.set_xticklabels([f"{int(f*100)}%" for f in fractions], fontsize=12)
+ax.tick_params(axis='both', which='major', labelsize=12) 
+ax.set_xlabel("Proportion of labeled training data", fontweight="bold", fontsize=12)
+ax.set_ylabel("F1 score", fontweight="bold", fontsize=12)
+ax.set_title("Label-efficiency comparison: Supervised vs SSL", fontweight="bold", pad=18, fontsize=14)
+ax.grid(True, linestyle="--", alpha=0.3)
+ax.legend(frameon=True, fancybox=True, shadow=True, fontsize=12, loc='lower right')
+
+ax.set_facecolor("#FAFAFA")
+for spine in ("top", "right"): ax.spines[spine].set_visible(False)
+
+plt.tight_layout()
+plt.savefig("../results/label_efficiency_ci.pdf", dpi=300)
+plt.savefig("../results/label_efficiency_ci.png", dpi=300)
+plt.show()
+
+
+# ------------------------------------------------------------------
+# 4-way comparison of F1-scores: Supervised (CNN + TCN) vs Transformer vs SSL-Linear vs SSL-MLP (excluding SimCLR)
+# Pooled Bootstrap confidence intervals
 # ------------------------------------------------------------------
 root = pathlib.Path("../results/confidence_intervals")
 sup_file   = root / "supervised_ci.csv"
@@ -1372,13 +1471,12 @@ ax.set_xlabel("Proportion of labeled training data", fontweight="bold", fontsize
 ax.set_ylabel("F1 score", fontweight="bold", fontsize=12)
 ax.set_title("Label-efficiency comparison: Supervised vs SSL", fontweight="bold", pad=18, fontsize=14)
 ax.grid(True, linestyle="--", alpha=0.3)
-#ax.legend(frameon=True, fontsize=12, loc="lower right")
 ax.legend(frameon=True, fancybox=True, shadow=True, fontsize=12, loc='lower right')
 
 ax.set_facecolor("#FAFAFA")
 for spine in ("top", "right"): ax.spines[spine].set_visible(False)
 
 plt.tight_layout()
-plt.savefig("../results/label_efficiency_ci.pdf", dpi=300)
-plt.savefig("../results/label_efficiency_ci.png", dpi=300)
+plt.savefig("../results/label_efficiency_4_way.pdf", dpi=300)
+plt.savefig("../results/label_efficiency_4_way.png", dpi=300)
 plt.show()
