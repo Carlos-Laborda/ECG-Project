@@ -1327,15 +1327,22 @@ def pooled_ci(df):
             "ci_lower": ci_lower,
             "ci_upper": ci_upper
         })
+        print(f"Processed label fraction: {frac}, Mean: {mean_score:.4f}, CI: [{ci_lower:.4f}, {ci_upper:.4f}]")
     
     return pd.DataFrame(results).sort_values("label_fraction")
 
 # Supervised-group (CNN + TCN)
+print("Supervised Group:")
+print("" + "="*30)
 cnn_tcn = sup_df[sup_df.model.isin(["CNN", "TCN"])]
 sup_grp = pooled_ci(cnn_tcn)
 
 # SSL groups
+print("SSL Linear Group:")
+print("" + "="*30)
 ssl_lin  = pooled_ci(lin_df)
+print("SSL MLP Group:")
+print("" + "="*30)
 ssl_mlp  = pooled_ci(mlp_df)
 
 # ------------------------------------------------------------------
