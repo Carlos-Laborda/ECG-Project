@@ -14,7 +14,7 @@ from torch_utilities import (
     search_encoder_fp,
     ECGDataset,
     set_seed,
-    train,
+    train_one_epoch,
     test,
     EarlyStopping,
     Improved1DCNN_v2,
@@ -180,24 +180,32 @@ class ECGSupervisedFlow(FlowSpec):
             with mlflow.start_run(run_id=self.mlflow_run_id):
                 mlflow.log_params(self.fp | {"optimizer": "Adam",
                                             "loss_fn": "BCEWithLogitsLoss"})
-
+                
+                best_t   = 0.5
+                best_f1  = -1.0
                 for ep in range(1, self.num_epochs + 1):
                     print(f"\nEpoch {ep}/{self.num_epochs}")
-                    train_loss, *_ = train(self.model, tr_loader, optimizer,
-                                        loss_fn, self.device, epoch=ep)
-                    val_loss, *_   = test(self.model, va_loader, loss_fn,
-                                        self.device, phase='val', epoch=ep)
-
-                    scheduler.step(val_loss)
-                    es(val_loss)
+                    val_loss, best_t, best_f1 = train_one_epoch(
+                        self.model, tr_loader, va_loader,
+                        optimizer, loss_fn,
+                        self.device, ep,
+                        best_threshold_so_far=best_t,
+                        best_f1_so_far=best_f1,
+                        log_interval=100
+                    )
+                    scheduler.step(val_loss)    
+                    es(val_loss)                
                     if es.early_stop:
-                        print("Early stopping triggered"); break
+                        print("Early stopping triggered")
+                        break
+                
+                self.best_threshold = best_t
+                mlflow.log_param("chosen_threshold", best_t)
 
                 # save only when using 100 % labels
                 if save_artifact:
                     mlflow.pytorch.log_model(self.model,
                                             artifact_path="supervised_model")
-        
         self.next(self.evaluate)
 
     @step
@@ -217,18 +225,21 @@ class ECGSupervisedFlow(FlowSpec):
                     "optimizer": "Adam",
                     "loss_fn":   "BCEWithLogitsLoss",
                 })
-            test_loss, self.test_accuracy, test_auc, test_pr_auc, test_f1  = test(
-                self.model, self.test_loader, loss_fn,
-                self.device, phase='test'
+            loss, self.acc, auroc, prauc, f1 = test(
+                self.model,
+                self.test_loader,
+                self.device,
+                threshold=self.best_threshold,
+                loss_fn=loss_fn,
             )
 
-        print(f"Test accuracy: {self.test_accuracy:.3f}")
+        print(f"Test accuracy: {self.acc:.3f}")
         self.next(self.end)
 
     @step
     def end(self):
         print(f"Supervised training flow with {self.model_type} complete.")
-        print(f"Test accuracy: {self.test_accuracy:.4f}")
+        print(f"Test accuracy: {self.acc:.4f}")
         mlflow.end_run() 
         print("Done!")
 
