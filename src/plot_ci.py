@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+import json, ast
 import matplotlib.pyplot as plt
 from pathlib import Path
 import seaborn as sns
@@ -38,140 +39,26 @@ MARKERS = {
     'SimCLR': '*'
 }
 
-SIGNIFICANCE = {
-    0.01: {('CNN', 'TCN'): True, ('CNN', 'Transformer'): False, ('Transformer', 'TCN'): True},
-    0.05: {('CNN', 'TCN'): False, ('CNN', 'Transformer'): True, ('Transformer', 'TCN'): True},
-    0.10: {('CNN', 'TCN'): False, ('CNN', 'Transformer'): True, ('Transformer', 'TCN'): True},
-    0.50: {('CNN', 'TCN'): False, ('CNN', 'Transformer'): True, ('Transformer', 'TCN'): True},
-    1.00: {('CNN', 'TCN'): False, ('CNN', 'Transformer'): False, ('Transformer', 'TCN'): False}
-}
+# Load significance maps
+SIG_DIR = Path("../results/significance")
+def load_sig(name: str):
+    raw = json.load(open(SIG_DIR / f"{name}.json"))
+    out = {}
+    for frac_str, comp in raw.items():
+        frac = float(frac_str)
+        cleaned = {}
+        for pair, val in comp.items():
+            m1_full, m2_full = pair.split("|")
+            # drop any classifier suffix
+            m1 = m1_full.split("_")[0]
+            m2 = m2_full.split("_")[0]
+            cleaned[(m1, m2)] = val
+        out[frac] = cleaned
+    return out
 
-# Add statistical significance information for SSL models
-SSL_LINEAR_SIGNIFICANCE = {
-    0.01: {
-        ('SimCLR', 'SoftTS2Vec'): False,
-        ('SimCLR', 'TSTCC'): False,
-        ('SimCLR', 'SoftTSTCC'): False,
-        ('SimCLR', 'TS2Vec'): False,
-        ('SoftTS2Vec', 'TSTCC'): False,
-        ('SoftTS2Vec', 'SoftTSTCC'): False,
-        ('SoftTS2Vec', 'TS2Vec'): False,
-        ('TSTCC', 'SoftTSTCC'): False,
-        ('TSTCC', 'TS2Vec'): False,
-        ('SoftTSTCC', 'TS2Vec'): False
-    },
-    0.05: {
-        ('SimCLR', 'SoftTS2Vec'): False,
-        ('SimCLR', 'TSTCC'): False,
-        ('SimCLR', 'SoftTSTCC'): False,
-        ('SimCLR', 'TS2Vec'): True,
-        ('SoftTS2Vec', 'TSTCC'): False,
-        ('SoftTS2Vec', 'SoftTSTCC'): False,
-        ('SoftTS2Vec', 'TS2Vec'): False,
-        ('TSTCC', 'SoftTSTCC'): False,
-        ('TSTCC', 'TS2Vec'): False,
-        ('SoftTSTCC', 'TS2Vec'): False
-    },
-    0.10: {
-        ('SimCLR', 'SoftTS2Vec'): True,
-        ('SimCLR', 'TSTCC'): True,
-        ('SimCLR', 'SoftTSTCC'): False,
-        ('SimCLR', 'TS2Vec'): True,
-        ('SoftTS2Vec', 'TSTCC'): False,
-        ('SoftTS2Vec', 'SoftTSTCC'): False,
-        ('SoftTS2Vec', 'TS2Vec'): False,
-        ('TSTCC', 'SoftTSTCC'): False,
-        ('TSTCC', 'TS2Vec'): False,
-        ('SoftTSTCC', 'TS2Vec'): True
-    },
-    0.50: {
-        ('SimCLR', 'SoftTS2Vec'): True,
-        ('SimCLR', 'TSTCC'): True,
-        ('SimCLR', 'SoftTSTCC'): True,
-        ('SimCLR', 'TS2Vec'): True,
-        ('SoftTS2Vec', 'TSTCC'): False,
-        ('SoftTS2Vec', 'SoftTSTCC'): False,
-        ('SoftTS2Vec', 'TS2Vec'): False,
-        ('TSTCC', 'SoftTSTCC'): False,
-        ('TSTCC', 'TS2Vec'): False,
-        ('SoftTSTCC', 'TS2Vec'): False
-    },
-    1.00: {
-        ('SimCLR', 'SoftTS2Vec'): True,
-        ('SimCLR', 'TSTCC'): True,
-        ('SimCLR', 'SoftTSTCC'): True,
-        ('SimCLR', 'TS2Vec'): True,
-        ('SoftTS2Vec', 'TSTCC'): False,
-        ('SoftTS2Vec', 'SoftTSTCC'): False,
-        ('SoftTS2Vec', 'TS2Vec'): False,
-        ('TSTCC', 'SoftTSTCC'): False,
-        ('TSTCC', 'TS2Vec'): False,
-        ('SoftTSTCC', 'TS2Vec'): False
-    }
-}
-
-SSL_MLP_SIGNIFICANCE = {
-    0.01: {
-        ('SimCLR', 'SoftTS2Vec'): False,
-        ('SimCLR', 'TSTCC'): False,
-        ('SimCLR', 'SoftTSTCC'): False,
-        ('SimCLR', 'TS2Vec'): False,
-        ('SoftTS2Vec', 'TSTCC'): False,
-        ('SoftTS2Vec', 'SoftTSTCC'): False,
-        ('SoftTS2Vec', 'TS2Vec'): False,
-        ('TSTCC', 'SoftTSTCC'): False,
-        ('TSTCC', 'TS2Vec'): False,
-        ('SoftTSTCC', 'TS2Vec'): False
-    },
-    0.05: {
-        ('SimCLR', 'SoftTS2Vec'): True,
-        ('SimCLR', 'TSTCC'): True,
-        ('SimCLR', 'SoftTSTCC'): True,
-        ('SimCLR', 'TS2Vec'): True,
-        ('SoftTS2Vec', 'TSTCC'): False,
-        ('SoftTS2Vec', 'SoftTSTCC'): False,
-        ('SoftTS2Vec', 'TS2Vec'): False,
-        ('TSTCC', 'SoftTSTCC'): False,
-        ('TSTCC', 'TS2Vec'): False,
-        ('SoftTSTCC', 'TS2Vec'): False
-    },
-    0.10: {
-        ('SimCLR', 'SoftTS2Vec'): True,
-        ('SimCLR', 'TSTCC'): True,
-        ('SimCLR', 'SoftTSTCC'): True,
-        ('SimCLR', 'TS2Vec'): True,
-        ('SoftTS2Vec', 'TSTCC'): False,
-        ('SoftTS2Vec', 'SoftTSTCC'): False,
-        ('SoftTS2Vec', 'TS2Vec'): False,
-        ('TSTCC', 'SoftTSTCC'): False,
-        ('TSTCC', 'TS2Vec'): False,
-        ('SoftTSTCC', 'TS2Vec'): False
-    },
-    0.50: {
-        ('SimCLR', 'SoftTS2Vec'): True,
-        ('SimCLR', 'TSTCC'): True,
-        ('SimCLR', 'SoftTSTCC'): True,
-        ('SimCLR', 'TS2Vec'): True,
-        ('SoftTS2Vec', 'TSTCC'): False,
-        ('SoftTS2Vec', 'SoftTSTCC'): False,
-        ('SoftTS2Vec', 'TS2Vec'): False,
-        ('TSTCC', 'SoftTSTCC'): False,
-        ('TSTCC', 'TS2Vec'): False,
-        ('SoftTSTCC', 'TS2Vec'): False
-    },
-    1.00: {
-        ('SimCLR', 'SoftTS2Vec'): True,
-        ('SimCLR', 'TSTCC'): True,
-        ('SimCLR', 'SoftTSTCC'): True,
-        ('SimCLR', 'TS2Vec'): True,
-        ('SoftTS2Vec', 'TSTCC'): False,
-        ('SoftTS2Vec', 'SoftTSTCC'): False,
-        ('SoftTS2Vec', 'TS2Vec'): False,
-        ('TSTCC', 'SoftTSTCC'): False,
-        ('TSTCC', 'TS2Vec'): False,
-        ('SoftTSTCC', 'TS2Vec'): False
-    }
-}
+SIGNIFICANCE = load_sig("supervised")    
+SSL_LINEAR_SIGNIFICANCE = load_sig("ssl_linear")
+SSL_MLP_SIGNIFICANCE  = load_sig("ssl_mlp")
 
 # Load data
 df = pd.read_csv(Path("../results/confidence_intervals/supervised_ci.csv"))
@@ -337,7 +224,7 @@ for idx, frac in enumerate(fractions_ssl_linear):
             i2 = ssl_models.index(m2)
             x1 = base_x + i1 * bar_width
             x2 = base_x + i2 * bar_width
-            y = height + j * 3
+            y = height + j * 1.2
             ax_ssl_linear.plot([x1, x2], [y, y], color='black', linewidth=1)
             ax_ssl_linear.text((x1 + x2)/2, y + 0.01, "*", ha='center', va='bottom', fontsize=14)
 
@@ -355,9 +242,16 @@ for idx, frac in enumerate(fractions_ssl_linear):
             i2 = ssl_models.index(m2)
             x1 = base_x + i1 * bar_width
             x2 = base_x + i2 * bar_width
-            y = height + j * 3
+            y = height + j * 1.2
             ax_ssl_mlp.plot([x1, x2], [y, y], color='black', linewidth=1)
             ax_ssl_mlp.text((x1 + x2)/2, y + 0.01, "*", ha='center', va='bottom', fontsize=14)
+
+# Adjust y-limits for both subplots to be the same
+ymin1, ymax1 = ax_ssl_linear.get_ylim()
+ymin2, ymax2 = ax_ssl_mlp.get_ylim()
+ymin, ymax = min(ymin1, ymin2), max(ymax1, ymax2)
+ax_ssl_linear.set_ylim(ymin, ymax)
+ax_ssl_mlp.set_ylim(ymin, ymax)
 
 # Styling for both subplots
 for ax, title in [(ax_ssl_linear, "SSL Models with Linear Classifier"), 
