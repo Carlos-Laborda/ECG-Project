@@ -32,7 +32,7 @@ export MLFLOW_TRACKING_URI=http://fs0.das6.cs.vu.nl:5005
 #   --scheduler_min_lr 1e-09 \
 #   --patience 20 \
 #   --lr 1e-5 \
-#   --label_fraction 1 \
+#   --label_fraction 0.01 \
 
 # TCN
 # echo "Launching training with seed: $1"
@@ -43,18 +43,18 @@ export MLFLOW_TRACKING_URI=http://fs0.das6.cs.vu.nl:5005
 #   --seed $1 \
 #   --lr 0.0005 \
 #   --patience 20 \
-#   --label_fraction 1.0 \
+#   --label_fraction 0.01 \
 
 # Transformer
 # echo "Launching training with seed: $1"
-# python supervised_training.py run \
-#   --mlflow_tracking_uri "http://fs0.das6.cs.vu.nl:5005" \
-#   --window_data_path "../../../../var/scratch/cla224/ECG-Project/data/windowed_data.h5" \
-#   --model_type "transformer" \
-#   --seed $1 \
-#   --lr 1e-5 \
-#   --patience 20 \
-#   --label_fraction 0.1 \
+python supervised_training.py run \
+  --mlflow_tracking_uri "http://fs0.das6.cs.vu.nl:5005" \
+  --window_data_path "../../../../var/scratch/cla224/ECG-Project/data/windowed_data.h5" \
+  --model_type "transformer" \
+  --seed $1 \
+  --lr 1e-5 \
+  --patience 20 \
+  --label_fraction 0.5 \
 
 # --- Run Self Supervised Model script ---
 # TS2Vec
@@ -63,7 +63,7 @@ export MLFLOW_TRACKING_URI=http://fs0.das6.cs.vu.nl:5005
 #   --mlflow_tracking_uri "http://fs0.das6.cs.vu.nl:5005" \
 #   --window_data_path "../../../../var/scratch/cla224/ECG-Project/data/windowed_data.h5" \
 #   --ts2vec_epochs 5 \
-#   --label_fraction 1 \
+#   --label_fraction 0.5 \
 #   --seed $1
 
 # TS2VecSoft
@@ -72,17 +72,17 @@ export MLFLOW_TRACKING_URI=http://fs0.das6.cs.vu.nl:5005
 #   --mlflow_tracking_uri "http://fs0.das6.cs.vu.nl:5005" \
 #   --window_data_path "../../../../var/scratch/cla224/ECG-Project/data/windowed_data.h5" \
 #   --ts2vec_epochs 5 \
-#   --label_fraction 1 \
+#   --label_fraction 0.01 \
 #   --seed $1
 
 # TSTCC
 # echo "Launching training with seed: $1"
-python tstcc_train.py run \
-  --mlflow_tracking_uri "http://fs0.das6.cs.vu.nl:5005" \
-  --window_data_path "../../../../var/scratch/cla224/ECG-Project/data/windowed_data.h5" \
-  --tcc_epochs 100 \
-  --label_fraction 1.0 \
-  --seed $1
+# python tstcc_train.py run \
+#   --mlflow_tracking_uri "http://fs0.das6.cs.vu.nl:5005" \
+#   --window_data_path "../../../../var/scratch/cla224/ECG-Project/data/windowed_data.h5" \
+#   --tcc_epochs 40 \
+#   --label_fraction 0.01 \
+#   --seed $1
 
 # TSTCCSoft
 # echo "Launching training with seed: $1"
@@ -90,7 +90,7 @@ python tstcc_train.py run \
 #   --mlflow_tracking_uri "http://fs0.das6.cs.vu.nl:5005" \
 #   --window_data_path "../../../../var/scratch/cla224/ECG-Project/data/windowed_data.h5" \
 #   --tcc_epochs 40 \
-#   --label_fraction 1.0 \
+#   --label_fraction 0.01 \
 #   --seed $1
 
 # SimCLR
@@ -99,7 +99,7 @@ python tstcc_train.py run \
 #   --mlflow_tracking_uri "http://fs0.das6.cs.vu.nl:5005" \
 #   --window_data_path "../../../../var/scratch/cla224/ECG-Project/data/windowed_data.h5" \
 #   --epochs 300 \
-#   --label_fraction 1.0 \
+#   --label_fraction 0.01 \
 #   --seed $1
 
 
