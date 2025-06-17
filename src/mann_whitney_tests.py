@@ -1,7 +1,6 @@
 """
 Compare F1 scores of various model groups across label fractions.
 
-Performs Welch’s t-test and checks for normality using Shapiro–Wilk.
 Expected folder structure:
 └── /Users/carlitos/Desktop/ECG-Project/results/
     ├── Supervised_CNN/Supervised_0.1/individual_runs.csv
@@ -291,68 +290,68 @@ mannwhitney_comparison(all_results, "Transformer", "Supervised")
 mannwhitney_comparison(all_results, "Transformer", "SSL_Linear")
 mannwhitney_comparison(all_results, "Transformer", "SSL_MLP")
 
-# 4) Full data against partial data
-ROOT = pathlib.Path("/Users/carlitos/Desktop/ECG-Project/results")
-FRACS = [0.01, 0.05, 0.10, 0.50]     
-SSL   = ["TS2Vec","SoftTS2Vec","TSTCC","SoftTSTCC"]
-SUP   = ["Supervised_CNN","Supervised_TCN","Supervised_Transformer"]
+# # 4) Full data against partial data
+# ROOT = pathlib.Path("/Users/carlitos/Desktop/ECG-Project/results")
+# FRACS = [0.01, 0.05, 0.10, 0.50]     
+# SSL   = ["TS2Vec","SoftTS2Vec","TSTCC","SoftTSTCC"]
+# SUP   = ["Supervised_CNN","Supervised_TCN","Supervised_Transformer"]
 
-def load_f1_df(folder: pathlib.Path) -> pd.DataFrame:
-    """Return df with columns [seed, f1] for one model × fraction."""
-    df = pd.read_csv(folder / "individual_runs.csv")
-    if 'seed' in df.columns:
-        key = 'seed'
-    elif 'run_id' in df.columns:
-        key = 'run_id'
-    else:
-        key = df.columns[0]  # fallback
-    return df[[key, 'test_f1']].rename(columns={key: 'seed', 'test_f1': 'f1'})
+# def load_f1_df(folder: pathlib.Path) -> pd.DataFrame:
+#     """Return df with columns [seed, f1] for one model × fraction."""
+#     df = pd.read_csv(folder / "individual_runs.csv")
+#     if 'seed' in df.columns:
+#         key = 'seed'
+#     elif 'run_id' in df.columns:
+#         key = 'run_id'
+#     else:
+#         key = df.columns[0]  # fallback
+#     return df[[key, 'test_f1']].rename(columns={key: 'seed', 'test_f1': 'f1'})
 
-def paired_diffs(model_root: pathlib.Path, frac_values_list, label, classifier=""):
-    """Yield rows dict(model, frac, Δ_mean, Δ_std, p, r)."""
-    full_df_path = model_root / f"{classifier}1.0"
-    full_df = load_f1_df(full_df_path).set_index('seed')
-    rows = []
-    for f in frac_values_list:
-        part_df_path = model_root / f"{classifier}{f}"
-        part_df = load_f1_df(part_df_path)
-        merged = part_df.set_index('seed').join(full_df, lsuffix='_part', rsuffix='_full', how='inner')
-        if len(merged) < 3:
-            print(f"Warning: Not enough matched samples (<3) for {label} at fraction {f}. Found {len(merged)}. Skipping Wilcoxon.")
-            continue
-        diff = merged['f1_part'] - merged['f1_full']
-        stat, p = stats.wilcoxon(diff, alternative='less')  # f1_partial < f1_full
-        # Compute effect size: r = Z / sqrt(N), using Z approximation from T-statistic
-        z = stats.norm.ppf(p) if p > 0 else -5  # cap extreme case
-        r = z / (len(diff) ** 0.5)
-        rows.append(dict(model=label, frac=f,
-                         delta_mean   = diff.mean(),
-                         delta_std    = diff.std(ddof=1),
-                         p_wilcoxon   = p,
-                         effect_size_r = r))
-    return rows
+# def paired_diffs(model_root: pathlib.Path, frac_values_list, label, classifier=""):
+#     """Yield rows dict(model, frac, Δ_mean, Δ_std, p, r)."""
+#     full_df_path = model_root / f"{classifier}1.0"
+#     full_df = load_f1_df(full_df_path).set_index('seed')
+#     rows = []
+#     for f in frac_values_list:
+#         part_df_path = model_root / f"{classifier}{f}"
+#         part_df = load_f1_df(part_df_path)
+#         merged = part_df.set_index('seed').join(full_df, lsuffix='_part', rsuffix='_full', how='inner')
+#         if len(merged) < 3:
+#             print(f"Warning: Not enough matched samples (<3) for {label} at fraction {f}. Found {len(merged)}. Skipping Wilcoxon.")
+#             continue
+#         diff = merged['f1_part'] - merged['f1_full']
+#         stat, p = stats.wilcoxon(diff, alternative='less')  # f1_partial < f1_full
+#         # Compute effect size: r = Z / sqrt(N), using Z approximation from T-statistic
+#         z = stats.norm.ppf(p) if p > 0 else -5  # cap extreme case
+#         r = z / (len(diff) ** 0.5)
+#         rows.append(dict(model=label, frac=f,
+#                          delta_mean   = diff.mean(),
+#                          delta_std    = diff.std(ddof=1),
+#                          p_wilcoxon   = p,
+#                          effect_size_r = r))
+#     return rows
 
-all_rows = []
+# all_rows = []
 
-# ----- SSL – Linear / MLP ----------------------------------------------------
-for m in SSL: # m is "TS2Vec", "SoftTS2Vec", etc.
-    model_specific_root = ROOT / m # e.g., ROOT / "TS2Vec"
-    all_rows.extend(paired_diffs(model_specific_root, FRACS, f"{m}_Linear",  "LinearClassifier_"))
-    all_rows.extend(paired_diffs(model_specific_root, FRACS, f"{m}_MLP",     "MLPClassifier_"))
+# # SSL – Linear / MLP 
+# for m in SSL: # m is "TS2Vec", "SoftTS2Vec", etc.
+#     model_specific_root = ROOT / m # e.g., ROOT / "TS2Vec"
+#     all_rows.extend(paired_diffs(model_specific_root, FRACS, f"{m}_Linear",  "LinearClassifier_"))
+#     all_rows.extend(paired_diffs(model_specific_root, FRACS, f"{m}_MLP",     "MLPClassifier_"))
 
-# ----- Supervised ------------------------------------------------------------
-for m in SUP: # m is "Supervised_CNN", "Supervised_TCN", "Supervised_Transformer"
-    model_specific_root = ROOT / m # e.g., ROOT / "Supervised_CNN"
-    # For supervised models, the subfolder prefix is "Supervised_"
-    # e.g., Supervised_CNN/Supervised_0.1/individual_runs.csv
-    classifier_prefix_for_supervised = "Supervised_"
-    table_label = m.replace("Supervised_","") # "CNN", "TCN", "Transformer"
-    all_rows.extend(paired_diffs(model_specific_root, FRACS, table_label, classifier_prefix_for_supervised))
+# # Supervised
+# for m in SUP: # m is "Supervised_CNN", "Supervised_TCN", "Supervised_Transformer"
+#     model_specific_root = ROOT / m # e.g., ROOT / "Supervised_CNN"
+#     # For supervised models, the subfolder prefix is "Supervised_"
+#     # e.g., Supervised_CNN/Supervised_0.1/individual_runs.csv
+#     classifier_prefix_for_supervised = "Supervised_"
+#     table_label = m.replace("Supervised_","") # "CNN", "TCN", "Transformer"
+#     all_rows.extend(paired_diffs(model_specific_root, FRACS, table_label, classifier_prefix_for_supervised))
 
-results = (pd.DataFrame(all_rows)
-             .sort_values(["model","frac"])
-             .reset_index(drop=True))
+# results = (pd.DataFrame(all_rows)
+#              .sort_values(["model","frac"])
+#              .reset_index(drop=True))
 
-# nice round-up
-pd.set_option('display.float_format', '{:.3f}'.format)
-print(results)
+# # nice round-up
+# pd.set_option('display.float_format', '{:.3f}'.format)
+# print(results)
