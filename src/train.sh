@@ -47,14 +47,14 @@ export MLFLOW_TRACKING_URI=http://fs0.das6.cs.vu.nl:5005
 
 # Transformer
 # echo "Launching training with seed: $1"
-python supervised_training.py run \
-  --mlflow_tracking_uri "http://fs0.das6.cs.vu.nl:5005" \
-  --window_data_path "../../../../var/scratch/cla224/ECG-Project/data/windowed_data.h5" \
-  --model_type "transformer" \
-  --seed $1 \
-  --lr 1e-5 \
-  --patience 20 \
-  --label_fraction 0.5 \
+# python supervised_training.py run \
+#   --mlflow_tracking_uri "http://fs0.das6.cs.vu.nl:5005" \
+#   --window_data_path "../../../../var/scratch/cla224/ECG-Project/data/windowed_data.h5" \
+#   --model_type "transformer" \
+#   --seed $1 \
+#   --lr 1e-5 \
+#   --patience 20 \
+#   --label_fraction 0.5 \
 
 # --- Run Self Supervised Model script ---
 # TS2Vec
