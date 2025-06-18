@@ -50,11 +50,11 @@ class MajorityBaselineFlow(FlowSpec):
 
         print("\n[Majority Class Baseline Results]")
         print(f" Majority class : {majority_class}")
-        print(f" Accuracy        : {acc_maj:.4f}")
-        print(f" AUC-ROC         : {auc_maj:.4f}")
-        print(f" F1 (macro)      : {f1_macro_maj:.4f}")
-        print(f" F1 (class 0)    : {f1_class0_maj:.4f}")
-        print(f" F1 (class 1)    : {f1_class1_maj:.4f}")
+        print(f" Accuracy: {acc_maj:.4f}")
+        print(f" AUC-ROC: {auc_maj:.4f}")
+        print(f" F1 (macro): {f1_macro_maj:.4f}")
+        print(f" F1 (class 0): {f1_class0_maj:.4f}")
+        print(f" F1 (class 1): {f1_class1_maj:.4f}")
 
         # Random baseline
         rng = np.random.default_rng(self.seed)
@@ -70,11 +70,11 @@ class MajorityBaselineFlow(FlowSpec):
         f1_class1_rand = f1_score(y_test, y_pred_rand, pos_label=1)
 
         print("\n[Random Class Baseline Results]")
-        print(f" Accuracy        : {acc_rand:.4f}")
-        print(f" AUC-ROC         : {auc_rand:.4f}")
-        print(f" F1 (macro)      : {f1_macro_rand:.4f}")
-        print(f" F1 (class 0)    : {f1_class0_rand:.4f}")
-        print(f" F1 (class 1)    : {f1_class1_rand:.4f}")
+        print(f" Accuracy: {acc_rand:.4f}")
+        print(f" AUC-ROC: {auc_rand:.4f}")
+        print(f" F1 (macro): {f1_macro_rand:.4f}")
+        print(f" F1 (class 0): {f1_class0_rand:.4f}")
+        print(f" F1 (class 1): {f1_class1_rand:.4f}")
 
         # Log to MLflow
         with mlflow.start_run(run_id=self.mlflow_run_id):
