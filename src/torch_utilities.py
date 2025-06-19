@@ -393,7 +393,63 @@ class Improved1DCNN(nn.Module):
         x = self.dropout4(x)
         x = torch.sigmoid(self.fc3(x))
         return x
-    
+
+
+# from: Sarkar, P., Etemad, A.: Self-Supervised ECG Representation Learning for Emotion Recognition. 
+# IEEE Transactions on Affective Computing \textbf{13}(3), 1541--1554 (2020). \doi{10.1109/TAFFC.2020.3014842}
+class EmotionRecognitionCNN(nn.Module):
+    def __init__(self):
+        super(EmotionRecognitionCNN, self).__init__()
+        self.bn_input = nn.BatchNorm1d(1)
+        # Conv block 1
+        self.conv1_1 = nn.Conv1d(1, 32, kernel_size=32, padding='same')
+        self.conv1_2 = nn.Conv1d(32, 32, kernel_size=32, padding='same')
+        self.pool1 = nn.MaxPool1d(kernel_size=8, stride=2)
+
+        # Conv block 2
+        self.conv2_1 = nn.Conv1d(32, 64, kernel_size=16, padding='same')
+        self.conv2_2 = nn.Conv1d(64, 64, kernel_size=16, padding='same')
+        self.pool2 = nn.MaxPool1d(kernel_size=8, stride=2)
+
+        # Conv block 3
+        self.conv3_1 = nn.Conv1d(64, 128, kernel_size=8, padding='same')
+        self.conv3_2 = nn.Conv1d(128, 128, kernel_size=8, padding='same')
+        self.global_pool = nn.AdaptiveMaxPool1d(1)
+
+        # Dense layers
+        self.fc1 = nn.Linear(128, 512)
+        self.dropout = nn.Dropout(0.6)
+        self.fc2 = nn.Linear(512, 1)
+
+    def forward(self, x):
+        # Conv block 1
+        x = self.bn_input(x)
+        x = F.relu(self.conv1_1(x))
+        x = F.relu(self.conv1_2(x))
+        x = self.pool1(x)
+
+        # Conv block 2
+        x = F.relu(self.conv2_1(x))
+        x = F.relu(self.conv2_2(x))
+        x = self.pool2(x)
+
+        # Conv block 3
+        x = F.relu(self.conv3_1(x))
+        x = F.relu(self.conv3_2(x))
+        x = self.global_pool(x)
+
+        # Flatten
+        x = x.view(x.size(0), -1)
+
+        # Fully connected layers
+        x = F.relu(self.fc1(x))
+        x = self.dropout(x)
+        x = torch.sigmoid(self.fc2(x))
+
+        return x
+
+# Adapted from: Sarkar, P., Etemad, A.: Self-Supervised ECG Representation Learning for Emotion Recognition. 
+# IEEE Transactions on Affective Computing \textbf{13}(3), 1541--1554 (2020). \doi{10.1109/TAFFC.2020.3014842}
 class Improved1DCNN_v2(nn.Module):
     """
     A more complex 1D CNN model with 3 convolutional blocks with 
@@ -453,58 +509,6 @@ class Improved1DCNN_v2(nn.Module):
         x = self.fc3(x)
         #x = torch.sigmoid(self.fc3(x))
         return x
-
-# CNN from SSL-ECG paper
-class EmotionRecognitionCNN(nn.Module):
-    def __init__(self):
-        super(EmotionRecognitionCNN, self).__init__()
-        self.bn_input = nn.BatchNorm1d(1)
-        # Conv block 1
-        self.conv1_1 = nn.Conv1d(1, 32, kernel_size=32, padding='same')
-        self.conv1_2 = nn.Conv1d(32, 32, kernel_size=32, padding='same')
-        self.pool1 = nn.MaxPool1d(kernel_size=8, stride=2)
-
-        # Conv block 2
-        self.conv2_1 = nn.Conv1d(32, 64, kernel_size=16, padding='same')
-        self.conv2_2 = nn.Conv1d(64, 64, kernel_size=16, padding='same')
-        self.pool2 = nn.MaxPool1d(kernel_size=8, stride=2)
-
-        # Conv block 3
-        self.conv3_1 = nn.Conv1d(64, 128, kernel_size=8, padding='same')
-        self.conv3_2 = nn.Conv1d(128, 128, kernel_size=8, padding='same')
-        self.global_pool = nn.AdaptiveMaxPool1d(1)
-
-        # Dense layers
-        self.fc1 = nn.Linear(128, 512)
-        self.dropout = nn.Dropout(0.6)
-        self.fc2 = nn.Linear(512, 1)
-
-    def forward(self, x):
-        # Conv block 1
-        x = self.bn_input(x)
-        x = F.relu(self.conv1_1(x))
-        x = F.relu(self.conv1_2(x))
-        x = self.pool1(x)
-
-        # Conv block 2
-        x = F.relu(self.conv2_1(x))
-        x = F.relu(self.conv2_2(x))
-        x = self.pool2(x)
-
-        # Conv block 3
-        x = F.relu(self.conv3_1(x))
-        x = F.relu(self.conv3_2(x))
-        x = self.global_pool(x)
-
-        # Flatten
-        x = x.view(x.size(0), -1)
-
-        # Fully connected layers
-        x = F.relu(self.fc1(x))
-        x = self.dropout(x)
-        x = torch.sigmoid(self.fc2(x))
-
-        return x
     
 # ----------------------
 # Transformer Model Class
@@ -540,6 +544,9 @@ class PositionalEncoding(nn.Module):
         x = x + self.pe[:, :x.size(1), :]
         return self.dropout(x)
 
+# inspired from: Behinaein, B., Bhatti, A., Rodenburg, D., Hungler, P., Etemad, A.: 
+# A Transformer Architecture for Stress Detection from ECG. 
+# In: International Symposium on Wearable Computers, pp. 1--6 (2021). \doi{10.1145/3460421.3480427}
 # Transformer-based classifier for ECG stress detection
 class TransformerECGClassifier(nn.Module):
     def __init__(self, input_length=10000):
@@ -635,6 +642,9 @@ class TransformerECGClassifier(nn.Module):
         #return torch.sigmoid(x)
 
 
+# adapted from: Ingolfsson, T.M., Wang, X., Hersche, M., Burrello, A., Cavigelli, L., Benini, L.: 
+# ECG-TCN: Wearable Cardiac Arrhythmia Detection with a Temporal Convolutional Network. 
+# arXiv preprint arXiv:2103.13740 (2021). \url{https://arxiv.org/abs/2103.13740}
 # ----------------------
 # TCN Model Class
 # ----------------------
