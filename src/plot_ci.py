@@ -69,6 +69,10 @@ n_models = len(models)
 bar_width = 0.2
 x = np.arange(len(fractions))
 
+# ----------------------------------------------
+# Plot for Supervised Models
+# ----------------------------------------------
+
 # Plot
 fig, ax = plt.subplots(figsize=(12, 5), dpi=300)
 
@@ -113,7 +117,7 @@ for idx, frac in enumerate(fractions):
 # Styling
 ax.set_title("Supervised Models", fontsize=14, fontweight='bold', pad=20)
 ax.set_xlabel("Proportion of Labeled Training Data", fontsize=12, fontweight='bold')
-ax.set_ylabel("F1 Score", fontsize=12, fontweight='bold')
+ax.set_ylabel("MF1 Score", fontsize=12, fontweight='bold')
 ax.set_xticks(x + bar_width * (n_models - 1) / 2)
 ax.set_xticklabels([f'{int(f*100)}%' for f in fractions], fontsize=12)
 ax.tick_params(axis='both', which='major', labelsize=12) 
@@ -131,7 +135,9 @@ plt.savefig("../results/error_bars_supervised.png", dpi=300)
 plt.show()
 
 
-# --- Plot for SSL Models ---
+# ----------------------------------------------
+# Plot for SSL Models
+# ----------------------------------------------
 
 # Create a single figure with two subplots
 fig_ssl, (ax_ssl_linear, ax_ssl_mlp) = plt.subplots(1, 2, figsize=(20, 8), dpi=300)
@@ -258,7 +264,7 @@ for ax, title in [(ax_ssl_linear, "SSL Models with Linear Classifier"),
                   (ax_ssl_mlp, "SSL Models with MLP Classifier")]:
     ax.set_title(title, fontsize=14, fontweight='bold', pad=20)
     ax.set_xlabel("Proportion of Labeled Training Data", fontsize=12, fontweight='bold')
-    ax.set_ylabel("F1 Score", fontsize=12, fontweight='bold')
+    ax.set_ylabel("MF1 Score", fontsize=12, fontweight='bold')
     ax.set_xticks(x_ssl + bar_width * (n_models - 1) / 2)
     ax.set_xticklabels([f'{int(f*100)}%' for f in fractions_ssl_linear], fontsize=12) 
     ax.tick_params(axis='both', which='major', labelsize=12)
