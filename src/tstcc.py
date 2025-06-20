@@ -82,27 +82,21 @@ class Load_Dataset(Dataset):
         X_train = dataset["samples"]
         y_train = dataset["labels"]
 
-        # ─────────────────────────────────────────────────────
-        # 1) ensure a channel-dim exists
-        # ─────────────────────────────────────────────────────
+        # ensure a channel-dim exists
         if len(X_train.shape) < 3:           # (N, L)  ->  (N, L, 1)
             if isinstance(X_train, np.ndarray):
                 X_train = np.expand_dims(X_train, 2)
             else:  # torch.Tensor
                 X_train = X_train.unsqueeze(2)
 
-        # ─────────────────────────────────────────────────────
-        # 2) make channel dimension second: (N, L, C) → (N, C, L)
-        # ─────────────────────────────────────────────────────
+        # make channel dimension second: (N, L, C) → (N, C, L)
         if X_train.shape.index(min(X_train.shape)) != 1:
             if isinstance(X_train, np.ndarray):
                 X_train = np.transpose(X_train, (0, 2, 1))
             else:                             # torch.Tensor
                 X_train = X_train.permute(0, 2, 1)
 
-        # ─────────────────────────────────────────────────────
-        # 3) final conversion to torch tensors
-        # ─────────────────────────────────────────────────────
+        # final conversion to torch tensors
         if isinstance(X_train, np.ndarray):
             self.x_data = torch.from_numpy(X_train)
             self.y_data = torch.from_numpy(y_train).long()
@@ -126,30 +120,6 @@ class Load_Dataset(Dataset):
 
     def __len__(self):
         return self.len
-
-
-# def data_generator(data_path, configs, training_mode):
-
-#     train_dataset = torch.load(os.path.join(data_path, "train.pt"))
-#     valid_dataset = torch.load(os.path.join(data_path, "val.pt"))
-#     test_dataset = torch.load(os.path.join(data_path, "test.pt"))
-
-#     train_dataset = Load_Dataset(train_dataset, configs, training_mode)
-#     valid_dataset = Load_Dataset(valid_dataset, configs, training_mode)
-#     test_dataset = Load_Dataset(test_dataset, configs, training_mode)
-
-#     train_loader = torch.utils.data.DataLoader(dataset=train_dataset, batch_size=configs.batch_size,
-#                                                shuffle=True, drop_last=configs.drop_last,
-#                                                num_workers=0)
-#     valid_loader = torch.utils.data.DataLoader(dataset=valid_dataset, batch_size=configs.batch_size,
-#                                                shuffle=False, drop_last=configs.drop_last,
-#                                                num_workers=0)
-
-#     test_loader = torch.utils.data.DataLoader(dataset=test_dataset, batch_size=configs.batch_size,
-#                                               shuffle=False, drop_last=False,
-#                                               num_workers=0)
-
-#     return train_loader, valid_loader, test_loader
 
 def data_generator_from_arrays(
     X_train, y_train, X_val, y_val, X_test, y_test,
@@ -676,23 +646,23 @@ def model_train(model, temporal_contr_model,
             show_shape("train-loop INPUT   aug1/aug2", (aug1, aug2))
             
 
-        # ── move to device ────────────────────────────────────────────
+        # move to device
         aug1, aug2 = aug1.float().to(device), aug2.float().to(device)
         data, labels = data.float().to(device), labels.long().to(device)
 
         model_opt.zero_grad()
         tc_opt.zero_grad()
 
-        # ── SSL vs supervised branch ─────────────────────────────────
+        # SSL vs supervised branch
         if training_mode == "self_supervised":
             _, feat1 = model(aug1)
             _, feat2 = model(aug2)
             loss = compute_ssl_loss(feat1, feat2, temporal_contr_model, nt_xent)
-        else:                                        # <- we add this part back
+        else:                          
             preds, _ = model(data)
             loss = criterion(preds, labels)
 
-        # ── backward & step ──────────────────────────────────────────
+        # backward & step
         loss.backward()
         model_opt.step()
         tc_opt.step()
@@ -997,8 +967,6 @@ def evaluate_classifier(
             test_metrics["test_auroc"],
             test_metrics["test_pr_auc"],
             test_metrics["test_f1"])
-
-
 
 # ----------------------------------------------------------------------
 # Encoding function to textract TS-TCC representations
