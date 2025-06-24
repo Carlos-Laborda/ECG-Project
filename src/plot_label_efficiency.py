@@ -1387,6 +1387,110 @@ plt.savefig("../results/label_efficiency_ci.png", dpi=300)
 plt.show()
 
 
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+import pathlib
+
+plt.style.use('seaborn-v0_8-whitegrid')
+sns.set_palette("colorblind")
+
+# ------------------------------------------------------------------
+# Load data from new confidence interval files
+# ------------------------------------------------------------------
+root = pathlib.Path("../results/confidence_intervals")
+sup_file = root / "supervised_ci.csv"
+lin_file = root / "ssl_linear_ci.csv"
+mlp_file = root / "ssl_mlp_ci.csv"
+
+sup_df = pd.read_csv(sup_file)
+lin_df = pd.read_csv(lin_file)
+mlp_df = pd.read_csv(mlp_file)
+
+# Drop SimCLR as requested
+lin_df = lin_df[lin_df.model != "SimCLR"]
+mlp_df = mlp_df[mlp_df.model != "SimCLR"]
+
+def aggregate_pooled_ci(df, metric_prefix="f1"):
+    """
+    Pools results from multiple models by averaging their pre-calculated means and CI bounds.
+    """
+    # Define the columns to aggregate based on the metric
+    mean_col = f"{metric_prefix}_mean"
+    lower_col = f"{metric_prefix}_ci_lower"
+    upper_col = f"{metric_prefix}_ci_upper"
+    
+    # Group by label fraction and average the stats
+    agg_df = df.groupby("label_fraction").agg(
+        mean=(mean_col, 'mean'),
+        ci_lower=(lower_col, 'mean'),
+        ci_upper=(upper_col, 'mean')
+    ).reset_index()
+    
+    print(f"Aggregated results for metric '{metric_prefix}':\n{agg_df}\n")
+    return agg_df
+
+# --- Process data for F1-score ---
+METRIC = "f1"
+
+# Supervised-group (CNN + TCN)
+print("Supervised Group (F1):")
+print("=" * 30)
+cnn_tcn = sup_df[sup_df.model.isin(["CNN", "TCN"])]
+sup_grp = aggregate_pooled_ci(cnn_tcn, metric_prefix=METRIC)
+
+# SSL groups
+print("SSL Linear Group (F1):")
+print("=" * 30)
+ssl_lin = aggregate_pooled_ci(lin_df, metric_prefix=METRIC)
+
+print("\nSSL MLP Group (F1):")
+print("=" * 30)
+ssl_mlp = aggregate_pooled_ci(mlp_df, metric_prefix=METRIC)
+
+# ------------------------------------------------------------------
+# Plot
+# ------------------------------------------------------------------
+fig, ax = plt.subplots(figsize=(10, 6), dpi=300)
+
+def draw(group_df, color, marker, label):
+    """Generic plotting function for a model group."""
+    ax.plot(group_df.label_fraction, group_df["mean"], marker=marker,
+            color=color, linewidth=2.5, markersize=7,
+            markerfacecolor='white', markeredgewidth=1.8,
+            label=label)
+    ax.fill_between(group_df.label_fraction, 
+                    group_df["ci_lower"], 
+                    group_df["ci_upper"],
+                    color=color, alpha=0.15)
+
+# Draw the three groups
+draw(ssl_mlp, "#9467BD", "^", "SSL MLP")
+draw(ssl_lin, "#1F77B4", "s", "SSL Linear")
+draw(sup_grp, "#FF6B6B", "o", "Supervised - CNN + TCN")
+
+# Styling
+ax.set_xscale('log')
+fractions = [0.01, 0.05, 0.10, 0.50, 1.00]
+ax.set_xticks(fractions)
+ax.set_xticklabels([f"{int(f*100)}%" for f in fractions], fontsize=12)
+ax.tick_params(axis='both', which='major', labelsize=12) 
+ax.set_xlabel("Proportion of labeled training data", fontweight="bold", fontsize=12)
+ax.set_ylabel("F1 score", fontweight="bold", fontsize=12)
+ax.set_title("Label-efficiency comparison: Supervised vs SSL", fontweight="bold", pad=18, fontsize=14)
+ax.grid(True, linestyle="--", alpha=0.3)
+ax.legend(frameon=True, fancybox=True, shadow=True, fontsize=12, loc='lower right')
+
+ax.set_facecolor("#FAFAFA")
+for spine in ("top", "right"):
+    ax.spines[spine].set_visible(False)
+
+plt.tight_layout()
+plt.savefig("../results/label_efficiency_f1_ci.pdf", dpi=300)
+plt.savefig("../results/label_efficiency_f1_ci.png", dpi=300)
+plt.show()
+
 # ------------------------------------------------------------------
 # 4-way comparison of F1-scores: Supervised (CNN + TCN) vs Transformer vs SSL-Linear vs SSL-MLP (excluding SimCLR)
 # Pooled Bootstrap confidence intervals
