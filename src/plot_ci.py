@@ -135,49 +135,194 @@ plt.savefig("../results/error_bars_supervised.png", dpi=300)
 plt.show()
 
 
-# ----------------------------------------------
-# Plot for SSL Models
-# ----------------------------------------------
+# # ----------------------------------------------
+# # Plot for SSL Models (subplot)
+# # ----------------------------------------------
 
-# Create a single figure with two subplots
-fig_ssl, (ax_ssl_linear, ax_ssl_mlp) = plt.subplots(1, 2, figsize=(20, 8), dpi=300)
+# # Create a single figure with two subplots
+# fig_ssl, (ax_ssl_linear, ax_ssl_mlp) = plt.subplots(1, 2, figsize=(20, 8), dpi=300)
 
-# Load data for SSL Linear
+# # Load data for SSL Linear
+# df_ssl_linear = pd.read_csv(Path("../results/confidence_intervals/ssl_linear_ci.csv"))
+# df_ssl_linear["label_fraction"] = df_ssl_linear["label_fraction"].astype(float)
+# fractions_ssl_linear = sorted(df_ssl_linear["label_fraction"].unique())
+
+# # Load data for SSL MLP
+# df_ssl_mlp = pd.read_csv(Path("../results/confidence_intervals/ssl_mlp_ci.csv"))
+# df_ssl_mlp["label_fraction"] = df_ssl_mlp["label_fraction"].astype(float)
+# fractions_ssl_mlp = sorted(df_ssl_mlp["label_fraction"].unique())
+
+# # Filter for SSL models in desired order
+# ssl_models = ['SimCLR', 'TS2Vec', 'SoftTS2Vec', 'TSTCC', 'SoftTSTCC']
+
+# # Process Linear data
+# df_ssl_linear = df_ssl_linear[df_ssl_linear["model"].isin(ssl_models)]
+# df_ssl_linear['model'] = pd.Categorical(df_ssl_linear['model'], categories=ssl_models, ordered=True)
+# df_ssl_linear = df_ssl_linear.sort_values('model')
+
+# # Process MLP data
+# df_ssl_mlp = df_ssl_mlp[df_ssl_mlp["model"].isin(ssl_models)]
+# df_ssl_mlp['model'] = pd.Categorical(df_ssl_mlp['model'], categories=ssl_models, ordered=True)
+# df_ssl_mlp = df_ssl_mlp.sort_values('model')
+
+# # Common variables
+# n_models = len(ssl_models)
+# x_ssl = np.arange(len(fractions_ssl_linear)) * 1.5
+
+# # Plot Linear subplot
+# for i, model in enumerate(ssl_models):
+#     sub = df_ssl_linear[df_ssl_linear["model"] == model].sort_values("label_fraction")
+#     means = sub["mean"].values
+#     yerr_lower = means - sub["ci_lower"].values
+#     yerr_upper = sub["ci_upper"].values - means
+
+#     positions = x_ssl + i * bar_width
+#     ax_ssl_linear.errorbar(
+#         positions, means, yerr=[yerr_lower, yerr_upper],
+#         fmt=MARKERS.get(model, 'o'),
+#         capsize=5,
+#         label=model,
+#         color=COLORS.get(model, f'C{i}'),
+#         linestyle='None',
+#         markersize=8,
+#         markerfacecolor='white',
+#         markeredgewidth=2,
+#         capthick=2,
+#         elinewidth=2
+#     )
+
+# # Plot MLP subplot
+# for i, model in enumerate(ssl_models):
+#     sub = df_ssl_mlp[df_ssl_mlp["model"] == model].sort_values("label_fraction")
+#     means = sub["mean"].values
+#     yerr_lower = means - sub["ci_lower"].values
+#     yerr_upper = sub["ci_upper"].values - means
+
+#     positions = x_ssl + i * bar_width
+#     ax_ssl_mlp.errorbar(
+#         positions, means, yerr=[yerr_lower, yerr_upper],
+#         fmt=MARKERS.get(model, 'o'),
+#         capsize=5,
+#         label=model,
+#         color=COLORS.get(model, f'C{i}'),
+#         linestyle='None',
+#         markersize=8,
+#         markerfacecolor='white',
+#         markeredgewidth=2,
+#         capthick=2,
+#         elinewidth=2
+#     )
+
+# # Add significance asterisks for both plots
+# for idx, frac in enumerate(fractions_ssl_linear):
+#     # Linear plot significance
+#     comparisons = SSL_LINEAR_SIGNIFICANCE.get(frac, {})
+#     base_x = x_ssl[idx]
+#     relevant_data = df_ssl_linear[df_ssl_linear["label_fraction"] == frac]
+#     if not relevant_data.empty:
+#         height = max(relevant_data["ci_upper"]) + 2 
+#     else:
+#         height = ax_ssl_linear.get_ylim()[1] * 0.1
+
+#     for j, (m1, m2) in enumerate(comparisons):
+#         if comparisons[(m1, m2)]:
+#             i1 = ssl_models.index(m1)
+#             i2 = ssl_models.index(m2)
+#             x1 = base_x + i1 * bar_width
+#             x2 = base_x + i2 * bar_width
+#             y = height + j * 1.2
+#             ax_ssl_linear.plot([x1, x2], [y, y], color='black', linewidth=1)
+#             ax_ssl_linear.text((x1 + x2)/2, y + 0.01, "*", ha='center', va='bottom', fontsize=14)
+
+#     # MLP plot significance
+#     comparisons = SSL_MLP_SIGNIFICANCE.get(frac, {})
+#     relevant_data = df_ssl_mlp[df_ssl_mlp["label_fraction"] == frac]
+#     if not relevant_data.empty:
+#         height = max(relevant_data["ci_upper"]) + 2
+#     else:
+#         height = ax_ssl_mlp.get_ylim()[1] * 0.1
+
+#     for j, (m1, m2) in enumerate(comparisons):
+#         if comparisons[(m1, m2)]:
+#             i1 = ssl_models.index(m1)
+#             i2 = ssl_models.index(m2)
+#             x1 = base_x + i1 * bar_width
+#             x2 = base_x + i2 * bar_width
+#             y = height + j * 1.2
+#             ax_ssl_mlp.plot([x1, x2], [y, y], color='black', linewidth=1)
+#             ax_ssl_mlp.text((x1 + x2)/2, y + 0.01, "*", ha='center', va='bottom', fontsize=14)
+
+# # Adjust y-limits for both subplots to be the same
+# ymin1, ymax1 = ax_ssl_linear.get_ylim()
+# ymin2, ymax2 = ax_ssl_mlp.get_ylim()
+# ymin, ymax = min(ymin1, ymin2), max(ymax1, ymax2)
+# ax_ssl_linear.set_ylim(ymin, ymax)
+# ax_ssl_mlp.set_ylim(ymin, ymax)
+
+# # Styling for both subplots
+# for ax, title in [(ax_ssl_linear, "SSL Models with Linear Classifier"), 
+#                   (ax_ssl_mlp, "SSL Models with MLP Classifier")]:
+#     ax.set_title(title, fontsize=14, fontweight='bold', pad=20)
+#     ax.set_xlabel("Proportion of Labeled Training Data", fontsize=12, fontweight='bold')
+#     ax.set_ylabel("MF1 Score", fontsize=12, fontweight='bold')
+#     ax.set_xticks(x_ssl + bar_width * (n_models - 1) / 2)
+#     ax.set_xticklabels([f'{int(f*100)}%' for f in fractions_ssl_linear], fontsize=12) 
+#     ax.tick_params(axis='both', which='major', labelsize=12)
+#     ax.grid(True, linestyle='--', alpha=0.3)
+#     ax.set_facecolor('#FAFAFA')
+#     ax.spines['top'].set_visible(False)
+#     ax.spines['right'].set_visible(False)
+#     ax.spines['left'].set_linewidth(0.5)
+#     ax.spines['bottom'].set_linewidth(0.5)
+#     ax.legend(frameon=True, fancybox=True, shadow=True, fontsize=12, loc='lower right')
+
+# # Add a common title
+# fig_ssl.suptitle('SSL Models Performance Comparison', fontsize=16, fontweight='bold', y=1.02)
+
+# # Modified saving approach
+# plt.tight_layout()
+# # Save with extra space at the top for the suptitle
+# plt.savefig("../results/error_bars_ssl.pdf", 
+#             dpi=300, 
+#             bbox_inches='tight',
+#             pad_inches=0.3)  # Add padding
+# plt.savefig("../results/error_bars_ssl.png", 
+#             dpi=300, 
+#             bbox_inches='tight',
+#             pad_inches=0.3)  # Add padding
+# plt.show()
+
+
+# ----------------------------------------------
+# Individual plot for SSL Linear Models
+# ----------------------------------------------
+
+# Create figure for SSL Linear
+fig_linear, ax_linear = plt.subplots(figsize=(12, 6), dpi=300)
+
+# Load and process Linear data
 df_ssl_linear = pd.read_csv(Path("../results/confidence_intervals/ssl_linear_ci.csv"))
 df_ssl_linear["label_fraction"] = df_ssl_linear["label_fraction"].astype(float)
 fractions_ssl_linear = sorted(df_ssl_linear["label_fraction"].unique())
 
-# Load data for SSL MLP
-df_ssl_mlp = pd.read_csv(Path("../results/confidence_intervals/ssl_mlp_ci.csv"))
-df_ssl_mlp["label_fraction"] = df_ssl_mlp["label_fraction"].astype(float)
-fractions_ssl_mlp = sorted(df_ssl_mlp["label_fraction"].unique())
-
 # Filter for SSL models in desired order
 ssl_models = ['SimCLR', 'TS2Vec', 'SoftTS2Vec', 'TSTCC', 'SoftTSTCC']
-
-# Process Linear data
 df_ssl_linear = df_ssl_linear[df_ssl_linear["model"].isin(ssl_models)]
 df_ssl_linear['model'] = pd.Categorical(df_ssl_linear['model'], categories=ssl_models, ordered=True)
 df_ssl_linear = df_ssl_linear.sort_values('model')
 
-# Process MLP data
-df_ssl_mlp = df_ssl_mlp[df_ssl_mlp["model"].isin(ssl_models)]
-df_ssl_mlp['model'] = pd.Categorical(df_ssl_mlp['model'], categories=ssl_models, ordered=True)
-df_ssl_mlp = df_ssl_mlp.sort_values('model')
-
-# Common variables
 n_models = len(ssl_models)
 x_ssl = np.arange(len(fractions_ssl_linear)) * 1.5
 
-# Plot Linear subplot
+# Plot Linear
 for i, model in enumerate(ssl_models):
     sub = df_ssl_linear[df_ssl_linear["model"] == model].sort_values("label_fraction")
-    means = sub["mean"].values
-    yerr_lower = means - sub["ci_lower"].values
-    yerr_upper = sub["ci_upper"].values - means
+    means = sub["f1_mean"].values
+    yerr_lower = means - sub["f1_ci_lower"].values
+    yerr_upper = sub["f1_ci_upper"].values - means
 
     positions = x_ssl + i * bar_width
-    ax_ssl_linear.errorbar(
+    ax_linear.errorbar(
         positions, means, yerr=[yerr_lower, yerr_upper],
         fmt=MARKERS.get(model, 'o'),
         capsize=5,
@@ -191,38 +336,15 @@ for i, model in enumerate(ssl_models):
         elinewidth=2
     )
 
-# Plot MLP subplot
-for i, model in enumerate(ssl_models):
-    sub = df_ssl_mlp[df_ssl_mlp["model"] == model].sort_values("label_fraction")
-    means = sub["mean"].values
-    yerr_lower = means - sub["ci_lower"].values
-    yerr_upper = sub["ci_upper"].values - means
-
-    positions = x_ssl + i * bar_width
-    ax_ssl_mlp.errorbar(
-        positions, means, yerr=[yerr_lower, yerr_upper],
-        fmt=MARKERS.get(model, 'o'),
-        capsize=5,
-        label=model,
-        color=COLORS.get(model, f'C{i}'),
-        linestyle='None',
-        markersize=8,
-        markerfacecolor='white',
-        markeredgewidth=2,
-        capthick=2,
-        elinewidth=2
-    )
-
-# Add significance asterisks for both plots
+# Add significance asterisks for Linear plot
 for idx, frac in enumerate(fractions_ssl_linear):
-    # Linear plot significance
     comparisons = SSL_LINEAR_SIGNIFICANCE.get(frac, {})
     base_x = x_ssl[idx]
     relevant_data = df_ssl_linear[df_ssl_linear["label_fraction"] == frac]
     if not relevant_data.empty:
-        height = max(relevant_data["ci_upper"]) + 2 
+        height = max(relevant_data["f1_ci_upper"]) + 2
     else:
-        height = ax_ssl_linear.get_ylim()[1] * 0.1
+        height = ax_linear.get_ylim()[1] * 0.1
 
     for j, (m1, m2) in enumerate(comparisons):
         if comparisons[(m1, m2)]:
@@ -230,17 +352,75 @@ for idx, frac in enumerate(fractions_ssl_linear):
             i2 = ssl_models.index(m2)
             x1 = base_x + i1 * bar_width
             x2 = base_x + i2 * bar_width
-            y = height + j * 1.2
-            ax_ssl_linear.plot([x1, x2], [y, y], color='black', linewidth=1)
-            ax_ssl_linear.text((x1 + x2)/2, y + 0.01, "*", ha='center', va='bottom', fontsize=14)
+            y = height + j * 1.5
+            ax_linear.plot([x1, x2], [y, y], color='black', linewidth=1)
+            ax_linear.text((x1 + x2)/2, y + 0.01, "*", ha='center', va='bottom', fontsize=14)
 
-    # MLP plot significance
+# Style Linear plot
+ax_linear.set_title("SSL Models with Linear Classifier", fontsize=14, fontweight='bold', pad=20)
+ax_linear.set_xlabel("Proportion of Labeled Training Data", fontsize=12, fontweight='bold')
+ax_linear.set_ylabel("MF1 Score", fontsize=12, fontweight='bold')
+ax_linear.set_xticks(x_ssl + bar_width * (n_models - 1) / 2)
+ax_linear.set_xticklabels([f'{int(f*100)}%' for f in fractions_ssl_linear], fontsize=12)
+ax_linear.tick_params(axis='both', which='major', labelsize=12)
+ax_linear.grid(True, linestyle='--', alpha=0.3)
+ax_linear.set_facecolor('#FAFAFA')
+ax_linear.spines['top'].set_visible(False)
+ax_linear.spines['right'].set_visible(False)
+ax_linear.spines['left'].set_linewidth(0.5)
+ax_linear.spines['bottom'].set_linewidth(0.5)
+ax_linear.legend(frameon=True, fancybox=True, shadow=True, fontsize=12, loc='lower right')
+
+plt.tight_layout()
+plt.savefig("../results/error_bars_ssl_linear.pdf", dpi=300, bbox_inches='tight')
+plt.savefig("../results/error_bars_ssl_linear.png", dpi=300, bbox_inches='tight')
+plt.show()
+
+# ----------------------------------------------
+# Individual plot for SSL MLP Models
+# ----------------------------------------------
+
+# Create figure for SSL MLP
+fig_mlp, ax_mlp = plt.subplots(figsize=(12, 6), dpi=300)
+
+# Load and process MLP data
+df_ssl_mlp = pd.read_csv(Path("../results/confidence_intervals/ssl_mlp_ci.csv"))
+df_ssl_mlp["label_fraction"] = df_ssl_mlp["label_fraction"].astype(float)
+df_ssl_mlp = df_ssl_mlp[df_ssl_mlp["model"].isin(ssl_models)]
+df_ssl_mlp['model'] = pd.Categorical(df_ssl_mlp['model'], categories=ssl_models, ordered=True)
+df_ssl_mlp = df_ssl_mlp.sort_values('model')
+
+# Plot MLP
+for i, model in enumerate(ssl_models):
+    sub = df_ssl_mlp[df_ssl_mlp["model"] == model].sort_values("label_fraction")
+    means = sub["f1_mean"].values
+    yerr_lower = means - sub["f1_ci_lower"].values
+    yerr_upper = sub["f1_ci_upper"].values - means
+
+    positions = x_ssl + i * bar_width
+    ax_mlp.errorbar(
+        positions, means, yerr=[yerr_lower, yerr_upper],
+        fmt=MARKERS.get(model, 'o'),
+        capsize=5,
+        label=model,
+        color=COLORS.get(model, f'C{i}'),
+        linestyle='None',
+        markersize=8,
+        markerfacecolor='white',
+        markeredgewidth=2,
+        capthick=2,
+        elinewidth=2
+    )
+
+# Add significance asterisks for MLP plot
+for idx, frac in enumerate(fractions_ssl_linear):
     comparisons = SSL_MLP_SIGNIFICANCE.get(frac, {})
+    base_x = x_ssl[idx]
     relevant_data = df_ssl_mlp[df_ssl_mlp["label_fraction"] == frac]
     if not relevant_data.empty:
-        height = max(relevant_data["ci_upper"]) + 2
+        height = max(relevant_data["f1_ci_upper"]) + 2
     else:
-        height = ax_ssl_mlp.get_ylim()[1] * 0.1
+        height = ax_mlp.get_ylim()[1] * 0.1
 
     for j, (m1, m2) in enumerate(comparisons):
         if comparisons[(m1, m2)]:
@@ -249,45 +429,25 @@ for idx, frac in enumerate(fractions_ssl_linear):
             x1 = base_x + i1 * bar_width
             x2 = base_x + i2 * bar_width
             y = height + j * 1.2
-            ax_ssl_mlp.plot([x1, x2], [y, y], color='black', linewidth=1)
-            ax_ssl_mlp.text((x1 + x2)/2, y + 0.01, "*", ha='center', va='bottom', fontsize=14)
+            ax_mlp.plot([x1, x2], [y, y], color='black', linewidth=1)
+            ax_mlp.text((x1 + x2)/2, y + 0.01, "*", ha='center', va='bottom', fontsize=14)
 
-# Adjust y-limits for both subplots to be the same
-ymin1, ymax1 = ax_ssl_linear.get_ylim()
-ymin2, ymax2 = ax_ssl_mlp.get_ylim()
-ymin, ymax = min(ymin1, ymin2), max(ymax1, ymax2)
-ax_ssl_linear.set_ylim(ymin, ymax)
-ax_ssl_mlp.set_ylim(ymin, ymax)
+# Style MLP plot
+ax_mlp.set_title("SSL Models with MLP Classifier", fontsize=14, fontweight='bold', pad=20)
+ax_mlp.set_xlabel("Proportion of Labeled Training Data", fontsize=12, fontweight='bold')
+ax_mlp.set_ylabel("MF1 Score", fontsize=12, fontweight='bold')
+ax_mlp.set_xticks(x_ssl + bar_width * (n_models - 1) / 2)
+ax_mlp.set_xticklabels([f'{int(f*100)}%' for f in fractions_ssl_linear], fontsize=12)
+ax_mlp.tick_params(axis='both', which='major', labelsize=12)
+ax_mlp.grid(True, linestyle='--', alpha=0.3)
+ax_mlp.set_facecolor('#FAFAFA')
+ax_mlp.spines['top'].set_visible(False)
+ax_mlp.spines['right'].set_visible(False)
+ax_mlp.spines['left'].set_linewidth(0.5)
+ax_mlp.spines['bottom'].set_linewidth(0.5)
+ax_mlp.legend(frameon=True, fancybox=True, shadow=True, fontsize=12, loc='lower right')
 
-# Styling for both subplots
-for ax, title in [(ax_ssl_linear, "SSL Models with Linear Classifier"), 
-                  (ax_ssl_mlp, "SSL Models with MLP Classifier")]:
-    ax.set_title(title, fontsize=14, fontweight='bold', pad=20)
-    ax.set_xlabel("Proportion of Labeled Training Data", fontsize=12, fontweight='bold')
-    ax.set_ylabel("MF1 Score", fontsize=12, fontweight='bold')
-    ax.set_xticks(x_ssl + bar_width * (n_models - 1) / 2)
-    ax.set_xticklabels([f'{int(f*100)}%' for f in fractions_ssl_linear], fontsize=12) 
-    ax.tick_params(axis='both', which='major', labelsize=12)
-    ax.grid(True, linestyle='--', alpha=0.3)
-    ax.set_facecolor('#FAFAFA')
-    ax.spines['top'].set_visible(False)
-    ax.spines['right'].set_visible(False)
-    ax.spines['left'].set_linewidth(0.5)
-    ax.spines['bottom'].set_linewidth(0.5)
-    ax.legend(frameon=True, fancybox=True, shadow=True, fontsize=12, loc='lower right')
-
-# Add a common title
-fig_ssl.suptitle('SSL Models Performance Comparison', fontsize=16, fontweight='bold', y=1.02)
-
-# Modified saving approach
 plt.tight_layout()
-# Save with extra space at the top for the suptitle
-plt.savefig("../results/error_bars_ssl.pdf", 
-            dpi=300, 
-            bbox_inches='tight',
-            pad_inches=0.3)  # Add padding
-plt.savefig("../results/error_bars_ssl.png", 
-            dpi=300, 
-            bbox_inches='tight',
-            pad_inches=0.3)  # Add padding
+plt.savefig("../results/error_bars_ssl_mlp.pdf", dpi=300, bbox_inches='tight')
+plt.savefig("../results/error_bars_ssl_mlp.png", dpi=300, bbox_inches='tight')
 plt.show()
