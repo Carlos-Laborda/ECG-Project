@@ -1412,21 +1412,39 @@ mlp_df = pd.read_csv(mlp_file)
 lin_df = lin_df[lin_df.model != "SimCLR"]
 mlp_df = mlp_df[mlp_df.model != "SimCLR"]
 
-def aggregate_pooled_ci(df, metric_prefix="f1"):
+def bootstrap_ci(data, n_boot=10000, ci=0.95):
+    """Helper function to calculate bootstrapped confidence interval."""
+    boot_means = [np.mean(np.random.choice(data, size=len(data), replace=True)) for _ in range(n_boot)]
+    lower = np.percentile(boot_means, (1 - ci) / 2 * 100)
+    upper = np.percentile(boot_means, (1 - (1 - ci) / 2) * 100)
+    return lower, upper
+
+def pooled_ci(df, metric_prefix="f1"):
     """
-    Pools results from multiple models by averaging their pre-calculated means and CI bounds.
+    computes pooled mean and bootstrapped CIs for each label fraction.
+    It pools the mean scores from the models in the group and then runs bootstrap.
     """
+    results = []
     mean_col = f"{metric_prefix}_mean"
-    lower_col = f"{metric_prefix}_ci_lower"
-    upper_col = f"{metric_prefix}_ci_upper"
     
-    agg_df = df.groupby("label_fraction").agg(
-        mean=(mean_col, 'mean'),
-        ci_lower=(lower_col, 'mean'),
-        ci_upper=(upper_col, 'mean')
-    ).reset_index()
-    
-    return agg_df
+    for frac, group in df.groupby("label_fraction"):
+        # Pool the mean scores from all models in the group for this fraction
+        scores = group[mean_col].dropna().values
+        if len(scores) == 0:
+            continue
+            
+        # Calculate the overall mean and the bootstrapped CI on the pooled scores
+        mean_score = np.mean(scores)
+        ci_lower, ci_upper = bootstrap_ci(scores)
+        
+        results.append({
+            "label_fraction": frac,
+            "mean": mean_score,
+            "ci_lower": ci_lower,
+            "ci_upper": ci_upper
+        })
+        
+    return pd.DataFrame(results).sort_values("label_fraction")
 
 def draw(ax, group_df, color, marker, label):
     """Generic plotting function for a model group."""
@@ -1452,14 +1470,14 @@ for metric_prefix, metric_name in metrics_to_plot.items():
     
     print(f"\n--- Generating plot for {metric_name} score ---")
     
-    # --- Process data for the current metric ---
+    # --- Process data for the current metric using the corrected pooled_ci function ---
     # Supervised-group (CNN + TCN)
     cnn_tcn = sup_df[sup_df.model.isin(["CNN", "TCN"])]
-    sup_grp = aggregate_pooled_ci(cnn_tcn, metric_prefix=metric_prefix)
+    sup_grp = pooled_ci(cnn_tcn, metric_prefix=metric_prefix)
 
     # SSL groups
-    ssl_lin = aggregate_pooled_ci(lin_df, metric_prefix=metric_prefix)
-    ssl_mlp = aggregate_pooled_ci(mlp_df, metric_prefix=metric_prefix)
+    ssl_lin = pooled_ci(lin_df, metric_prefix=metric_prefix)
+    ssl_mlp = pooled_ci(mlp_df, metric_prefix=metric_prefix)
 
     # ------------------------------------------------------------------
     # Plot
