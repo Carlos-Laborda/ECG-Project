@@ -79,9 +79,9 @@ fig, ax = plt.subplots(figsize=(12, 5), dpi=300)
 # Plot each model
 for i, model in enumerate(models):
     sub = df[df["model"] == model].sort_values("label_fraction")
-    means = sub["mean"].values
-    yerr_lower = means - sub["ci_lower"].values
-    yerr_upper = sub["ci_upper"].values - means
+    means = sub["f1_mean"].values
+    yerr_lower = means - sub["f1_ci_lower"].values
+    yerr_upper = sub["f1_ci_upper"].values - means
 
     positions = x + i * bar_width
     ax.errorbar(
@@ -102,7 +102,7 @@ for i, model in enumerate(models):
 for idx, frac in enumerate(fractions):
     comparisons = SIGNIFICANCE.get(frac, {})
     base_x = x[idx]
-    height = max(df[df["label_fraction"] == frac]["ci_upper"]) + 2
+    height = max(df[df["label_fraction"] == frac]["f1_ci_upper"]) + 2
 
     for j, (m1, m2) in enumerate(comparisons):
         if comparisons[(m1, m2)]:
