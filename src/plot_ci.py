@@ -451,3 +451,66 @@ plt.tight_layout()
 plt.savefig("../results/error_bars_ssl_mlp.pdf", dpi=300, bbox_inches='tight')
 plt.savefig("../results/error_bars_ssl_mlp.png", dpi=300, bbox_inches='tight')
 plt.show()
+
+# ----------------------------------------------
+# Additional metric plots for SSL MLP Models
+# ----------------------------------------------
+
+metrics = {
+    'accuracy': 'Accuracy',
+    'auc': 'AUC-ROC',
+    'pr_auc': 'PR-AUC'
+}
+
+for metric_prefix, metric_name in metrics.items():
+    # Create figure for this metric
+    fig_metric, ax_metric = plt.subplots(figsize=(12, 6), dpi=300)
+    
+    # Plot each model's metric
+    for i, model in enumerate(ssl_models):
+        sub = df_ssl_mlp[df_ssl_mlp["model"] == model].sort_values("label_fraction")
+        means = sub[f"{metric_prefix}_mean"].values
+        yerr_lower = means - sub[f"{metric_prefix}_ci_lower"].values
+        yerr_upper = sub[f"{metric_prefix}_ci_upper"].values - means
+
+        positions = x_ssl + i * bar_width
+        ax_metric.errorbar(
+            positions, means, yerr=[yerr_lower, yerr_upper],
+            fmt=MARKERS.get(model, 'o'),
+            capsize=5,
+            label=model,
+            color=COLORS.get(model, f'C{i}'),
+            linestyle='None',
+            markersize=8,
+            markerfacecolor='white',
+            markeredgewidth=2,
+            capthick=2,
+            elinewidth=2
+        )
+
+    # Style metric plot
+    ax_metric.set_title(f"SSL Models with MLP Classifier - {metric_name}", 
+                       fontsize=14, fontweight='bold', pad=20)
+    ax_metric.set_xlabel("Proportion of Labeled Training Data", 
+                        fontsize=12, fontweight='bold')
+    ax_metric.set_ylabel(f"{metric_name} Score", 
+                        fontsize=12, fontweight='bold')
+    ax_metric.set_xticks(x_ssl + bar_width * (n_models - 1) / 2)
+    ax_metric.set_xticklabels([f'{int(f*100)}%' for f in fractions_ssl_linear], 
+                             fontsize=12)
+    ax_metric.tick_params(axis='both', which='major', labelsize=12)
+    ax_metric.grid(True, linestyle='--', alpha=0.3)
+    ax_metric.set_facecolor('#FAFAFA')
+    ax_metric.spines['top'].set_visible(False)
+    ax_metric.spines['right'].set_visible(False)
+    ax_metric.spines['left'].set_linewidth(0.5)
+    ax_metric.spines['bottom'].set_linewidth(0.5)
+    ax_metric.legend(frameon=True, fancybox=True, shadow=True, 
+                    fontsize=12, loc='lower right')
+
+    plt.tight_layout()
+    plt.savefig(f"../results/error_bars_ssl_mlp_{metric_prefix}.pdf", 
+                dpi=300, bbox_inches='tight')
+    plt.savefig(f"../results/error_bars_ssl_mlp_{metric_prefix}.png", 
+                dpi=300, bbox_inches='tight')
+    plt.show()
