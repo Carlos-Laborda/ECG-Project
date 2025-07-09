@@ -89,14 +89,11 @@ target/
 # Exclude virtual environment
 .venv/
 
-# Exclude trained models
-/models/
-
 # exclude data from source control by default
 /data/
-/src/.metaflow/
-/src/mlartifacts/
-/src/mlruns/
+/.metaflow/
+/mlartifacts/
+/mlruns/
 /results/
 
 # exclude metrics and plots
