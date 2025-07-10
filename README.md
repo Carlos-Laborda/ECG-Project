@@ -13,13 +13,13 @@ Key features:
 - Label-efficient evaluation setup
 - Full MLflow integration for experiment tracking
 
-## 📋 Table of Contents
+## Table of Contents
 
-- [Installation and Environment Setup](#️-installation-and-environment-setup)
-- [Project Structure](#️-project-structure)
-- [Running the Preprocessing Pipeline](#-running-the-preprocessing-pipeline)
-- [🏃Running the Training Pipelines](#️-running-the-training-pipelines-locally)
-  - [Running Locally](#️-running-the-training-pipelines-locally)
+- [⚙️ Installation and Environment Setup](#installation-and-environment-setup)
+- [🗂️ Project Structure](#project-structure)
+- [🧼 Running the Preprocessing Pipeline](#running-the-preprocessing-pipeline)
+- [🏃‍♂️ Running the Training Pipelines (Locally)](#running-the-training-pipelines-locally)
+  - [Running Locally](#running-the-training-pipelines-locally)
   - [Running on DAS6 Cluster](#running-the-training-pipelines-on-das6-cluster)
     - [1. MLflow Server Setup](#1-activate-environment-and-launch-mlflow-on-das6)
     - [2. Remote Access](#2-accessing-mlflow-remotely)
@@ -137,7 +137,7 @@ This section shows how to run supervised and self-supervised training pipelines 
 conda activate ECG-Project
 ```
 
-### Start the MLflow tracking server
+### 2. Start the MLflow tracking server
 ```bash
 mlflow server --host 127.0.0.1 --port 5000
 ```
@@ -165,7 +165,7 @@ python supervised_training.py run \
 
 Available supervised models: cnn, tcn, transformer.
 
-#### 📌 Example (Self-Supervised)
+#### Example (Self-Supervised)
 ```bash
 python ts2vec_train.py run \
   --ts2vec_epochs 50 \
