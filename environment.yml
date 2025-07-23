@@ -55,8 +55,8 @@ dependencies:
       - jax[cpu]
       - jaxlib
       - tqdm
-      - metaflow
-      - metaflow-card-html
+      - metaflow==2.15.12
+      - metaflow-card-html==1.0.3
       - torcheval
       - tslearn
       - torchmetrics

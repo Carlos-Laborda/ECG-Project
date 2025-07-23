@@ -31,7 +31,7 @@ class ECGSupervisedFlow(FlowSpec):
 
     # generic parameters
     mlflow_tracking_uri = Parameter("mlflow_tracking_uri",
-        default=os.getenv("MLFLOW_TRACKING_URI", "https://127.0.0.1:5000")
+        default=os.getenv("MLFLOW_TRACKING_URI", "http://127.0.0.1:5000") #Changed to http
     )
     window_data_path = Parameter("window_data_path",
         default="../data/interim/windowed_data.h5"
@@ -41,6 +41,9 @@ class ECGSupervisedFlow(FlowSpec):
     model_type  = Parameter("model_type", help= "cnn, tcn or transformer",
         default="cnn"
     )
+
+    gpu_number = Parameter("--gpu", help="Which specific (cuda) gpu number to use (if available)",
+                           type=int, default=0)
 
     # training hyper-parameters
     lr = Parameter("lr", default=1e-4)
@@ -59,7 +62,13 @@ class ECGSupervisedFlow(FlowSpec):
     def start(self):
         """Set seed, choose MLflow experiment name, open run."""
         set_seed(self.seed)
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+
+        if torch.backends.mps.is_available():
+            self.device = torch.device("mps")
+        elif torch.cuda.is_available():
+            self.device = torch.device(f"cuda:{self.gpu_number}")
+        else:
+            self.device = torch.device("cpu")
 
         exp_map = {
             "cnn": "Supervised_CNN",
@@ -95,6 +104,10 @@ class ECGSupervisedFlow(FlowSpec):
         self.train_idx, self.val_idx, self.test_idx = tr_idx, val_idx, te_idx
         print(f"windows: train {len(tr_idx)}, val {len(val_idx)}, test {len(te_idx)}")
         self.next(self.train_model)
+
+    def _get_number_parameters(self):
+        self.total_parameters = sum(param.numel() for param in self.model.parameters())
+        self.total_parameters_trainable = sum(param.numel() for param in self.model.parameters() if param.requires_grad)
 
     @resources(memory=16000)
     @step
@@ -140,6 +153,11 @@ class ECGSupervisedFlow(FlowSpec):
             self.model = TCNClassifier().to(self.device)
         else:
             self.model = TransformerECGClassifier().to(self.device)
+
+        # Print out the total parameter count and the total trainable ones
+        self._get_number_parameters()
+        print(f"Total number of parameters: {self.total_parameters}")
+        print(f"\nTotal number of trainbale parameters: {self.total_parameters_trainable}")
 
         loss_fn = nn.BCEWithLogitsLoss()
         optimizer = optim.Adam(self.model.parameters(), lr=self.lr)

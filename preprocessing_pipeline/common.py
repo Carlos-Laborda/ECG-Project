@@ -1,5 +1,4 @@
 import os
-from datetime import datetime
 
 import h5py
 import mne
@@ -7,7 +6,7 @@ import numpy as np
 import pandas as pd
 from scipy.signal import butter, filtfilt, iirnotch
 
-from src.preprocessing_pipeline.config import CATEGORY_MAPPING, FOLDERPATH, OUTPUT_DIR_PATH
+from config import CATEGORY_MAPPING, FOLDERPATH
 
 # ------------------------------------------------------
 # Match ECG data with labels and save segments individually
