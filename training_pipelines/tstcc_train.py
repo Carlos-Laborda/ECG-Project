@@ -40,6 +40,12 @@ class ECGTSTCCFlow(FlowSpec):
     tcc_lr = Parameter("tcc_lr", default=3e-4)
     tcc_batch_size = Parameter("tcc_batch_size", default=128)
 
+    pretrain_all_conditions = Parameter(
+        "pretrain_all_conditions",
+        default=False,
+        help="If True, uses all available conditions for SSL pretraining. If False, uses only baseline + mental_stress."
+    )
+
     # temporal contrasting
     tc_timesteps = Parameter("tc_timesteps", default=70)
     tc_hidden_dim = Parameter("tc_hidden_dim", default=128)
@@ -78,8 +84,40 @@ class ECGTSTCCFlow(FlowSpec):
         Load the windowed processed data, create participant split indices,
         persist only those indices to the next step.
         """
-        X, y, groups = load_processed_data(self.window_data_path,
-                                           label_map={"baseline": 0, "mental_stress": 1})
+        # X, y, groups = load_processed_data(self.window_data_path,
+        #                                    label_map={"baseline": 0, "mental_stress": 1})
+        
+        # # split
+        # train_idx, val_idx, test_idx = split_indices_by_participant(groups, seed=42)
+        
+        # # store artifacts 
+        # self.train_idx, self.val_idx, self.test_idx = train_idx, val_idx, test_idx
+        # self.y = y.astype(np.float32)                   
+        # self.n_features = X.shape[2]          
+
+        # print(f"windows: train {len(train_idx)}, val {len(val_idx)}, test {len(test_idx)}")
+        # self.next(self.train_tstcc)
+        
+        if self.pretrain_all_conditions:
+            print("Pretraining with all conditions.")
+            # Use full label map
+            label_map = {
+                "baseline": 0,
+                "mental_stress": 1,
+                "low_physical_activity": 2,
+                "moderate_physical_activity": 3,
+                "high_physical_activity": 4
+            }
+        else:
+            print("Pretraining with baseline and mental stress conditions only.")
+            # Use task-specific map only
+            label_map = {
+                "baseline": 0,
+                "mental_stress": 1
+            }
+
+        self.label_map = label_map
+        X, y, groups = load_processed_data(self.window_data_path, label_map=self.label_map)
         
         # split
         train_idx, val_idx, test_idx = split_indices_by_participant(groups, seed=42)
@@ -87,7 +125,15 @@ class ECGTSTCCFlow(FlowSpec):
         # store artifacts 
         self.train_idx, self.val_idx, self.test_idx = train_idx, val_idx, test_idx
         self.y = y.astype(np.float32)                   
-        self.n_features = X.shape[2]          
+        self.n_features = X.shape[2]    
+        
+        # Keep track of which samples belong to the binary downstream task
+        # 0 = baseline, 1 = mental_stress
+        self.downstream_label_mask = {
+            "train": np.isin(self.y[self.train_idx], [0, 1]),
+            "val":   np.isin(self.y[self.val_idx], [0, 1]),
+            "test":  np.isin(self.y[self.test_idx], [0, 1])
+        }      
 
         print(f"windows: train {len(train_idx)}, val {len(val_idx)}, test {len(test_idx)}")
         self.next(self.train_tstcc)
@@ -104,7 +150,8 @@ class ECGTSTCCFlow(FlowSpec):
         set_seed(self.seed)
         mlflow.set_experiment("TSTCC")
 
-        X, _, _ = load_processed_data(self.window_data_path)
+        # X, _, _ = load_processed_data(self.window_data_path)
+        X, _, _ = load_processed_data(self.window_data_path, label_map=self.label_map)
         X_train = X[self.train_idx].astype(np.float32)
         X_val = X[self.val_idx].astype(np.float32)
         X_test = X[self.test_idx].astype(np.float32)
@@ -114,6 +161,7 @@ class ECGTSTCCFlow(FlowSpec):
         fp = build_tstcc_fingerprint({
             "model_name": "TSTCC",
             "seed": self.seed,
+            "pretrain_all_conditions": self.pretrain_all_conditions,
             "tcc_epochs": self.tcc_epochs,
             "tcc_lr": self.tcc_lr,
             "tcc_batch_size": self.tcc_batch_size,
@@ -211,7 +259,8 @@ class ECGTSTCCFlow(FlowSpec):
         """Extract feature representations using the trained TS-TCC encoder."""
         mlflow.set_tracking_uri(self.mlflow_tracking_uri)
         set_seed(self.seed)
-        X, _, _ = load_processed_data(self.window_data_path)
+        # X, _, _ = load_processed_data(self.window_data_path)
+        X, _, _ = load_processed_data(self.window_data_path, label_map=self.label_map)
         self.model.eval()
         self.temporal_contr_model.eval()
         
@@ -232,10 +281,21 @@ class ECGTSTCCFlow(FlowSpec):
             self.model, self.temporal_contr_model,
             self.tcc_batch_size, self.device
         )
-        # keep y arrays for the next step 
-        self.y_train = self.y[self.train_idx]
-        self.y_val = self.y[self.val_idx]
-        self.y_test = self.y[self.test_idx]
+        
+        # Only keep baseline and mental_stress samples
+        self.train_repr = self.train_repr[self.downstream_label_mask["train"]]
+        self.y_train    = self.y[self.train_idx][self.downstream_label_mask["train"]]
+
+        self.val_repr = self.val_repr[self.downstream_label_mask["val"]]
+        self.y_val    = self.y[self.val_idx][self.downstream_label_mask["val"]]
+
+        self.test_repr = self.test_repr[self.downstream_label_mask["test"]]
+        self.y_test    = self.y[self.test_idx][self.downstream_label_mask["test"]]
+        
+        # # keep y arrays for the next step 
+        # self.y_train = self.y[self.train_idx]
+        # self.y_val = self.y[self.val_idx]
+        # self.y_test = self.y[self.test_idx]
 
         print(f"train_repr shape = {self.train_repr.shape}")
         show_shape("val_repr / test_repr",
