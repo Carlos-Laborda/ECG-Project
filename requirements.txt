@@ -3,7 +3,7 @@ mne
 pyedflib
 pyarrow
 fastparquet
-pytorch
+torch
 torchvision
 torchaudio
 torchinfo
