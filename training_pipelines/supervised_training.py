@@ -105,6 +105,10 @@ class ECGSupervisedFlow(FlowSpec):
         print(f"windows: train {len(tr_idx)}, val {len(val_idx)}, test {len(te_idx)}")
         self.next(self.train_model)
 
+    def _get_number_parameters(self):
+        self.total_parameters = sum(param.numel() for param in self.model.parameters())
+        self.total_parameters_trainable = sum(param.numel() for param in self.model.parameters() if param.requires_grad)
+
     @resources(memory=16000)
     @step
     def train_model(self):
@@ -149,6 +153,11 @@ class ECGSupervisedFlow(FlowSpec):
             self.model = TCNClassifier().to(self.device)
         else:
             self.model = TransformerECGClassifier().to(self.device)
+
+        # Print out the total parameter count and the total trainable ones
+        self._get_number_parameters()
+        print(f"Total number of parameters: {self.total_parameters}")
+        print(f"\nTotal number of trainbale parameters: {self.total_parameters_trainable}")
 
         loss_fn = nn.BCEWithLogitsLoss()
         optimizer = optim.Adam(self.model.parameters(), lr=self.lr)
