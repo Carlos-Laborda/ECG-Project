@@ -21,7 +21,7 @@ class ECGPreprocessFlow(FlowSpec):
     mlflow_tracking_uri = Parameter(
         "mlflow_tracking_uri",
         help="MLflow tracking URI",
-        default=os.getenv("MLFLOW_TRACKING_URI", "https://127.0.0.1:5000")
+        default=os.getenv("MLFLOW_TRACKING_URI", "http://127.0.0.1:5000")
     )
 
     segmented_data_path = Parameter(
@@ -74,6 +74,7 @@ class ECGPreprocessFlow(FlowSpec):
         try:
             run = mlflow.start_run(run_name=current.run_id)
             self.mlflow_run_id = run.info.run_id
+
         except Exception as e:
             raise RuntimeError(f"MLflow connection failed: {str(e)}")
 
@@ -114,6 +115,7 @@ class ECGPreprocessFlow(FlowSpec):
             step_size=self.step_size,
         )
         print(f"Windowed data saved to: {self.window_data_path}")
+        self.next(self.end)
 
     @step
     def end(self):
