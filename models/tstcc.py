@@ -566,13 +566,12 @@ def build_tstcc_fingerprint(cfg: dict[str, any]) -> dict[str, str]:
     identifies one TS-TCC encoder configuration.
     """
     keys = (
-        "model_name", "seed",
+        "model_name", "seed", "pretrain_all_conditions",
         "tcc_epochs", "tcc_lr", "tcc_batch_size",
         "tc_timesteps", "tc_hidden_dim",
         "cc_temperature", "cc_use_cosine",
     )
     return {k: str(cfg[k]) for k in keys}
-
 
 def search_encoder_fp(
     fp: Dict[str, str],
