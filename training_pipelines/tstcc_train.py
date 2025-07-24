@@ -120,7 +120,7 @@ class ECGTSTCCFlow(FlowSpec):
         X, y, groups = load_processed_data(self.window_data_path, label_map=self.label_map)
         
         # split
-        train_idx, val_idx, test_idx = split_indices_by_participant(groups, seed=42)
+        train_idx, val_idx, test_idx = split_indices_by_participant(groups, seed=self.seed)
         
         # store artifacts 
         self.train_idx, self.val_idx, self.test_idx = train_idx, val_idx, test_idx
@@ -319,6 +319,12 @@ class ECGTSTCCFlow(FlowSpec):
             )
         else:
             tr_idx = np.arange(len(labels))
+        
+        print("\n=== Data Split Sizes ===")
+        print(f"Training windows: {len(tr_idx)} ({self.label_fraction:.1%} of {len(labels)})")
+        print(f"Validation windows: {len(self.y_val)}")
+        print(f"Test windows: {len(self.y_test)}")
+        print("=" * 25)
 
         tr_loader = build_linear_loaders(self.train_repr[tr_idx], self.y_train[tr_idx],
                                          self.classifier_batch_size, self.device)
