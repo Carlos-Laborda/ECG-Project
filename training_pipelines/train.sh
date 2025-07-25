@@ -32,7 +32,7 @@ export MLFLOW_TRACKING_URI=http://fs0.das6.cs.vu.nl:5005
 #   --scheduler_min_lr 1e-09 \
 #   --patience 20 \
 #   --lr 1e-5 \
-#   --label_fraction 0.01 \
+#   --label_fraction 1 \
 
 # TCN
 # echo "Launching training with seed: $1"
@@ -81,7 +81,7 @@ python tstcc_train.py run \
   --mlflow_tracking_uri "http://fs0.das6.cs.vu.nl:5005" \
   --window_data_path "../../../../var/scratch/cla224/ECG-Project/data/windowed_data.h5" \
   --tcc_epochs 40 \
-  --label_fraction 0.1 \
+  --label_fraction 1 \
   --pretrain_all_conditions True \
   --seed $1
 
